@@ -568,7 +568,7 @@ export default function CrossSection3DScrollGLB(props) {
     <div
       ref={containerRef}
       style={{
-        height: `${(scrollDistance + 1) * 100}vh`,
+        height: `100vh`,
         background: backgroundColor,
       }}
     >
@@ -761,5 +761,6 @@ export default function CrossSection3DScrollGLB(props) {
 useGLTF.preload(defaultProps.modelPath);
 useTexture.preload(defaultProps.screenTexture);
 useTexture.preload(defaultProps.internalsTexture);
+
 
 
