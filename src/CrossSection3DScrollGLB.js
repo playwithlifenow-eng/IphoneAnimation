@@ -261,7 +261,7 @@ function IPhoneExploded({
 
             // Overwrite UVs: normalise position → 0..1
             for (let i = 0; i < posAttr.count; i++) {
-              const u = (posAttr.getX(i) - minX) / rangeX;
+              const u = 1.0 - (posAttr.getX(i) - minX) / rangeX;
               const v = 1.0 - (posAttr.getY(i) - minY) / rangeY; // flip V so top of screen = top of image
               uvAttr.setXY(i, u, v);
             }
@@ -769,3 +769,4 @@ export default function CrossSection3DScrollGLB(props) {
 useGLTF.preload(defaultProps.modelPath);
 useTexture.preload(defaultProps.screenTexture);
 useTexture.preload(defaultProps.internalsTexture);
+
