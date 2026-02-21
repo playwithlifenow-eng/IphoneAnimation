@@ -13,10 +13,6 @@ import {
 } from "@react-three/drei";
 import { motion, AnimatePresence } from "framer-motion";
 import * as THREE from "three";
-import { gsap } from "gsap";
-import { ScrollTrigger } from "gsap/ScrollTrigger";
-
-gsap.registerPlugin(ScrollTrigger);
 
 // ============================================
 // Utility
@@ -765,4 +761,5 @@ export default function CrossSection3DScrollGLB(props) {
 useGLTF.preload(defaultProps.modelPath);
 useTexture.preload(defaultProps.screenTexture);
 useTexture.preload(defaultProps.internalsTexture);
+
 
