@@ -13,6 +13,10 @@ import {
 } from "@react-three/drei";
 import { motion, AnimatePresence } from "framer-motion";
 import * as THREE from "three";
+import { gsap } from "gsap";
+import { ScrollTrigger } from "gsap/ScrollTrigger";
+
+gsap.registerPlugin(ScrollTrigger);
 
 // ============================================
 // Utility
@@ -538,22 +542,26 @@ export default function CrossSection3DScrollGLB(props) {
   // GSAP ScrollTrigger
   // ============================================
   useEffect(() => {
-  const handleMessage = (event) => {
-    if (event.data?.type === "SCROLL_PROGRESS") {
-      const p = event.data.progress;
-
-      scrollState.explosion = p;
-      scrollState.glassOffset = mapRange(p, glassStagger[0], glassStagger[1], 0, 1);
-      scrollState.oledOffset = mapRange(p, oledStagger[0], oledStagger[1], 0, 1);
-      scrollState.phoneOffset = mapRange(p, phoneStagger[0], phoneStagger[1], 0, 1);
-
-      setDisplayProgress(p);
-    }
-  };
-
-  window.addEventListener("message", handleMessage);
-  return () => window.removeEventListener("message", handleMessage);
-}, [glassStagger, oledStagger, phoneStagger]);
+    if (!containerRef.current || !stickyRef.current) return;
+    const ctx = gsap.context(() => {
+      ScrollTrigger.create({
+        trigger: containerRef.current,
+        start: "top top",
+        end: `+=${scrollDistance * 100}vh`,
+        pin: stickyRef.current,
+        scrub: 1,
+        onUpdate: (self) => {
+          const p = self.progress;
+          scrollState.explosion = p;
+          scrollState.glassOffset = mapRange(p, glassStagger[0], glassStagger[1], 0, 1);
+          scrollState.oledOffset = mapRange(p, oledStagger[0], oledStagger[1], 0, 1);
+          scrollState.phoneOffset = mapRange(p, phoneStagger[0], phoneStagger[1], 0, 1);
+          setDisplayProgress(p);
+        },
+      });
+    }, containerRef);
+    return () => ctx.revert();
+  }, [scrollDistance, glassStagger, oledStagger, phoneStagger]);
 
   const handleLayerClick = useCallback(
     (layerId) => {
@@ -568,7 +576,7 @@ export default function CrossSection3DScrollGLB(props) {
     <div
       ref={containerRef}
       style={{
-        height: `100vh`,
+        height: `${(scrollDistance + 1) * 100}vh`,
         background: backgroundColor,
       }}
     >
@@ -761,6 +769,3 @@ export default function CrossSection3DScrollGLB(props) {
 useGLTF.preload(defaultProps.modelPath);
 useTexture.preload(defaultProps.screenTexture);
 useTexture.preload(defaultProps.internalsTexture);
-
-
-
