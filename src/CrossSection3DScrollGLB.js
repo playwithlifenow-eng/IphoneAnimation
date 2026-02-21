@@ -598,16 +598,12 @@ export default function CrossSection3DScrollGLB(props) {
       >
         {/* 3D Canvas */}
         <div
-          style={{
-            width: "100%",
-            maxWidth: 550,
-            height: "58vh",
-            maxHeight: 600,
-            borderRadius: 16,
-            overflow: "hidden",
-          }}
-        >
-          <Canvas
+  style={{
+    width: "100%",
+    height: "70vh",
+  }}
+>
+            <Canvas
             camera={{ position: [0, 0, 2.8], fov: 35 }}
             shadows
             dpr={[1, 2]}
@@ -769,4 +765,5 @@ export default function CrossSection3DScrollGLB(props) {
 useGLTF.preload(defaultProps.modelPath);
 useTexture.preload(defaultProps.screenTexture);
 useTexture.preload(defaultProps.internalsTexture);
+
 
