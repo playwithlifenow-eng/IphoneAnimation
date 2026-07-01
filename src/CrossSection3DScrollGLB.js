@@ -28,6 +28,30 @@ function mapRange(value, inMin, inMax, outMin, outMax) {
 }
 
 // ============================================
+// Mode resolution (contract §5.2 — URL params for static config)
+//
+//   ?mode=scroll      → listen for postMessage scroll-progress (Framer bridge)
+//   ?mode=autoplay    → self-driving explode/reassemble loop (homepage hero)
+//   ?mode=standalone  → internal ScrollTrigger (direct-URL testing / Playwright)
+//   (no param)        → auto: iframe ⇒ scroll, top window ⇒ standalone
+//
+//   ?bg=%230a0a0c     → optional opaque background override; default transparent
+// ============================================
+function resolveRuntimeConfig() {
+  const params = new URLSearchParams(window.location.search);
+  const forced = params.get("mode");
+  const isEmbedded = window.self !== window.top;
+  const mode =
+    forced === "scroll" || forced === "autoplay" || forced === "standalone"
+      ? forced
+      : isEmbedded
+      ? "scroll"
+      : "standalone";
+  const bg = params.get("bg") || "transparent";
+  return { mode, bg };
+}
+
+// ============================================
 // Default props
 // ============================================
 const defaultProps = {
@@ -51,7 +75,6 @@ const defaultProps = {
   oledStagger: [0.15, 0.75],
   phoneStagger: [0.3, 0.9],
   accentColor: "rgba(100, 160, 255, 1)",
-  backgroundColor: "#0a0a0c",
   textColor: "rgba(255, 255, 255, 0.95)",
   mutedTextColor: "rgba(255, 255, 255, 0.5)",
   modelPath: "/14_Pro_Model.glb",
@@ -60,7 +83,9 @@ const defaultProps = {
 };
 
 // ============================================
-// Global scroll progress (updated by GSAP, read by useFrame)
+// Global scroll progress
+// (contract §3.1 — plain mutable object; the driver writes,
+//  useFrame reads, React is never in the loop)
 // ============================================
 const scrollState = {
   explosion: 0,
@@ -76,7 +101,6 @@ function IPhoneExploded({
   modelPath,
   screenTexture,
   internalsTexture,
-  selectedLayer,
   onLayerClick,
   explodeDistance,
 }) {
@@ -86,56 +110,34 @@ function IPhoneExploded({
   const { gl } = useThree();
   const maxAniso = gl.capabilities.getMaxAnisotropy();
 
-  // Load screen texture — must set flipY BEFORE GPU upload
+  // Screen texture — flipY must be set BEFORE GPU upload
   const oledTexture = useTexture(screenTexture);
   oledTexture.flipY = false;
   oledTexture.colorSpace = THREE.SRGBColorSpace;
   oledTexture.generateMipmaps = true;
-  oledTexture.minFilter = THREE.LinearMipmapLinearFilter; // trilinear
+  oledTexture.minFilter = THREE.LinearMipmapLinearFilter;
   oledTexture.magFilter = THREE.LinearFilter;
   oledTexture.anisotropy = maxAniso;
   oledTexture.wrapS = THREE.ClampToEdgeWrapping;
   oledTexture.wrapT = THREE.ClampToEdgeWrapping;
   oledTexture.needsUpdate = true;
 
-  // Load internals teardown texture
+  // Internals teardown texture
   const internTex = useTexture(internalsTexture);
   internTex.colorSpace = THREE.SRGBColorSpace;
   internTex.generateMipmaps = true;
-  internTex.minFilter = THREE.LinearMipmapLinearFilter; // trilinear
+  internTex.minFilter = THREE.LinearMipmapLinearFilter;
   internTex.magFilter = THREE.LinearFilter;
   internTex.anisotropy = maxAniso;
   internTex.wrapS = THREE.ClampToEdgeWrapping;
   internTex.wrapT = THREE.ClampToEdgeWrapping;
   internTex.needsUpdate = true;
 
-  // Debug: verify what the GPU actually received
-  useEffect(() => {
-    if (oledTexture?.image) {
-      console.log(
-        "OLED texture:",
-        oledTexture.image.width,
-        "x",
-        oledTexture.image.height
-      );
-    }
-    if (internTex?.image) {
-      console.log(
-        "Internals texture:",
-        internTex.image.width,
-        "x",
-        internTex.image.height
-      );
-    }
-    console.log("GPU maxTextureSize:", gl.capabilities.maxTextureSize);
-    console.log("GPU maxAnisotropy:", maxAniso);
-  }, [oledTexture, internTex, gl, maxAniso]);
-
-  // Rounded rect geometry for internals plane (memoized)
+  // Rounded rect geometry for internals plane
   const internalsGeo = useMemo(() => {
-    const w = 7.0; // slightly inset from OLED width (7.54)
-    const h = 15.2; // slightly inset from OLED height (15.92)
-    const r = 0.8; // corner radius
+    const w = 7.0;
+    const h = 15.2;
+    const r = 0.8;
     const hw = w / 2,
       hh = h / 2;
 
@@ -152,7 +154,6 @@ function IPhoneExploded({
 
     const geo = new THREE.ShapeGeometry(shape, 12);
 
-    // Compute proper 0→1 UVs from vertex positions
     const pos = geo.attributes.position;
     const uv = geo.attributes.uv;
     for (let i = 0; i < pos.count; i++) {
@@ -167,17 +168,13 @@ function IPhoneExploded({
   const bodyGroupRef = useRef();
 
   // ---------------------------------------------------------
-  // SORTING: Separate meshes into layers by node name
-  // Structure:
-  //   Glass_Front (clear window) + Glass_Bezel (black border) → glass layer
-  //   Display_OLED → oled layer
-  //   Body Frame → body layer
-  //
-  // RENDER ORDER (fixes transparency z-fighting):
-  //   Body: 0 (drawn first, at back)
-  //   OLED: 1 (drawn second)
-  //   Glass Bezel: 2 (drawn third)
-  //   Glass Front: 3 (drawn last, on top)
+  // SORTING: layers by node name.
+  // Render order (fixes transparency z-fighting):
+  //   Body 0 → OLED 1 → Glass Bezel 2 → Glass Front 3
+  // NOTE: the GLB currently contains a duplicated hierarchy
+  // (`Body Frame` + `Body Frame.001`, etc). Both copies land in
+  // the body bucket — renders correctly but doubles draw calls.
+  // Fix at source in the Blender cleanup session, not here.
   // ---------------------------------------------------------
   const { glassMeshes, oledMeshes, bodyMeshes } = useMemo(() => {
     const glass = [];
@@ -187,14 +184,9 @@ function IPhoneExploded({
     clonedScene.traverse((child) => {
       if (child.isMesh) {
         const name = child.name.toLowerCase();
-        const parentName = child.parent?.name?.toLowerCase() || "";
 
-        // Log for debugging
-        console.log("Found mesh:", child.name, "| Parent:", child.parent?.name);
-
-        // GLASS BEZEL — Black border (must check BEFORE generic "glass")
+        // GLASS BEZEL — must check BEFORE generic "glass"
         if (name.includes("bezel") || name.includes("glass_bezel")) {
-          console.log("✅ GLASS BEZEL:", child.name);
           child.material = new THREE.MeshStandardMaterial({
             color: new THREE.Color(0x0a0a0a),
             roughness: 0.4,
@@ -208,13 +200,12 @@ function IPhoneExploded({
           child.renderOrder = 2;
           glass.push(child);
         }
-        // GLASS FRONT — Clear window
+        // GLASS FRONT — clear window
         else if (
           name.includes("glass_front") ||
           name.includes("glass front") ||
           (name.includes("glass") && !name.includes("bezel"))
         ) {
-          console.log("✅ GLASS FRONT:", child.name);
           child.material = new THREE.MeshStandardMaterial({
             color: new THREE.Color(0xffffff),
             roughness: 0.0,
@@ -232,17 +223,12 @@ function IPhoneExploded({
         }
         // OLED DISPLAY
         else if (name.includes("display") || name.includes("oled")) {
-          console.log("✅ OLED:", child.name);
-
-          // --- Programmatic UV fix ---
-          // The GLB's UVs are broken (75% of vertices crammed into bottom 5% of texture).
-          // Fix: compute fresh UVs from vertex positions.
-          // X maps to U (width), Y maps to V (height). Z is flat (screen surface).
+          // Programmatic UV fix — the GLB's UVs are broken.
+          // TEMPORARY: remove once UVs are corrected at source in Blender.
           const posAttr = child.geometry.attributes.position;
           const uvAttr = child.geometry.attributes.uv;
 
           if (posAttr && uvAttr) {
-            // Find bounding box of the mesh
             let minX = Infinity,
               maxX = -Infinity;
             let minY = Infinity,
@@ -259,19 +245,12 @@ function IPhoneExploded({
             const rangeX = maxX - minX || 1;
             const rangeY = maxY - minY || 1;
 
-            // Overwrite UVs: normalise position → 0..1
             for (let i = 0; i < posAttr.count; i++) {
-              const u = 1.0 - (posAttr.getX(i) - minX) / rangeX;
-              const v = 1.0 - (posAttr.getY(i) - minY) / rangeY; // flip V so top of screen = top of image
+              const u = (posAttr.getX(i) - minX) / rangeX;
+              const v = 1.0 - (posAttr.getY(i) - minY) / rangeY;
               uvAttr.setXY(i, u, v);
             }
             uvAttr.needsUpdate = true;
-
-            console.log(
-              "  UV REMAPPED from positions:",
-              `X[${minX.toFixed(2)}→${maxX.toFixed(2)}]`,
-              `Y[${minY.toFixed(2)}→${maxY.toFixed(2)}]`
-            );
           }
 
           child.material = new THREE.MeshBasicMaterial({
@@ -281,14 +260,13 @@ function IPhoneExploded({
           child.renderOrder = 1;
           oled.push(child);
         }
-        // BODY — Everything else
+        // BODY — everything else
         else {
           child.material = child.material.clone();
           child.material.transparent = false;
           child.material.depthWrite = true;
           child.renderOrder = 0;
 
-          // Sharpen all body textures
           const mat = child.material;
           [
             mat.map,
@@ -310,43 +288,41 @@ function IPhoneExploded({
       }
     });
 
-    console.log(
-      `=== FINAL COUNT: Glass=${glass.length}, OLED=${oled.length}, Body=${body.length} ===`
-    );
     return { glassMeshes: glass, oledMeshes: oled, bodyMeshes: body };
   }, [clonedScene, oledTexture, maxAniso]);
 
   // ---------------------------------------------------------
-  // ANIMATION: Scroll-driven explosion
+  // ANIMATION: driven by scrollState regardless of which mode
+  // is writing to it (bridge / autoplay / internal trigger).
+  // lerp smoothing (contract §3.1) — the postMessage bridge has
+  // no scrub smoothing, so damping happens here instead.
   // ---------------------------------------------------------
   useFrame(() => {
-    const glassP = scrollState.glassOffset;
-    const oledP = scrollState.oledOffset;
+    const damp = 0.1;
 
-    // Direct position from scroll — GSAP scrub already smooths the input
     if (glassGroupRef.current) {
-      glassGroupRef.current.position.z = -(glassP * explodeDistance * 2.0);
+      const target = -(scrollState.glassOffset * explodeDistance * 2.0);
+      glassGroupRef.current.position.z = THREE.MathUtils.lerp(
+        glassGroupRef.current.position.z,
+        target,
+        damp
+      );
     }
 
     if (oledGroupRef.current) {
-      oledGroupRef.current.position.z = -(oledP * explodeDistance * 1.0);
-
-      // Glow intensity based on selection (adjust opacity for MeshBasicMaterial)
-      oledMeshes.forEach((mesh) => {
-        // MeshBasicMaterial is unlit — no emissive to animate
-        // Could add subtle opacity shift here if desired later
-      });
+      const target = -(scrollState.oledOffset * explodeDistance * 1.0);
+      oledGroupRef.current.position.z = THREE.MathUtils.lerp(
+        oledGroupRef.current.position.z,
+        target,
+        damp
+      );
     }
 
-    // BODY: Stays anchored
     if (bodyGroupRef.current) {
       bodyGroupRef.current.position.z = 0;
     }
   });
 
-  // ---------------------------------------------------------
-  // RENDER
-  // ---------------------------------------------------------
   const isExploded = scrollState.explosion > 0.3;
 
   return (
@@ -367,7 +343,6 @@ function IPhoneExploded({
             document.body.style.cursor = "auto";
           }}
         >
-          {/* Bezel meshes — standard material */}
           {glassMeshes.map((m, i) => (
             <primitive key={`glass-${i}`} object={m} />
           ))}
@@ -412,7 +387,7 @@ function IPhoneExploded({
             <primitive key={`body-${i}`} object={m} />
           ))}
 
-          {/* Internals teardown texture — rounded rect matching body opening */}
+          {/* Internals teardown texture */}
           <mesh
             position={[0, 8.06, -0.33]}
             renderOrder={0}
@@ -437,7 +412,6 @@ function Scene({
   modelPath,
   screenTexture,
   internalsTexture,
-  selectedLayer,
   onLayerClick,
   explodeDistance,
 }) {
@@ -456,7 +430,6 @@ function Scene({
             modelPath={modelPath}
             screenTexture={screenTexture}
             internalsTexture={internalsTexture}
-            selectedLayer={selectedLayer}
             onLayerClick={onLayerClick}
             explodeDistance={explodeDistance}
           />
@@ -506,13 +479,15 @@ export default function CrossSection3DScrollGLB(props) {
     oledStagger,
     phoneStagger,
     accentColor,
-    backgroundColor,
     textColor,
     mutedTextColor,
     modelPath,
     screenTexture,
     internalsTexture,
   } = merged;
+
+  // Resolved once per mount — mode & background come from the URL
+  const { mode, bg } = useMemo(resolveRuntimeConfig, []);
 
   const containerRef = useRef(null);
   const stickyRef = useRef(null);
@@ -539,10 +514,85 @@ export default function CrossSection3DScrollGLB(props) {
   };
 
   // ============================================
-  // GSAP ScrollTrigger
+  // Progress driver — one applyProgress used by all three modes
   // ============================================
   useEffect(() => {
+    const applyProgress = (p) => {
+      scrollState.explosion = p;
+      scrollState.glassOffset = mapRange(
+        p,
+        glassStagger[0],
+        glassStagger[1],
+        0,
+        1
+      );
+      scrollState.oledOffset = mapRange(
+        p,
+        oledStagger[0],
+        oledStagger[1],
+        0,
+        1
+      );
+      scrollState.phoneOffset = mapRange(
+        p,
+        phoneStagger[0],
+        phoneStagger[1],
+        0,
+        1
+      );
+
+      // Quantised to 0.5% steps — caps React re-renders at ~200 per
+      // full sweep instead of one per scroll tick (C2 Law 3).
+      const q = Math.round(p * 200) / 200;
+      setDisplayProgress((prev) => (prev === q ? prev : q));
+    };
+
+    // ---- MODE: scroll (Framer postMessage bridge — contract §5.2) ----
+    if (mode === "scroll") {
+      document.documentElement.style.overflow = "hidden";
+      document.body.style.overflow = "hidden";
+
+      const onMessage = (event) => {
+        if (
+          event.data &&
+          event.data.type === "scroll-progress" &&
+          typeof event.data.progress === "number"
+        ) {
+          applyProgress(Math.max(0, Math.min(1, event.data.progress)));
+        }
+      };
+
+      window.addEventListener("message", onMessage);
+      // Handshake — lets the parent confirm the app is listening.
+      // Payload is non-sensitive (a readiness flag only).
+      if (window.parent) {
+        window.parent.postMessage({ type: "iglass-3d-ready" }, "*");
+      }
+      return () => window.removeEventListener("message", onMessage);
+    }
+
+    // ---- MODE: autoplay (self-driving loop — contract §5.3) ----
+    if (mode === "autoplay") {
+      document.documentElement.style.overflow = "hidden";
+      document.body.style.overflow = "hidden";
+
+      const proxy = { p: 0 };
+      const tween = gsap.to(proxy, {
+        p: 1,
+        duration: 4,
+        ease: "power2.inOut",
+        delay: 1,
+        repeat: -1,
+        yoyo: true,
+        repeatDelay: 1.2,
+        onUpdate: () => applyProgress(proxy.p),
+      });
+      return () => tween.kill();
+    }
+
+    // ---- MODE: standalone (internal ScrollTrigger — direct URL / QA) ----
     if (!containerRef.current || !stickyRef.current) return;
+
     const ctx = gsap.context(() => {
       ScrollTrigger.create({
         trigger: containerRef.current,
@@ -550,18 +600,12 @@ export default function CrossSection3DScrollGLB(props) {
         end: `+=${scrollDistance * 100}vh`,
         pin: stickyRef.current,
         scrub: 1,
-        onUpdate: (self) => {
-          const p = self.progress;
-          scrollState.explosion = p;
-          scrollState.glassOffset = mapRange(p, glassStagger[0], glassStagger[1], 0, 1);
-          scrollState.oledOffset = mapRange(p, oledStagger[0], oledStagger[1], 0, 1);
-          scrollState.phoneOffset = mapRange(p, phoneStagger[0], phoneStagger[1], 0, 1);
-          setDisplayProgress(p);
-        },
+        onUpdate: (self) => applyProgress(self.progress),
       });
     }, containerRef);
+
     return () => ctx.revert();
-  }, [scrollDistance, glassStagger, oledStagger, phoneStagger]);
+  }, [mode, scrollDistance, glassStagger, oledStagger, phoneStagger]);
 
   const handleLayerClick = useCallback(
     (layerId) => {
@@ -572,12 +616,17 @@ export default function CrossSection3DScrollGLB(props) {
 
   const isExploded = displayProgress > 0.5;
 
+  // Standalone mode owns its own scroll track; embedded modes are a
+  // single fixed viewport — the Framer page owns the scroll.
+  const containerHeight =
+    mode === "standalone" ? `${(scrollDistance + 1) * 100}vh` : "100vh";
+
   return (
     <div
       ref={containerRef}
       style={{
-        height: `${(scrollDistance + 1) * 100}vh`,
-        background: backgroundColor,
+        height: containerHeight,
+        background: bg,
       }}
     >
       <div
@@ -598,25 +647,33 @@ export default function CrossSection3DScrollGLB(props) {
       >
         {/* 3D Canvas */}
         <div
-  style={{
-    width: "100%",
-    height: "70vh",
-  }}
->
-            <Canvas
+          style={{
+            width: "100%",
+            maxWidth: 550,
+            height: "58vh",
+            maxHeight: 600,
+            borderRadius: 16,
+            overflow: "hidden",
+          }}
+        >
+          <Canvas
             camera={{ position: [0, 0, 2.8], fov: 35 }}
             shadows
             dpr={[1, 2]}
-            gl={{ antialias: true, powerPreference: "high-performance" }}
+            gl={{
+              antialias: true,
+              powerPreference: "high-performance",
+              alpha: true,
+            }}
             onCreated={({ gl }) => {
               gl.toneMapping = THREE.NoToneMapping;
+              gl.setClearColor(0x000000, 0); // fully transparent clear
             }}
           >
             <Scene
               modelPath={modelPath}
               screenTexture={screenTexture}
               internalsTexture={internalsTexture}
-              selectedLayer={selectedLayer}
               onLayerClick={handleLayerClick}
               explodeDistance={explodeDistance}
             />
@@ -674,15 +731,17 @@ export default function CrossSection3DScrollGLB(props) {
                 >
                   {introText}
                 </p>
-                <p
-                  style={{
-                    color: "rgba(255,255,255,0.3)",
-                    fontSize: 12,
-                    marginTop: 16,
-                  }}
-                >
-                  Scroll to explore
-                </p>
+                {mode !== "autoplay" && (
+                  <p
+                    style={{
+                      color: "rgba(255,255,255,0.3)",
+                      fontSize: 12,
+                      marginTop: 16,
+                    }}
+                  >
+                    Scroll to explore
+                  </p>
+                )}
               </motion.div>
             ) : selectedLayer ? (
               <motion.div
@@ -765,5 +824,3 @@ export default function CrossSection3DScrollGLB(props) {
 useGLTF.preload(defaultProps.modelPath);
 useTexture.preload(defaultProps.screenTexture);
 useTexture.preload(defaultProps.internalsTexture);
-
-

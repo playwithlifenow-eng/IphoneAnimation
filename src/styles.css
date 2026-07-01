@@ -1,0 +1,16 @@
+/* iGlass exploded view — root styles
+   Transparent background is REQUIRED (contract §4.1):
+   iframes default to white, which paints a rectangle over the Framer page.
+   overflow is NOT set here — standalone mode needs document scroll.
+   Embedded (scroll/autoplay) modes set overflow:hidden via JS. */
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+}
+
+#root {
+  background: transparent;
+}
