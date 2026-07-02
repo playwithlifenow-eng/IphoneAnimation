@@ -239,7 +239,7 @@ function IPhoneExploded({
 
   // ---------------------------------------------------------
   // SORTING: layers by node name (unchanged from v1).
-  // Render order: Body 0 → OLED 1 → Glass Bezel 2 → Glass Front 3
+  // Render order: Body 0 → OLED 1 → Glass Front 3 → Bezel 4 
   // NOTE: GLB duplicated hierarchy still pending Blender cleanup.
   // Anisotropy is applied per-texture inside <Canvas> children via
   // renderer caps at material creation below.
@@ -254,36 +254,36 @@ function IPhoneExploded({
         const name = child.name.toLowerCase();
 
         if (name.includes("bezel") || name.includes("glass_bezel")) {
-          child.material = new THREE.MeshStandardMaterial({
-            color: new THREE.Color(0x0a0a0a),
-            roughness: 0.4,
-            metalness: 0.0,
-            transparent: false,
-            depthWrite: true,
-            polygonOffset: true,
-            polygonOffsetFactor: -1,
-            polygonOffsetUnits: -1,
-          });
-          child.renderOrder = 2;
-          glass.push(child);
-        } else if (
+  child.material = new THREE.MeshStandardMaterial({
+    color: new THREE.Color(0x000000),
+    roughness: 0.7, // silk-screened ink, not gloss
+    metalness: 0.0,
+    transparent: false,
+    depthWrite: true,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -1,
+  });
+  child.renderOrder = 4; // ← was 2: opaque border now paints OVER the glass blend
+  glass.push(child);
+} else if (
           name.includes("glass_front") ||
           name.includes("glass front") ||
           (name.includes("glass") && !name.includes("bezel"))
         ) {
           child.material = new THREE.MeshStandardMaterial({
-            color: new THREE.Color(0xffffff),
-            roughness: 0.0,
-            metalness: 0.0,
-            transparent: true,
-            opacity: 0.15,
-            depthWrite: false,
-            envMapIntensity: 2.0,
-            polygonOffset: true,
-            polygonOffsetFactor: -2,
-            polygonOffsetUnits: -2,
-          });
-          child.renderOrder = 3;
+  color: new THREE.Color(0x000000), // black base: diffuse veil gone, specular unaffected
+  roughness: 0.04,
+  metalness: 0.0,
+  transparent: true,
+  opacity: 0.15,          // keep — OLED glow must survive the glass
+  depthWrite: false,
+  envMapIntensity: 1.2,   // ← was 2.0: reflections stay, blowout doesn't
+  polygonOffset: true,
+  polygonOffsetFactor: -2,
+  polygonOffsetUnits: -2,
+});
+child.renderOrder = 3;
           glass.push(child);
         } else if (name.includes("display") || name.includes("oled")) {
           // Programmatic UV fix — remove once UVs corrected in Blender.
