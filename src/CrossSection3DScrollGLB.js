@@ -262,7 +262,7 @@ function IPhoneExploded({
     depthWrite: true,
     polygonOffset: true,
     polygonOffsetFactor: -1,
-    polygonOffsetUnits: -1,
+    polygonOffsetUnits: -8,
   });
   child.renderOrder = 4; // ← was 2: opaque border now paints OVER the glass blend
   glass.push(child);
@@ -341,7 +341,7 @@ child.renderOrder = 3;
             mat.color.setHex(0x0a0a0a);
             if ("metalness" in mat) mat.metalness = 0.1;
             if ("roughness" in mat) mat.roughness = 0.5;
-            if ("envMapIntensity" in mat) mat.envMapIntensity = 0.4;
+            if ("envMapIntensity" in mat) mat.envMapIntensity = 0.2;
             mat.opacity = 1;
           }
 
