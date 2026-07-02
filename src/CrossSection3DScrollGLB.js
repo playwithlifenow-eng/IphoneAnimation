@@ -387,6 +387,11 @@ function IPhoneExploded({
   useLayoutEffect(() => {
     const g = pivotRef.current;
     if (measuredRef.current || !g) return;
+    // Initial pose set from qStart directly — the rotation prop can't
+    // express the world-frame tilt composition.
+    if (modelGroupRef.current) {
+      modelGroupRef.current.quaternion.copy(qStart);
+    }
     g.position.set(0, 0, 0);
     g.scale.setScalar(1);
     g.updateWorldMatrix(true, true);
@@ -412,9 +417,18 @@ function IPhoneExploded({
   // (the v2.1 two-stage path produced a visible left-right jerk).
   // ---------------------------------------------------------
   const { qStart, qEnd } = useMemo(() => {
-    const start = new THREE.Quaternion().setFromEuler(
-      new THREE.Euler(Math.PI / 2 - START.tilt, 0, -Math.PI / 2)
+    // Rest pose untouched; viewer tilt applied as a WORLD-X rotation on
+    // top of it (premultiply). Mutating the compound Euler's X term
+    // applied the tilt about the phone's LOCAL long axis instead —
+    // rolling it back-face-up (v2.2 defect).
+    const rest = new THREE.Quaternion().setFromEuler(
+      new THREE.Euler(Math.PI / 2, 0, -Math.PI / 2)
     );
+    const tiltQ = new THREE.Quaternion().setFromAxisAngle(
+      new THREE.Vector3(1, 0, 0),
+      START.tilt
+    );
+    const start = tiltQ.multiply(rest); // rest first, then world tilt
     const end = new THREE.Quaternion().setFromEuler(
       new THREE.Euler(...SETTLE.targetEuler)
     );
@@ -490,10 +504,7 @@ function IPhoneExploded({
   });
 
   return (
-    <group
-      ref={modelGroupRef}
-      rotation={[Math.PI / 2 - START.tilt, 0, -Math.PI / 2]}
-    >
+    <group ref={modelGroupRef}>
       <group ref={pivotRef}>
         {/* GLASS (Front Window + Bezel) */}
         <group ref={glassGroupRef}>
