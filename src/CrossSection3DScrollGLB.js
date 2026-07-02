@@ -28,6 +28,59 @@ function mapRange(value, inMin, inMax, outMin, outMax) {
 }
 
 // ============================================
+// Timeline phases (fractions of total scroll progress)
+//
+//   0.00 – 0.40  EXPLODE      existing stagger maths, remapped into window
+//   0.40 – 0.55  HOLD         fully exploded beat
+//   0.55 – 0.80  REASSEMBLE   mirror of explode
+//   0.80 – 1.00  ROTATE       whole model settles: lying flat → upright,
+//                             face-on to camera
+//
+// Tune the feel by moving these boundaries — nothing else needs touching.
+// ============================================
+const TIMELINE = {
+  explodeEnd: 0.4,
+  holdEnd: 0.55,
+  reassembleEnd: 0.8,
+};
+
+const SETTLE = {
+  // Target orientation for the finale, relative to the model's natural axes.
+  // The resting pose is Euler [PI/2, 0, -PI/2] (lying flat). [0, 0, 0] is the
+  // inferred upright/face-on pose — VERIFY visually on first deploy; if the
+  // phone settles facing the wrong way, this single constant is the fix.
+  targetEuler: [0, 0, 0],
+  // Upright phone is taller than the flat pose is wide — scale down slightly
+  // during the rotate so it stays inside the canvas.
+  scale: 0.8,
+};
+
+// smoothstep — eases the rotate phase so the settle reads as ceremonial
+function smoothstep(t) {
+  return t * t * (3 - 2 * t);
+}
+
+// Global 0→1 scroll progress → per-phase amounts
+function phaseMap(p) {
+  const { explodeEnd, holdEnd, reassembleEnd } = TIMELINE;
+  let explode;
+  if (p < explodeEnd) {
+    explode = p / explodeEnd;
+  } else if (p < holdEnd) {
+    explode = 1;
+  } else if (p < reassembleEnd) {
+    explode = 1 - (p - holdEnd) / (reassembleEnd - holdEnd);
+  } else {
+    explode = 0;
+  }
+  const rotate =
+    p <= reassembleEnd
+      ? 0
+      : smoothstep((p - reassembleEnd) / (1 - reassembleEnd));
+  return { explode, rotate };
+}
+
+// ============================================
 // Mode resolution (contract §5.2 — URL params for static config)
 //
 //   ?mode=scroll      → listen for postMessage scroll-progress (Framer bridge)
@@ -70,7 +123,7 @@ const defaultProps = {
   promptText: "Tap a layer to learn more",
   introText: "Glass-only repair preserves your original display.",
   explodeDistance: 1.2,
-  scrollDistance: 2,
+  scrollDistance: 4, // standalone runway — matches the 4-phase timeline
   glassStagger: [0, 0.6],
   oledStagger: [0.15, 0.75],
   phoneStagger: [0.3, 0.9],
@@ -88,10 +141,11 @@ const defaultProps = {
 //  useFrame reads, React is never in the loop)
 // ============================================
 const scrollState = {
-  explosion: 0,
+  explosion: 0, // explode AMOUNT (0 assembled → 1 exploded), post-phase-map
   glassOffset: 0,
   oledOffset: 0,
   phoneOffset: 0,
+  rotate: 0, // settle rotation amount (0 flat → 1 upright)
 };
 
 // ============================================
@@ -166,6 +220,21 @@ function IPhoneExploded({
   const glassGroupRef = useRef();
   const oledGroupRef = useRef();
   const bodyGroupRef = useRef();
+  const modelGroupRef = useRef(); // whole-model group — rotate phase target
+
+  // Rotation endpoints for the settle phase, precomputed once.
+  // qStart = the resting pose baked into the JSX ([PI/2, 0, -PI/2]);
+  // qEnd   = SETTLE.targetEuler (upright, face-on).
+  const { qStart, qEnd } = useMemo(() => {
+    const s = new THREE.Quaternion().setFromEuler(
+      new THREE.Euler(Math.PI / 2, 0, -Math.PI / 2)
+    );
+    const e = new THREE.Quaternion().setFromEuler(
+      new THREE.Euler(...SETTLE.targetEuler)
+    );
+    return { qStart: s, qEnd: e };
+  }, []);
+  const qTarget = useMemo(() => new THREE.Quaternion(), []);
 
   // ---------------------------------------------------------
   // SORTING: layers by node name.
@@ -321,13 +390,28 @@ function IPhoneExploded({
     if (bodyGroupRef.current) {
       bodyGroupRef.current.position.z = 0;
     }
+
+    // ROTATE phase — slerp the whole model between resting and upright
+    // poses, damped in quaternion space (same 0.1 baseline as positions).
+    if (modelGroupRef.current) {
+      qTarget.slerpQuaternions(qStart, qEnd, scrollState.rotate);
+      modelGroupRef.current.quaternion.slerp(qTarget, damp);
+
+      const targetScale = 1 - (1 - SETTLE.scale) * scrollState.rotate;
+      const s = THREE.MathUtils.lerp(
+        modelGroupRef.current.scale.x,
+        targetScale,
+        damp
+      );
+      modelGroupRef.current.scale.setScalar(s);
+    }
   });
 
   const isExploded = scrollState.explosion > 0.3;
 
   return (
     <group onPointerMissed={() => onLayerClick(null)}>
-      <group rotation={[Math.PI / 2, 0, -Math.PI / 2]}>
+      <group ref={modelGroupRef} rotation={[Math.PI / 2, 0, -Math.PI / 2]}>
         {/* GLASS (Front Window + Bezel) */}
         <group
           ref={glassGroupRef}
@@ -494,6 +578,7 @@ export default function CrossSection3DScrollGLB(props) {
 
   const [displayProgress, setDisplayProgress] = useState(0);
   const [selectedLayer, setSelectedLayer] = useState(null);
+  const [uiExploded, setUiExploded] = useState(false);
 
   const layers = {
     glass: {
@@ -518,28 +603,42 @@ export default function CrossSection3DScrollGLB(props) {
   // ============================================
   useEffect(() => {
     const applyProgress = (p) => {
-      scrollState.explosion = p;
+      // Phase remap: raw scroll p → explode amount + rotate amount.
+      // The existing stagger maths is unchanged — it now receives the
+      // remapped explode amount instead of raw p, so the same choreography
+      // plays forward (explode) and mirrored (reassemble).
+      const { explode, rotate } = phaseMap(p);
+      scrollState.explosion = explode;
+      scrollState.rotate = rotate;
       scrollState.glassOffset = mapRange(
-        p,
+        explode,
         glassStagger[0],
         glassStagger[1],
         0,
         1
       );
       scrollState.oledOffset = mapRange(
-        p,
+        explode,
         oledStagger[0],
         oledStagger[1],
         0,
         1
       );
       scrollState.phoneOffset = mapRange(
-        p,
+        explode,
         phoneStagger[0],
         phoneStagger[1],
         0,
         1
       );
+
+      // Info panel state follows the explode amount, not raw scroll —
+      // otherwise the panel would stay in "exploded" copy through the
+      // reassemble and rotate phases.
+      setUiExploded((prev) => {
+        const next = explode > 0.5;
+        return prev === next ? prev : next;
+      });
 
       // Quantised to 0.5% steps — caps React re-renders at ~200 per
       // full sweep instead of one per scroll tick (C2 Law 3).
@@ -579,7 +678,7 @@ export default function CrossSection3DScrollGLB(props) {
       const proxy = { p: 0 };
       const tween = gsap.to(proxy, {
         p: 1,
-        duration: 4,
+        duration: 7, // covers explode + hold + reassemble + rotate legibly
         ease: "power2.inOut",
         delay: 1,
         repeat: -1,
@@ -614,7 +713,7 @@ export default function CrossSection3DScrollGLB(props) {
     [selectedLayer]
   );
 
-  const isExploded = displayProgress > 0.5;
+  const isExploded = uiExploded;
 
   // Standalone mode owns its own scroll track; embedded modes are a
   // single fixed viewport — the Framer page owns the scroll.
