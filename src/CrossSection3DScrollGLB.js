@@ -48,17 +48,22 @@ const TIMELINE = {
   reassembleEnd: 0.7,
 };
 
+const START = {
+  // Rest-pose tilt toward the viewer, radians. v1's OrbitControls clamped
+  // the camera ~18° above the equator on mount; with controls removed the
+  // equivalent view is restored by tilting the phone instead — the camera
+  // (and the approved p=1 finale framing) stays untouched.
+  // Overridable: ?tilt=deg
+  tilt: Math.PI / 10, // 18°
+};
+
 const SETTLE = {
   // Final pose. [0, PI, 0] = upright portrait, front face to camera
   // (validated visually). Overridable for tuning: ?settle=x,y,z (degrees)
   targetEuler: [0, Math.PI, 0],
-  // Waypoint roll: the mid pose is the final pose rolled 90° in the view
-  // plane (landscape, facing camera). Stage 1 tilts flat→facing, stage 2
-  // cartwheels in-plane to portrait. Overridable: ?roll=deg (default -90)
-  midRoll: -Math.PI / 2,
-  midPoint: 0.45, // fraction of the settle phase spent in stage 1
   scale: 0.8, // upright phone scales down to stay inside the frame
   xShiftFraction: 0.22, // desktop rest slot: fraction of viewport width
+  arcLift: 0.08, // fraction of viewport height — subtle swoop on the path
   desktopMinWidth: 810, // px — below this, no drift (mobile stays centred)
 };
 
@@ -73,7 +78,8 @@ const MODEL = {
 //   ?bg=%230a0a0c                      opaque background; default transparent
 //   ?p=0.85          freeze the timeline at a fixed progress (tuning)
 //   ?settle=0,180,0  override SETTLE.targetEuler, degrees (tuning)
-//   ?roll=-90        override SETTLE.midRoll, degrees (tuning)
+//   ?tilt=18         override START.tilt, degrees (tuning)
+//   ?lift=0.08       override SETTLE.arcLift, viewport-height fraction
 //   ?size=1.6        override MODEL.targetSize (tuning)
 // ============================================
 function resolveRuntimeConfig() {
@@ -95,9 +101,13 @@ function resolveRuntimeConfig() {
       SETTLE.targetEuler = parts.map((deg) => (deg * Math.PI) / 180);
     }
   }
-  const rollParam = parseFloat(params.get("roll"));
-  if (!isNaN(rollParam)) {
-    SETTLE.midRoll = (rollParam * Math.PI) / 180;
+  const tiltParam = parseFloat(params.get("tilt"));
+  if (!isNaN(tiltParam)) {
+    START.tilt = (tiltParam * Math.PI) / 180;
+  }
+  const liftParam = parseFloat(params.get("lift"));
+  if (!isNaN(liftParam)) {
+    SETTLE.arcLift = liftParam;
   }
   const sizeParam = parseFloat(params.get("size"));
   if (!isNaN(sizeParam) && sizeParam > 0) {
@@ -298,7 +308,10 @@ function IPhoneExploded({
             const rangeY = maxY - minY || 1;
 
             for (let i = 0; i < posAttr.count; i++) {
-              const u = (posAttr.getX(i) - minX) / rangeX;
+              // U flipped — unflipped U rendered the screen mirror-imaged
+              // (a rigid rotation can never mirror a texture; this is the
+              // texture-domain fix).
+              const u = 1.0 - (posAttr.getX(i) - minX) / rangeX;
               const v = 1.0 - (posAttr.getY(i) - minY) / rangeY;
               uvAttr.setXY(i, u, v);
             }
@@ -313,11 +326,28 @@ function IPhoneExploded({
           oled.push(child);
         } else {
           child.material = child.material.clone();
-          child.material.transparent = false;
-          child.material.depthWrite = true;
-          child.renderOrder = 0;
-
           const mat = child.material;
+
+          // GLB body materials include semi-transparent glass covers
+          // (Dynamic Island / sensor windows / camera glass). Forcing
+          // transparent=false alone turns these into opaque MID-GREY —
+          // the "bright island" defect. Property-based rule (mesh names
+          // in this GLB are obfuscated):
+          //   alpha ≤ 0.05 — effectively-invisible coating films → hide
+          //   alpha <  1   — translucent covers → solid near-black glass
+          if (mat.opacity <= 0.05) {
+            child.visible = false;
+          } else if (mat.opacity < 1) {
+            mat.color.setHex(0x0a0a0a);
+            if ("metalness" in mat) mat.metalness = 0.1;
+            if ("roughness" in mat) mat.roughness = 0.5;
+            if ("envMapIntensity" in mat) mat.envMapIntensity = 0.4;
+            mat.opacity = 1;
+          }
+
+          mat.transparent = false;
+          mat.depthWrite = true;
+          child.renderOrder = 0;
           [
             mat.map,
             mat.normalMap,
@@ -376,25 +406,19 @@ function IPhoneExploded({
   }, []);
 
   // ---------------------------------------------------------
-  // SETTLE rotation endpoints + waypoint (two-stage slerp).
-  // qStart = flat rest pose. qEnd = upright face-on. qMid = qEnd rolled
-  // 90° about its local view axis — landscape but already facing camera.
-  // Stage 1 (flat → qMid) tilts up; stage 2 (qMid → qEnd) is a clean
-  // in-plane cartwheel to portrait. No shortest-arc corkscrew.
+  // SETTLE rotation endpoints — SINGLE geodesic slerp.
+  // A quaternion geodesic is a rotation about one fixed axis: the phone
+  // turns smoothly and continuously to face forward, no waypoint corner
+  // (the v2.1 two-stage path produced a visible left-right jerk).
   // ---------------------------------------------------------
-  const { qStart, qMid, qEnd } = useMemo(() => {
+  const { qStart, qEnd } = useMemo(() => {
     const start = new THREE.Quaternion().setFromEuler(
-      new THREE.Euler(Math.PI / 2, 0, -Math.PI / 2)
+      new THREE.Euler(Math.PI / 2 - START.tilt, 0, -Math.PI / 2)
     );
     const end = new THREE.Quaternion().setFromEuler(
       new THREE.Euler(...SETTLE.targetEuler)
     );
-    const roll = new THREE.Quaternion().setFromAxisAngle(
-      new THREE.Vector3(0, 0, 1),
-      SETTLE.midRoll
-    );
-    const mid = end.clone().multiply(roll);
-    return { qStart: start, qMid: mid, qEnd: end };
+    return { qStart: start, qEnd: end };
   }, []);
   const qTarget = useMemo(() => new THREE.Quaternion(), []);
 
@@ -430,16 +454,8 @@ function IPhoneExploded({
     if (modelGroupRef.current) {
       const t = scrollState.rotate;
 
-      // Two-stage slerp through the view-plane waypoint
-      if (t < SETTLE.midPoint) {
-        qTarget.slerpQuaternions(qStart, qMid, t / SETTLE.midPoint);
-      } else {
-        qTarget.slerpQuaternions(
-          qMid,
-          qEnd,
-          (t - SETTLE.midPoint) / (1 - SETTLE.midPoint)
-        );
-      }
+      // Single geodesic — smooth continuous rotation about one fixed axis
+      qTarget.slerpQuaternions(qStart, qEnd, t);
       modelGroupRef.current.quaternion.slerp(qTarget, damp);
 
       // Settle scale-down
@@ -451,21 +467,33 @@ function IPhoneExploded({
       );
       modelGroupRef.current.scale.setScalar(s);
 
-      // Desktop-only drift to the right-hand rest slot
+      // Path: eased drift to the desktop rest slot + a subtle arc lift
+      // (sin bump peaks mid-transition, returns to 0 at the approved
+      // p=1 resting height)
       const isDesktop = state.size.width >= SETTLE.desktopMinWidth;
       const targetX = isDesktop
         ? state.viewport.width * SETTLE.xShiftFraction * t
         : 0;
+      const targetY =
+        SETTLE.arcLift * state.viewport.height * Math.sin(Math.PI * t);
       modelGroupRef.current.position.x = THREE.MathUtils.lerp(
         modelGroupRef.current.position.x,
         targetX,
+        damp
+      );
+      modelGroupRef.current.position.y = THREE.MathUtils.lerp(
+        modelGroupRef.current.position.y,
+        targetY,
         damp
       );
     }
   });
 
   return (
-    <group ref={modelGroupRef} rotation={[Math.PI / 2, 0, -Math.PI / 2]}>
+    <group
+      ref={modelGroupRef}
+      rotation={[Math.PI / 2 - START.tilt, 0, -Math.PI / 2]}
+    >
       <group ref={pivotRef}>
         {/* GLASS (Front Window + Bezel) */}
         <group ref={glassGroupRef}>
