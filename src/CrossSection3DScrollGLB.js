@@ -1,6 +1,6 @@
 import screenImg from "./Screen.png";
 import internalsImg from "./internals.jpg";
-import { useRef, useMemo, useEffect } from "react";
+import { useRef, useMemo, useEffect, useLayoutEffect } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Environment, ContactShadows, useGLTF, useTexture } from "@react-three/drei";
 import * as THREE from "three";
@@ -343,24 +343,37 @@ function IPhoneExploded({
 
   // ---------------------------------------------------------
   // MEASURED PIVOT (replaces Drei <Center>/<Resize>).
-  // Box3 measured ONCE at mount, in the assembled rest pose, in the
-  // model's local frame. fitScale normalises the largest dimension to
-  // MODEL.targetSize; centerOffset moves the geometric centre to the
-  // rotation origin — the settle slerp spins on the true chassis centre.
+  // Measured AFTER mount on the RENDERED subtree — <primitive> strips
+  // the GLB's ancestor transforms, so measuring the source scene graph
+  // gives a different coordinate frame than what renders (v2.0 bug:
+  // size off by the GLB's ancestor scale, pivot off-centre).
+  // Rest rotation is axis-aligned (90° multiples), so the world-space
+  // box's max dimension is exact, and worldToLocal is exact for the
+  // centre point. One-time measurement; explode offsets are 0 at mount.
   // ---------------------------------------------------------
-  const { fitScale, centerOffset } = useMemo(() => {
-    const box = new THREE.Box3().setFromObject(clonedScene);
+  const pivotRef = useRef();
+  const measuredRef = useRef(false);
+
+  useLayoutEffect(() => {
+    const g = pivotRef.current;
+    if (measuredRef.current || !g) return;
+    g.position.set(0, 0, 0);
+    g.scale.setScalar(1);
+    g.updateWorldMatrix(true, true);
+
+    const box = new THREE.Box3().setFromObject(g);
     const size = new THREE.Vector3();
     const center = new THREE.Vector3();
     box.getSize(size);
     box.getCenter(center);
     const maxDim = Math.max(size.x, size.y, size.z) || 1;
     const s = MODEL.targetSize / maxDim;
-    return {
-      fitScale: s,
-      centerOffset: [-center.x * s, -center.y * s, -center.z * s],
-    };
-  }, [clonedScene]);
+
+    const cLocal = g.worldToLocal(center.clone());
+    g.scale.setScalar(s);
+    g.position.set(-cLocal.x * s, -cLocal.y * s, -cLocal.z * s);
+    measuredRef.current = true;
+  }, []);
 
   // ---------------------------------------------------------
   // SETTLE rotation endpoints + waypoint (two-stage slerp).
@@ -453,7 +466,7 @@ function IPhoneExploded({
 
   return (
     <group ref={modelGroupRef} rotation={[Math.PI / 2, 0, -Math.PI / 2]}>
-      <group position={centerOffset} scale={fitScale}>
+      <group ref={pivotRef}>
         {/* GLASS (Front Window + Bezel) */}
         <group ref={glassGroupRef}>
           {glassMeshes.map((m, i) => (
