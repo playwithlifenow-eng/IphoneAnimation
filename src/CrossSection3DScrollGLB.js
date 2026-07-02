@@ -49,7 +49,7 @@ const SETTLE = {
   // The resting pose is Euler [PI/2, 0, -PI/2] (lying flat). [0, 0, 0] is the
   // inferred upright/face-on pose — VERIFY visually on first deploy; if the
   // phone settles facing the wrong way, this single constant is the fix.
-  targetEuler: [0, 0, 0],
+ targetEuler: [0, Math.PI, 0],
   // Upright phone is taller than the flat pose is wide — scale down slightly
   // during the rotate so it stays inside the canvas.
   scale: 0.8,
