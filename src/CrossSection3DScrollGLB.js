@@ -256,15 +256,15 @@ function IPhoneExploded({
         if (name.includes("bezel") || name.includes("glass_bezel")) {
   child.material = new THREE.MeshStandardMaterial({
     color: new THREE.Color(0x000000),
-    roughness: 0.7, // silk-screened ink, not gloss
+    roughness: 0.7,
     metalness: 0.0,
     transparent: false,
-    depthWrite: true,
-    polygonOffset: true,
-    polygonOffsetFactor: -1,
-    polygonOffsetUnits: -8,
+    depthWrite: false,
+    depthTest: false, // bezel opts out of depth entirely — no test, no fight, no flicker.
+                      // SAFE for this timeline only: front face never leaves the camera.
+                      // If the choreography ever shows the phone's back, revisit.
   });
-  child.renderOrder = 4; // ← was 2: opaque border now paints OVER the glass blend
+  child.renderOrder = 4;
   glass.push(child);
 } else if (
           name.includes("glass_front") ||
