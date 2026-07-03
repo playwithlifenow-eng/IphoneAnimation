@@ -6,11 +6,12 @@ import { Environment, ContactShadows, useGLTF, useTexture } from "@react-three/d
 import * as THREE from "three";
 import { gsap } from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
+import { Leva, useControls, button } from "leva";
 
 gsap.registerPlugin(ScrollTrigger);
 
 // ============================================
-// v2 — HEADLESS PRESENTATION LAYER
+// v2.4 — HEADLESS PRESENTATION LAYER + LEVA DEV RIG
 //
 // All DOM UI (info panels, progress bar, prompts) removed — Framer owns
 // every text layer. All pointer interactivity (OrbitControls, layer
@@ -18,6 +19,10 @@ gsap.registerPlugin(ScrollTrigger);
 // scroll progress. Drei <Center>/<Resize> replaced by a measured pivot
 // (Box3 at mount) so the settle rotation spins on the phone's true
 // geometric centre instead of the GLB origin.
+//
+// DEV RIG (?dev=1): Leva panel for live parameter tuning. Additive
+// instrumentation only — writes to the same config objects the
+// animation already reads. Zero behaviour change without ?dev.
 // ============================================
 
 // ============================================
@@ -73,6 +78,159 @@ const MODEL = {
 };
 
 // ============================================
+// DEV RIG (Leva) — additive instrumentation only.
+// Writes to the SAME config objects the animation already reads.
+// Active only with ?dev=1. Dirty flags tell the render loop which
+// mount-time derivations to recompute (quaternions, pivot fit).
+// ============================================
+const DEV = {
+  enabled: false,
+  dirtyQuat: false, // tilt / settle changed → recompute qStart/qEnd
+  dirtyFit: false, // size changed → re-derive pivot scale/offset
+  applyProgress: null, // registered by the driver effect
+  lastP: 0,
+};
+
+function buildTuningURL() {
+  const params = new URLSearchParams(window.location.search);
+  const eulDeg = SETTLE.targetEuler.map((r) =>
+    Math.round((r * 180) / Math.PI)
+  );
+  params.set("dev", "1");
+  params.set("p", DEV.lastP.toFixed(3));
+  params.set("tilt", ((START.tilt * 180) / Math.PI).toFixed(1));
+  params.set("settle", eulDeg.join(","));
+  params.set("shift", SETTLE.xShiftFraction.toFixed(3));
+  params.set("vshift", SETTLE.yShiftFraction.toFixed(3));
+  params.set("lift", SETTLE.arcLift.toFixed(3));
+  params.set("pscale", SETTLE.scale.toFixed(2));
+  params.set("size", MODEL.targetSize.toFixed(2));
+  return `${window.location.origin}${window.location.pathname}?${params.toString()}`;
+}
+
+const LEVA_LIGHT = {
+  colors: {
+    elevation1: "#eef3ef",
+    elevation2: "#ffffff",
+    elevation3: "#e2ece5",
+    accent1: "#2e7d52",
+    accent2: "#3c9a68",
+    accent3: "#57b981",
+    highlight1: "#5a6b60",
+    highlight2: "#25332b",
+    highlight3: "#0d1512",
+  },
+};
+
+function DevControls({ initialP }) {
+  const eulDeg = SETTLE.targetEuler.map((r) => (r * 180) / Math.PI);
+  useControls({
+    p: {
+      value: initialP,
+      min: 0,
+      max: 1,
+      step: 0.001,
+      onChange: (v) => {
+        DEV.lastP = v;
+        if (DEV.applyProgress) DEV.applyProgress(v);
+      },
+    },
+    tilt: {
+      value: (START.tilt * 180) / Math.PI,
+      min: -45,
+      max: 45,
+      step: 0.5,
+      onChange: (v) => {
+        START.tilt = (v * Math.PI) / 180;
+        DEV.dirtyQuat = true;
+      },
+    },
+    settleX: {
+      value: eulDeg[0],
+      min: -180,
+      max: 180,
+      step: 1,
+      onChange: (v) => {
+        SETTLE.targetEuler[0] = (v * Math.PI) / 180;
+        DEV.dirtyQuat = true;
+      },
+    },
+    settleY: {
+      value: eulDeg[1],
+      min: -180,
+      max: 180,
+      step: 1,
+      onChange: (v) => {
+        SETTLE.targetEuler[1] = (v * Math.PI) / 180;
+        DEV.dirtyQuat = true;
+      },
+    },
+    settleZ: {
+      value: eulDeg[2],
+      min: -180,
+      max: 180,
+      step: 1,
+      onChange: (v) => {
+        SETTLE.targetEuler[2] = (v * Math.PI) / 180;
+        DEV.dirtyQuat = true;
+      },
+    },
+    shift: {
+      value: SETTLE.xShiftFraction,
+      min: -0.5,
+      max: 0.5,
+      step: 0.005,
+      onChange: (v) => {
+        SETTLE.xShiftFraction = v;
+      },
+    },
+    vshift: {
+      value: SETTLE.yShiftFraction,
+      min: -1,
+      max: 1,
+      step: 0.005,
+      onChange: (v) => {
+        SETTLE.yShiftFraction = v;
+      },
+    },
+    lift: {
+      value: SETTLE.arcLift,
+      min: -0.5,
+      max: 0.5,
+      step: 0.005,
+      onChange: (v) => {
+        SETTLE.arcLift = v;
+      },
+    },
+    pscale: {
+      value: SETTLE.scale,
+      min: 0.2,
+      max: 1.5,
+      step: 0.01,
+      onChange: (v) => {
+        SETTLE.scale = v;
+      },
+    },
+    size: {
+      value: MODEL.targetSize,
+      min: 0.5,
+      max: 6,
+      step: 0.05,
+      onChange: (v) => {
+        MODEL.targetSize = v;
+        DEV.dirtyFit = true;
+      },
+    },
+    "copy URL": button(() => {
+      const url = buildTuningURL();
+      window.history.replaceState(null, "", url);
+      if (navigator.clipboard) navigator.clipboard.writeText(url);
+    }),
+  });
+  return null;
+}
+
+// ============================================
 // Mode & tuning resolution (contract §5.2 — URL params for static config)
 //
 //   ?mode=scroll|autoplay|standalone   (unchanged tri-mode driver)
@@ -82,6 +240,8 @@ const MODEL = {
 //   ?tilt=18         override START.tilt, degrees (tuning)
 //   ?lift=0.08       override SETTLE.arcLift, viewport-height fraction
 //   ?size=1.6        override MODEL.targetSize (tuning)
+//   ?pscale=0.8      override SETTLE.scale (tuning)
+//   ?dev=1           Leva tuning rig (freezes timeline; slider owns p)
 // ============================================
 function resolveRuntimeConfig() {
   const params = new URLSearchParams(window.location.search);
@@ -110,12 +270,12 @@ function resolveRuntimeConfig() {
   if (!isNaN(liftParam)) {
     SETTLE.arcLift = liftParam;
   }
-  // ---- NEW: Horizontal shift driver ----
+  // ---- Horizontal shift driver ----
   const shiftParam = parseFloat(params.get("shift"));
   if (!isNaN(shiftParam)) {
     SETTLE.xShiftFraction = shiftParam;
   }
-  // ---- NEW: Vertical shift driver ----
+  // ---- Vertical shift driver ----
   const vShiftParam = parseFloat(params.get("vshift"));
   if (!isNaN(vShiftParam)) {
     SETTLE.yShiftFraction = vShiftParam;
@@ -124,10 +284,20 @@ function resolveRuntimeConfig() {
   if (!isNaN(sizeParam) && sizeParam > 0) {
     MODEL.targetSize = sizeParam;
   }
-  const pParam = parseFloat(params.get("p"));
-  const freezeP = !isNaN(pParam) ? Math.max(0, Math.min(1, pParam)) : null;
+  const pscaleParam = parseFloat(params.get("pscale"));
+  if (!isNaN(pscaleParam) && pscaleParam > 0) {
+    SETTLE.scale = pscaleParam;
+  }
 
-  return { mode, bg, freezeP };
+  const dev = params.get("dev") === "1" || params.get("dev") === "true";
+  DEV.enabled = dev;
+
+  const pParam = parseFloat(params.get("p"));
+  let freezeP = !isNaN(pParam) ? Math.max(0, Math.min(1, pParam)) : null;
+  // Dev rig with no explicit p: freeze mid-timeline so the slider owns progress
+  if (dev && freezeP === null) freezeP = 0.5;
+
+  return { mode, bg, freezeP, dev };
 }
 
 // Global 0→1 scroll progress → per-phase amounts
@@ -391,9 +561,12 @@ child.renderOrder = 3;
   // Rest rotation is axis-aligned (90° multiples), so the world-space
   // box's max dimension is exact, and worldToLocal is exact for the
   // centre point. One-time measurement; explode offsets are 0 at mount.
+  // maxDim/cLocal cached in fitRef so the dev rig can re-fit on ?dev
+  // size changes without re-measuring.
   // ---------------------------------------------------------
   const pivotRef = useRef();
   const measuredRef = useRef(false);
+  const fitRef = useRef({ maxDim: 1, cLocal: new THREE.Vector3() });
 
   useLayoutEffect(() => {
     const g = pivotRef.current;
@@ -401,7 +574,7 @@ child.renderOrder = 3;
     // Initial pose set from qStart directly — the rotation prop can't
     // express the world-frame tilt composition.
     if (modelGroupRef.current) {
-      modelGroupRef.current.quaternion.copy(qStart);
+      modelGroupRef.current.quaternion.copy(quatsRef.current.qStart);
     }
     g.position.set(0, 0, 0);
     g.scale.setScalar(1);
@@ -416,6 +589,8 @@ child.renderOrder = 3;
     const s = MODEL.targetSize / maxDim;
 
     const cLocal = g.worldToLocal(center.clone());
+    fitRef.current.maxDim = maxDim;
+    fitRef.current.cLocal.copy(cLocal);
     g.scale.setScalar(s);
     g.position.set(-cLocal.x * s, -cLocal.y * s, -cLocal.z * s);
     measuredRef.current = true;
@@ -426,12 +601,16 @@ child.renderOrder = 3;
   // A quaternion geodesic is a rotation about one fixed axis: the phone
   // turns smoothly and continuously to face forward, no waypoint corner
   // (the v2.1 two-stage path produced a visible left-right jerk).
+  //
+  // Rest pose untouched; viewer tilt applied as a WORLD-X rotation on
+  // top of it (premultiply). Mutating the compound Euler's X term
+  // applied the tilt about the phone's LOCAL long axis instead —
+  // rolling it back-face-up (v2.2 defect).
+  //
+  // Held in a ref (not useMemo) so the dev rig can re-derive when
+  // ?dev Leva controls touch START.tilt / SETTLE.targetEuler.
   // ---------------------------------------------------------
-  const { qStart, qEnd } = useMemo(() => {
-    // Rest pose untouched; viewer tilt applied as a WORLD-X rotation on
-    // top of it (premultiply). Mutating the compound Euler's X term
-    // applied the tilt about the phone's LOCAL long axis instead —
-    // rolling it back-face-up (v2.2 defect).
+  const computeQuats = () => {
     const rest = new THREE.Quaternion().setFromEuler(
       new THREE.Euler(Math.PI / 2, 0, -Math.PI / 2)
     );
@@ -444,7 +623,9 @@ child.renderOrder = 3;
       new THREE.Euler(...SETTLE.targetEuler)
     );
     return { qStart: start, qEnd: end };
-  }, []);
+  };
+  const quatsRef = useRef(null);
+  if (quatsRef.current === null) quatsRef.current = computeQuats();
   const qTarget = useMemo(() => new THREE.Quaternion(), []);
 
   // ---------------------------------------------------------
@@ -453,6 +634,23 @@ child.renderOrder = 3;
   // ---------------------------------------------------------
   useFrame((state) => {
     const damp = 0.1;
+
+    // Dev rig: re-derive mount-time values when Leva touched them
+    if (DEV.dirtyQuat) {
+      quatsRef.current = computeQuats();
+      DEV.dirtyQuat = false;
+    }
+    if (DEV.dirtyFit && measuredRef.current && pivotRef.current) {
+      const { maxDim, cLocal } = fitRef.current;
+      const sFit = MODEL.targetSize / maxDim;
+      pivotRef.current.scale.setScalar(sFit);
+      pivotRef.current.position.set(
+        -cLocal.x * sFit,
+        -cLocal.y * sFit,
+        -cLocal.z * sFit
+      );
+      DEV.dirtyFit = false;
+    }
 
     if (glassGroupRef.current) {
       const target = -(scrollState.glassOffset * explodeDistance * 2.0);
@@ -480,7 +678,7 @@ child.renderOrder = 3;
       const t = scrollState.rotate;
 
       // Single geodesic — smooth continuous rotation about one fixed axis
-      qTarget.slerpQuaternions(qStart, qEnd, t);
+      qTarget.slerpQuaternions(quatsRef.current.qStart, quatsRef.current.qEnd, t);
       modelGroupRef.current.quaternion.slerp(qTarget, damp);
 
       // Settle scale-down
@@ -622,7 +820,7 @@ export default function CrossSection3DScrollGLB(props) {
     internalsTexture,
   } = merged;
 
-  const { mode, bg, freezeP } = useMemo(resolveRuntimeConfig, []);
+  const { mode, bg, freezeP, dev } = useMemo(resolveRuntimeConfig, []);
 
   const containerRef = useRef(null);
   const stickyRef = useRef(null);
@@ -658,10 +856,14 @@ export default function CrossSection3DScrollGLB(props) {
       );
     };
 
+    // Dev rig: expose the driver so the Leva p slider can scrub the timeline
+    DEV.applyProgress = applyProgress;
+
     // ---- TUNING FREEZE: ?p=0.85 pins the timeline at fixed progress ----
     if (freezeP !== null) {
       document.documentElement.style.overflow = "hidden";
       document.body.style.overflow = "hidden";
+      DEV.lastP = freezeP;
       applyProgress(freezeP);
       return;
     }
@@ -738,6 +940,14 @@ export default function CrossSection3DScrollGLB(props) {
         background: bg,
       }}
     >
+      {dev && (
+        <Leva
+          collapsed={false}
+          theme={LEVA_LIGHT}
+          titleBar={{ title: "iGlass tuning rig" }}
+        />
+      )}
+      {dev && <DevControls initialP={freezeP ?? 0} />}
       <div
         ref={stickyRef}
         style={{
