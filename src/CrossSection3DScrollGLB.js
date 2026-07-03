@@ -500,7 +500,7 @@ child.renderOrder = 3;
         ? state.viewport.width * SETTLE.xShiftFraction * t
         : 0;
       const targetY =
-        (SETTLE.arcLift * state.viewport.height * Math.sin(Math.PI * t)) +
+        (SETTLE.arcLift * state.viewport.height * Math.sin(Math.PI)) +
         (SETTLE.yShiftFraction * state.viewport.height * t);
       modelGroupRef.current.position.x = THREE.MathUtils.lerp(
         modelGroupRef.current.position.x,
