@@ -109,6 +109,11 @@ function resolveRuntimeConfig() {
   if (!isNaN(liftParam)) {
     SETTLE.arcLift = liftParam;
   }
+  // ---- NEW: Horizontal shift driver ----
+  const shiftParam = parseFloat(params.get("shift"));
+  if (!isNaN(shiftParam)) {
+    SETTLE.xShiftFraction = shiftParam;
+  }
   const sizeParam = parseFloat(params.get("size"));
   if (!isNaN(sizeParam) && sizeParam > 0) {
     MODEL.targetSize = sizeParam;
