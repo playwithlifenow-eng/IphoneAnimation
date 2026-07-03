@@ -63,6 +63,7 @@ const SETTLE = {
   targetEuler: [0, Math.PI, 0],
   scale: 0.8, // upright phone scales down to stay inside the frame
   xShiftFraction: 0.22, // desktop rest slot: fraction of viewport width
+  yShiftFraction: 0,
   arcLift: 0.08, // fraction of viewport height — subtle swoop on the path
   desktopMinWidth: 810, // px — below this, no drift (mobile stays centred)
 };
@@ -113,6 +114,11 @@ function resolveRuntimeConfig() {
   const shiftParam = parseFloat(params.get("shift"));
   if (!isNaN(shiftParam)) {
     SETTLE.xShiftFraction = shiftParam;
+  }
+  // ---- NEW: Vertical shift driver ----
+  const vShiftParam = parseFloat(params.get("vshift"));
+  if (!isNaN(vShiftParam)) {
+    SETTLE.yShiftFraction = vShiftParam;
   }
   const sizeParam = parseFloat(params.get("size"));
   if (!isNaN(sizeParam) && sizeParam > 0) {
@@ -494,7 +500,8 @@ child.renderOrder = 3;
         ? state.viewport.width * SETTLE.xShiftFraction * t
         : 0;
       const targetY =
-        SETTLE.arcLift * state.viewport.height * Math.sin(Math.PI * t);
+        (SETTLE.arcLift * state.viewport.height * Math.sin(Math.PI * t)) +
+        (SETTLE.yShiftFraction * state.viewport.height * t);
       modelGroupRef.current.position.x = THREE.MathUtils.lerp(
         modelGroupRef.current.position.x,
         targetX,
