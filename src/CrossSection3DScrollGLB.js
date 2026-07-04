@@ -1,8 +1,14 @@
 import screenImg from "./Screen.png";
 import internalsImg from "./internals.jpg";
-import { useRef, useMemo, useEffect, useLayoutEffect } from "react";
+import { useRef, useMemo, useEffect, useLayoutEffect, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { Environment, ContactShadows, useGLTF, useTexture } from "@react-three/drei";
+import {
+  Environment,
+  ContactShadows,
+  useGLTF,
+  useTexture,
+  TransformControls,
+} from "@react-three/drei";
 import * as THREE from "three";
 import { gsap } from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
@@ -11,18 +17,23 @@ import { Leva, useControls, button } from "leva";
 gsap.registerPlugin(ScrollTrigger);
 
 // ============================================
-// v2.4 — HEADLESS PRESENTATION LAYER + LEVA DEV RIG
+// v2.5 — IN-CANVAS POSE GIZMO (inverse control)
 //
-// All DOM UI (info panels, progress bar, prompts) removed — Framer owns
-// every text layer. All pointer interactivity (OrbitControls, layer
-// clicks, hover cursors) removed — the model is driven exclusively by
-// scroll progress. Drei <Center>/<Resize> replaced by a measured pivot
-// (Box3 at mount) so the settle rotation spins on the phone's true
-// geometric centre instead of the GLB origin.
+// The ?dev=1 rig gains a TransformControls gizmo attached to the whole-
+// model group. Drag the phone directly in the PRODUCTION scene (real
+// camera, real measured pivot, real lighting); on mouse-up the rig
+// BACK-SOLVES the SETTLE parameters from the captured pose and syncs
+// the Leva sliders. copy URL handoff contract unchanged.
 //
-// DEV RIG (?dev=1): Leva panel for live parameter tuning. Additive
-// instrumentation only — writes to the same config objects the
-// animation already reads. Zero behaviour change without ?dev.
+// Capture is defined at p=1 (settle endpoint) — the only point where
+// pose → parameters is exact division, no slerp inversion. Enabling the
+// gizmo snaps p to 1.
+//
+// Also fixes the arcLift bug: Math.sin(Math.PI) is identically ~0, so
+// the lift control was dead. Now Math.sin(Math.PI * t) — bump peaks
+// mid-transition, returns to 0 at the approved p=1 resting height.
+//
+// Production behaviour without ?dev=1: unchanged from v2.4.
 // ============================================
 
 // ============================================
@@ -78,7 +89,7 @@ const MODEL = {
 };
 
 // ============================================
-// DEV RIG (Leva) — additive instrumentation only.
+// DEV RIG (Leva + gizmo) — additive instrumentation only.
 // Writes to the SAME config objects the animation already reads.
 // Active only with ?dev=1. Dirty flags tell the render loop which
 // mount-time derivations to recompute (quaternions, pivot fit).
@@ -89,6 +100,12 @@ const DEV = {
   dirtyFit: false, // size changed → re-derive pivot scale/offset
   applyProgress: null, // registered by the driver effect
   lastP: 0,
+  gizmo: "off", // "off" | "translate" | "rotate" | "scale"
+  gizmoDragging: false, // true while gizmo is being dragged — useFrame
+  //                       suppresses whole-model writes so the lerp
+  //                       doesn't fight the hand
+  modelGroup: null, // live Object3D the gizmo attaches to
+  setLeva: null, // Leva set() — bi-directional slider sync
 };
 
 function buildTuningURL() {
@@ -108,6 +125,51 @@ function buildTuningURL() {
   return `${window.location.origin}${window.location.pathname}?${params.toString()}`;
 }
 
+// ---------------------------------------------------------
+// BACK-SOLVE: gizmo pose → SETTLE parameters.
+// Valid at p=1 (t=1) only, where the production maths reduces to:
+//   position.x = viewport.width  * xShiftFraction
+//   position.y = viewport.height * yShiftFraction   (lift term is 0: sin(π)=0)
+//   scale      = SETTLE.scale
+//   quaternion = qEnd  →  Euler(XYZ) = targetEuler
+// z is zeroed and scale forced uniform — production settle has no z term
+// and only uniform scale, so the gizmo can't record an unreproducible pose.
+// ---------------------------------------------------------
+function captureSettleFromObject(viewport) {
+  const obj = DEV.modelGroup;
+  if (!obj) return;
+
+  obj.position.z = 0;
+  obj.scale.setScalar(obj.scale.x);
+
+  SETTLE.scale = obj.scale.x;
+  SETTLE.xShiftFraction = viewport.width
+    ? obj.position.x / viewport.width
+    : 0;
+  SETTLE.yShiftFraction = viewport.height
+    ? obj.position.y / viewport.height
+    : 0;
+
+  const e = new THREE.Euler().setFromQuaternion(obj.quaternion, "XYZ");
+  SETTLE.targetEuler = [e.x, e.y, e.z];
+  DEV.dirtyQuat = true;
+
+  // Sync the Leva sliders (their onChange re-writes the same values —
+  // idempotent). Note: Euler extraction may express the same rotation
+  // with different angles than you typed (e.g. [180,0,180] ≡ [0,180,0]);
+  // the quaternion — and therefore the motion — is identical.
+  if (DEV.setLeva) {
+    DEV.setLeva({
+      pscale: Number(SETTLE.scale.toFixed(2)),
+      shift: Number(SETTLE.xShiftFraction.toFixed(3)),
+      vshift: Number(SETTLE.yShiftFraction.toFixed(3)),
+      settleX: Math.round((e.x * 180) / Math.PI),
+      settleY: Math.round((e.y * 180) / Math.PI),
+      settleZ: Math.round((e.z * 180) / Math.PI),
+    });
+  }
+}
+
 const LEVA_LIGHT = {
   colors: {
     elevation1: "#eef3ef",
@@ -124,7 +186,20 @@ const LEVA_LIGHT = {
 
 function DevControls({ initialP }) {
   const eulDeg = SETTLE.targetEuler.map((r) => (r * 180) / Math.PI);
-  useControls({
+
+  const [, set] = useControls(() => ({
+    gizmo: {
+      value: "off",
+      options: ["off", "move", "rotate", "scale"],
+      onChange: (v) => {
+        DEV.gizmo = v === "move" ? "translate" : v;
+        if (v !== "off") {
+          // Gizmo tuning is defined at the settle endpoint — snap there.
+          DEV.lastP = 1;
+          if (DEV.applyProgress) DEV.applyProgress(1);
+        }
+      },
+    },
     p: {
       value: initialP,
       min: 0,
@@ -226,8 +301,88 @@ function DevControls({ initialP }) {
       window.history.replaceState(null, "", url);
       if (navigator.clipboard) navigator.clipboard.writeText(url);
     }),
-  });
+  }));
+
+  // Expose set() so the gizmo back-solve can drive the sliders
+  useEffect(() => {
+    DEV.setLeva = set;
+    return () => {
+      DEV.setLeva = null;
+    };
+  }, [set]);
+
+  // Keyboard: W translate / E rotate / R scale / Q off
+  useEffect(() => {
+    const onKey = (ev) => {
+      const tag = ev.target && ev.target.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return; // don't hijack Leva typing
+      const map = { w: "move", e: "rotate", r: "scale", q: "off" };
+      const v = map[ev.key.toLowerCase()];
+      if (v) set({ gizmo: v });
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [set]);
+
   return null;
+}
+
+// ---------------------------------------------------------
+// DevGizmo — lives inside <Canvas>. Polls the plain-mutable DEV state
+// once per frame (setState only on change — dev-rig pattern, no extra
+// deps, React stays out of the render loop otherwise).
+// Hold Shift while dragging to snap (0.1 units / 15° / 0.05 scale).
+// ---------------------------------------------------------
+function DevGizmo() {
+  const { viewport } = useThree();
+  const [mode, setMode] = useState("off");
+  const [ready, setReady] = useState(false);
+  const [snap, setSnap] = useState(false);
+
+  useFrame(() => {
+    if (DEV.gizmo !== mode) setMode(DEV.gizmo);
+    const hasObj = !!DEV.modelGroup;
+    if (hasObj !== ready) setReady(hasObj);
+  });
+
+  useEffect(() => {
+    const down = (ev) => ev.key === "Shift" && setSnap(true);
+    const up = (ev) => ev.key === "Shift" && setSnap(false);
+    window.addEventListener("keydown", down);
+    window.addEventListener("keyup", up);
+    return () => {
+      window.removeEventListener("keydown", down);
+      window.removeEventListener("keyup", up);
+    };
+  }, []);
+
+  if (mode === "off" || !ready) return null;
+
+  return (
+    <TransformControls
+      object={DEV.modelGroup}
+      mode={mode}
+      size={0.8}
+      translationSnap={snap ? 0.1 : null}
+      rotationSnap={snap ? Math.PI / 12 : null}
+      scaleSnap={snap ? 0.05 : null}
+      onMouseDown={() => {
+        DEV.gizmoDragging = true;
+        // Guard: capture maths is only valid at the settle endpoint
+        if (DEV.lastP !== 1) {
+          DEV.lastP = 1;
+          if (DEV.applyProgress) DEV.applyProgress(1);
+          if (DEV.setLeva) DEV.setLeva({ p: 1 });
+        }
+      }}
+      onMouseUp={() => {
+        DEV.gizmoDragging = false;
+        // Back-solve BEFORE the next frame's lerp runs — the lerp target
+        // then equals the pose just set, so there is no snap-back.
+        captureSettleFromObject(viewport);
+      }}
+    />
+  );
 }
 
 // ============================================
@@ -241,7 +396,7 @@ function DevControls({ initialP }) {
 //   ?lift=0.08       override SETTLE.arcLift, viewport-height fraction
 //   ?size=1.6        override MODEL.targetSize (tuning)
 //   ?pscale=0.8      override SETTLE.scale (tuning)
-//   ?dev=1           Leva tuning rig (freezes timeline; slider owns p)
+//   ?dev=1           Leva rig + pose gizmo (W/E/R/Q, Shift = snap)
 // ============================================
 function resolveRuntimeConfig() {
   const params = new URLSearchParams(window.location.search);
@@ -575,6 +730,8 @@ child.renderOrder = 3;
     // express the world-frame tilt composition.
     if (modelGroupRef.current) {
       modelGroupRef.current.quaternion.copy(quatsRef.current.qStart);
+      // Register the whole-model group with the dev gizmo
+      DEV.modelGroup = modelGroupRef.current;
     }
     g.position.set(0, 0, 0);
     g.scale.setScalar(1);
@@ -594,6 +751,13 @@ child.renderOrder = 3;
     g.scale.setScalar(s);
     g.position.set(-cLocal.x * s, -cLocal.y * s, -cLocal.z * s);
     measuredRef.current = true;
+  }, []);
+
+  // Unregister on unmount so the gizmo never holds a dead object
+  useEffect(() => {
+    return () => {
+      if (DEV.modelGroup === modelGroupRef.current) DEV.modelGroup = null;
+    };
   }, []);
 
   // ---------------------------------------------------------
@@ -674,7 +838,11 @@ child.renderOrder = 3;
       bodyGroupRef.current.position.z = 0;
     }
 
-    if (modelGroupRef.current) {
+    // Whole-model writes are suppressed while the gizmo is being dragged
+    // — otherwise the lerp fights the hand every frame. On release,
+    // captureSettleFromObject() has already made the params equal the
+    // pose, so the lerp target matches and nothing snaps back.
+    if (modelGroupRef.current && !DEV.gizmoDragging) {
       const t = scrollState.rotate;
 
       // Single geodesic — smooth continuous rotation about one fixed axis
@@ -690,16 +858,17 @@ child.renderOrder = 3;
       );
       modelGroupRef.current.scale.setScalar(s);
 
-      // Path: eased drift to the desktop rest slot + a subtle arc lift
-      // (sin bump peaks mid-transition, returns to 0 at the approved
-      // p=1 resting height)
+      // Path: eased drift to the desktop rest slot + a subtle arc lift.
+      // v2.5 fix: sin(π·t) — sin(π) was a constant ~0, so the lift
+      // control did nothing. Bump peaks mid-transition, returns to 0
+      // at the approved p=1 resting height.
       const isDesktop = state.size.width >= SETTLE.desktopMinWidth;
       const targetX = isDesktop
         ? state.viewport.width * SETTLE.xShiftFraction * t
         : 0;
       const targetY =
-        (SETTLE.arcLift * state.viewport.height * Math.sin(Math.PI)) +
-        (SETTLE.yShiftFraction * state.viewport.height * t);
+        SETTLE.arcLift * state.viewport.height * Math.sin(Math.PI * t) +
+        SETTLE.yShiftFraction * state.viewport.height * t;
       modelGroupRef.current.position.x = THREE.MathUtils.lerp(
         modelGroupRef.current.position.x,
         targetX,
@@ -762,6 +931,7 @@ function Scene({
   screenTexture,
   internalsTexture,
   explodeDistance,
+  dev,
 }) {
   const shadowRef = useRef();
 
@@ -792,6 +962,8 @@ function Scene({
         internalsTexture={internalsTexture}
         explodeDistance={explodeDistance}
       />
+
+      {dev && <DevGizmo />}
 
       <ContactShadows
         ref={shadowRef}
@@ -976,6 +1148,7 @@ export default function CrossSection3DScrollGLB(props) {
             screenTexture={screenTexture}
             internalsTexture={internalsTexture}
             explodeDistance={explodeDistance}
+            dev={dev}
           />
         </Canvas>
       </div>
