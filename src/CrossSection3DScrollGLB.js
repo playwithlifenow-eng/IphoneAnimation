@@ -12,28 +12,32 @@ import {
 import * as THREE from "three";
 import { gsap } from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
-import { Leva, useControls, button } from "leva";
+import { Leva, useControls, button, buttonGroup, folder } from "leva";
 
 gsap.registerPlugin(ScrollTrigger);
 
 // ============================================
-// v2.5 — IN-CANVAS POSE GIZMO (inverse control)
+// v2.6 — POSE STUDIO (dev-rig expansion)
 //
-// The ?dev=1 rig gains a TransformControls gizmo attached to the whole-
-// model group. Drag the phone directly in the PRODUCTION scene (real
-// camera, real measured pivot, real lighting); on mouse-up the rig
-// BACK-SOLVES the SETTLE parameters from the captured pose and syncs
-// the Leva sliders. copy URL handoff contract unchanged.
+// v2.5 recap: TransformControls gizmo on the whole-model group,
+// back-solving SETTLE params at p=1; arcLift sin(π·t) fix.
 //
-// Capture is defined at p=1 (settle endpoint) — the only point where
-// pose → parameters is exact division, no slerp inversion. Enabling the
-// gizmo snaps p to 1.
-//
-// Also fixes the arcLift bug: Math.sin(Math.PI) is identically ~0, so
-// the lift control was dead. Now Math.sin(Math.PI * t) — bump peaks
-// mid-transition, returns to 0 at the approved p=1 resting height.
-//
-// Production behaviour without ?dev=1: unchanged from v2.4.
+// v2.6 adds (all additive — production identical at defaults):
+//   STAGE channel   New outermost group with a constant world transform
+//                   (pos/rot/scale), NEVER written by useFrame. The gizmo
+//                   'target' switch edits it at ANY p — this is how you
+//                   pose the EXPLODED phone in XYZ (settle params are
+//                   t-gated and can't). Serialises to ?spos/?srot/?sscale,
+//                   so it doubles as a per-page framing control in prod.
+//   phase jumps     Buttons snapping p to ½explode / hold / ½reasm / end.
+//   save card       Downloads one PNG: rendered frame + decoded parameter
+//                   table + URL. Desktop pose-library format; paste the
+//                   card back to Claude and the pose is reconstructable
+//                   from the table (not OCR-of-a-URL).
+//   copy manifest   Clipboard JSON for the Playwright p-sweep capture
+//                   pipeline (constants baked into baseURL; script
+//                   appends &p=… per frame).
+//   wider panel     Leva sizes block — value boxes no longer clip.
 // ============================================
 
 // ============================================
@@ -55,7 +59,7 @@ function smoothstep(t) {
 //   0.00 – 0.35  EXPLODE      staggered glass → OLED separation
 //   0.35 – 0.45  HOLD         fully exploded beat (headline lands here)
 //   0.45 – 0.70  REASSEMBLE   mirror of explode
-//   0.70 – 1.00  SETTLE       two-stage rotation to upright face-on,
+//   0.70 – 1.00  SETTLE       rotation to upright face-on,
 //                             desktop drifts right to the rest slot
 // ============================================
 const TIMELINE = {
@@ -84,49 +88,207 @@ const SETTLE = {
   desktopMinWidth: 810, // px — below this, no drift (mobile stays centred)
 };
 
+// STAGE — constant world transform on the OUTERMOST group. Identity by
+// default (zero production change). Unlike SETTLE, it is NOT gated by the
+// timeline: it applies at every p, so the exploded phone can be posed
+// anywhere in frame. useFrame never writes this group — the gizmo (target:
+// stage) and the Leva stage folder are its only writers.
+// Overridable: ?spos=x,y,z (world units) ?srot=x,y,z (deg) ?sscale=s
+// Note: the settle drift's viewport-fraction maths runs INSIDE the stage
+// frame — with a rotated/scaled stage, shift/vshift move in stage-local
+// axes. Fine in practice; stage is identity in the approved choreography.
+const STAGE = {
+  position: [0, 0, 0],
+  rotationEuler: [0, 0, 0], // radians, XYZ order
+  scale: 1,
+};
+
 const MODEL = {
   targetSize: 1.6, // world units — largest model dimension after fit
 };
 
 // ============================================
-// DEV RIG (Leva + gizmo) — additive instrumentation only.
+// DEV RIG — additive instrumentation only.
 // Writes to the SAME config objects the animation already reads.
 // Active only with ?dev=1. Dirty flags tell the render loop which
-// mount-time derivations to recompute (quaternions, pivot fit).
+// mount-time derivations to recompute.
 // ============================================
 const DEV = {
   enabled: false,
   dirtyQuat: false, // tilt / settle changed → recompute qStart/qEnd
   dirtyFit: false, // size changed → re-derive pivot scale/offset
+  dirtyStage: true, // STAGE changed → re-apply to stage group (true at
+  //                   boot so URL-parsed stage values apply on frame 1 —
+  //                   this one runs in production too)
   applyProgress: null, // registered by the driver effect
   lastP: 0,
   gizmo: "off", // "off" | "translate" | "rotate" | "scale"
-  gizmoDragging: false, // true while gizmo is being dragged — useFrame
-  //                       suppresses whole-model writes so the lerp
-  //                       doesn't fight the hand
-  modelGroup: null, // live Object3D the gizmo attaches to
+  gizmoTarget: "settle", // "settle" (p=1 endpoint, back-solved) | "stage"
+  gizmoDragging: false, // true while dragging — settle-target drags
+  //                       suppress whole-model useFrame writes
+  modelGroup: null, // live Object3D — settle gizmo target
+  stageGroup: null, // live Object3D — stage gizmo target
+  canvasEl: null, // WebGL canvas element — save-card frame source
   setLeva: null, // Leva set() — bi-directional slider sync
 };
 
-function buildTuningURL() {
-  const params = new URLSearchParams(window.location.search);
-  const eulDeg = SETTLE.targetEuler.map((r) =>
-    Math.round((r * 180) / Math.PI)
-  );
-  params.set("dev", "1");
-  params.set("p", DEV.lastP.toFixed(3));
+// ---------------------------------------------------------
+// URL / manifest serialisation — single source of truth for the
+// parameter → querystring mapping (copy URL, save card, manifest
+// all route through serialiseParams).
+// ---------------------------------------------------------
+function serialiseParams(params) {
+  const deg = (r) => Math.round((r * 180) / Math.PI);
   params.set("tilt", ((START.tilt * 180) / Math.PI).toFixed(1));
-  params.set("settle", eulDeg.join(","));
+  params.set("settle", SETTLE.targetEuler.map(deg).join(","));
   params.set("shift", SETTLE.xShiftFraction.toFixed(3));
   params.set("vshift", SETTLE.yShiftFraction.toFixed(3));
   params.set("lift", SETTLE.arcLift.toFixed(3));
   params.set("pscale", SETTLE.scale.toFixed(2));
   params.set("size", MODEL.targetSize.toFixed(2));
+  params.set("spos", STAGE.position.map((v) => v.toFixed(3)).join(","));
+  params.set("srot", STAGE.rotationEuler.map(deg).join(","));
+  params.set("sscale", STAGE.scale.toFixed(2));
+}
+
+function buildTuningURL() {
+  const params = new URLSearchParams(window.location.search);
+  serialiseParams(params);
+  params.set("dev", "1");
+  params.set("p", DEV.lastP.toFixed(3));
   return `${window.location.origin}${window.location.pathname}?${params.toString()}`;
 }
 
+// Capture base URL: constants only — no dev (no panel/gizmo in frames),
+// no p (the Playwright script appends &p=<value> per frame; the ?p freeze
+// branch pins progress and hides scrollbars without dev mode).
+function buildCaptureBaseURL() {
+  const params = new URLSearchParams();
+  serialiseParams(params);
+  return `${window.location.origin}${window.location.pathname}?${params.toString()}`;
+}
+
+function copyManifest() {
+  const manifest = {
+    type: "iglass-capture-manifest",
+    version: 1,
+    baseURL: buildCaptureBaseURL(),
+    sweepParam: "p", // script visits `${baseURL}&p=${value}`
+    startValue: 0.0, // edit to target a sub-range (e.g. explode = 0→0.35)
+    endValue: 1.0,
+    totalFrames: 90,
+    viewport: { width: 1600, height: 900, deviceScaleFactor: 2 },
+    captureSelector: "canvas", // screenshot the WebGL canvas only
+  };
+  const json = JSON.stringify(manifest, null, 2);
+  if (navigator.clipboard) navigator.clipboard.writeText(json);
+}
+
 // ---------------------------------------------------------
-// BACK-SOLVE: gizmo pose → SETTLE parameters.
+// SAVE CARD — composites the current rendered frame + a decoded
+// parameter table + the full URL into one PNG and downloads it.
+// The table is the machine-read channel when a card is pasted back
+// to Claude (large monospace decoded values, not OCR-of-a-URL).
+// Requires preserveDrawingBuffer (enabled in dev mode only).
+// ---------------------------------------------------------
+function saveCard() {
+  const src = DEV.canvasEl;
+  if (!src) return;
+
+  const fw = src.width;
+  const fh = src.height;
+  const k = Math.max(1, fw / 1200); // text scale relative to frame width
+
+  const deg = (r) => Math.round((r * 180) / Math.PI);
+  const lines = [
+    `p ${DEV.lastP.toFixed(3)}    tilt ${((START.tilt * 180) / Math.PI).toFixed(1)}    size ${MODEL.targetSize.toFixed(2)}`,
+    `settle ${SETTLE.targetEuler.map(deg).join(", ")}    pscale ${SETTLE.scale.toFixed(2)}`,
+    `shift ${SETTLE.xShiftFraction.toFixed(3)}    vshift ${SETTLE.yShiftFraction.toFixed(3)}    lift ${SETTLE.arcLift.toFixed(3)}`,
+    `stage pos ${STAGE.position.map((v) => v.toFixed(2)).join(", ")}    rot ${STAGE.rotationEuler.map(deg).join(", ")}    scl ${STAGE.scale.toFixed(2)}`,
+  ];
+  const url = buildTuningURL();
+
+  const fsMono = Math.round(24 * k);
+  const fsSmall = Math.round(14 * k);
+  const fsHead = Math.round(18 * k);
+  const lh = Math.round(fsMono * 1.55);
+  const lhSmall = Math.round(fsSmall * 1.4);
+  const pad = Math.round(28 * k);
+
+  const card = document.createElement("canvas");
+  const ctx = card.getContext("2d");
+
+  // Measuring pass: wrap the URL to the card width (font metrics are
+  // valid before the resize; resizing resets ctx state — refont below)
+  ctx.font = `${fsSmall}px monospace`;
+  const maxW = fw - pad * 2;
+  const urlLines = [];
+  let lineBuf = "";
+  for (const ch of url) {
+    if (ctx.measureText(lineBuf + ch).width > maxW) {
+      urlLines.push(lineBuf);
+      lineBuf = ch;
+    } else {
+      lineBuf += ch;
+    }
+  }
+  if (lineBuf) urlLines.push(lineBuf);
+
+  const footerH =
+    pad +
+    fsHead +
+    Math.round(12 * k) +
+    lines.length * lh +
+    Math.round(10 * k) +
+    urlLines.length * lhSmall +
+    pad;
+
+  card.width = fw;
+  card.height = fh + footerH;
+
+  // Light card — white behind the transparent WebGL clear
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, card.width, card.height);
+  ctx.drawImage(src, 0, 0);
+
+  ctx.fillStyle = "#e2ece5";
+  ctx.fillRect(0, fh, fw, Math.max(2, Math.round(2 * k)));
+
+  let y = fh + pad + fsHead;
+  ctx.fillStyle = "#2e7d52";
+  ctx.font = `bold ${fsHead}px monospace`;
+  ctx.fillText("iGLASS POSE CARD", pad, y);
+  const dateStr = new Date().toISOString().slice(0, 16).replace("T", " ");
+  ctx.fillText(dateStr, fw - pad - ctx.measureText(dateStr).width, y);
+
+  y += Math.round(12 * k);
+  ctx.fillStyle = "#0d1512";
+  ctx.font = `${fsMono}px monospace`;
+  for (const l of lines) {
+    y += lh;
+    ctx.fillText(l, pad, y);
+  }
+
+  y += Math.round(10 * k);
+  ctx.fillStyle = "#5a6b60";
+  ctx.font = `${fsSmall}px monospace`;
+  for (const l of urlLines) {
+    y += lhSmall;
+    ctx.fillText(l, pad, y);
+  }
+
+  card.toBlob((blob) => {
+    if (!blob) return;
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `iglass-pose_p${DEV.lastP.toFixed(2)}_${Date.now()}.png`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  }, "image/png");
+}
+
+// ---------------------------------------------------------
+// BACK-SOLVE (settle target): gizmo pose → SETTLE parameters.
 // Valid at p=1 (t=1) only, where the production maths reduces to:
 //   position.x = viewport.width  * xShiftFraction
 //   position.y = viewport.height * yShiftFraction   (lift term is 0: sin(π)=0)
@@ -170,6 +332,40 @@ function captureSettleFromObject(viewport) {
   }
 }
 
+// ---------------------------------------------------------
+// CAPTURE (stage target): direct read — no back-solve, no t maths.
+// The stage transform IS the parameter. Works at any p.
+// ---------------------------------------------------------
+function captureStageFromObject() {
+  const obj = DEV.stageGroup;
+  if (!obj) return;
+
+  obj.scale.setScalar(obj.scale.x); // uniform only (URL carries one value)
+
+  STAGE.position = [obj.position.x, obj.position.y, obj.position.z];
+  const e = new THREE.Euler().setFromQuaternion(obj.quaternion, "XYZ");
+  STAGE.rotationEuler = [e.x, e.y, e.z];
+  STAGE.scale = obj.scale.x;
+
+  if (DEV.setLeva) {
+    DEV.setLeva({
+      sposX: Number(STAGE.position[0].toFixed(2)),
+      sposY: Number(STAGE.position[1].toFixed(2)),
+      sposZ: Number(STAGE.position[2].toFixed(2)),
+      srotX: Math.round((e.x * 180) / Math.PI),
+      srotY: Math.round((e.y * 180) / Math.PI),
+      srotZ: Math.round((e.z * 180) / Math.PI),
+      sscale: Number(STAGE.scale.toFixed(2)),
+    });
+  }
+}
+
+function jumpToP(v) {
+  DEV.lastP = v;
+  if (DEV.applyProgress) DEV.applyProgress(v);
+  if (DEV.setLeva) DEV.setLeva({ p: v });
+}
+
 const LEVA_LIGHT = {
   colors: {
     elevation1: "#eef3ef",
@@ -182,10 +378,17 @@ const LEVA_LIGHT = {
     highlight2: "#25332b",
     highlight3: "#0d1512",
   },
+  // v2.6: wider panel — value boxes were clipping 4+ character numbers
+  sizes: {
+    rootWidth: "340px",
+    controlWidth: "180px",
+    numberInputMinWidth: "64px",
+  },
 };
 
 function DevControls({ initialP }) {
   const eulDeg = SETTLE.targetEuler.map((r) => (r * 180) / Math.PI);
+  const stageDeg = STAGE.rotationEuler.map((r) => (r * 180) / Math.PI);
 
   const [, set] = useControls(() => ({
     gizmo: {
@@ -193,13 +396,31 @@ function DevControls({ initialP }) {
       options: ["off", "move", "rotate", "scale"],
       onChange: (v) => {
         DEV.gizmo = v === "move" ? "translate" : v;
-        if (v !== "off") {
-          // Gizmo tuning is defined at the settle endpoint — snap there.
+        // Settle-target gizmo tuning is defined at the endpoint — snap
+        // there. Stage target works at any p, leave progress alone.
+        if (v !== "off" && DEV.gizmoTarget === "settle") {
           DEV.lastP = 1;
           if (DEV.applyProgress) DEV.applyProgress(1);
         }
       },
     },
+    target: {
+      value: "settle",
+      options: ["settle", "stage"],
+      onChange: (v) => {
+        DEV.gizmoTarget = v;
+        if (v === "settle" && DEV.gizmo !== "off") {
+          DEV.lastP = 1;
+          if (DEV.applyProgress) DEV.applyProgress(1);
+        }
+      },
+    },
+    jump: buttonGroup({
+      "½exp": () => jumpToP(0.175),
+      hold: () => jumpToP(0.4),
+      "½asm": () => jumpToP(0.575),
+      end: () => jumpToP(1),
+    }),
     p: {
       value: initialP,
       min: 0,
@@ -296,14 +517,91 @@ function DevControls({ initialP }) {
         DEV.dirtyFit = true;
       },
     },
+    stage: folder(
+      {
+        sposX: {
+          value: STAGE.position[0],
+          min: -3,
+          max: 3,
+          step: 0.01,
+          onChange: (v) => {
+            STAGE.position[0] = v;
+            DEV.dirtyStage = true;
+          },
+        },
+        sposY: {
+          value: STAGE.position[1],
+          min: -3,
+          max: 3,
+          step: 0.01,
+          onChange: (v) => {
+            STAGE.position[1] = v;
+            DEV.dirtyStage = true;
+          },
+        },
+        sposZ: {
+          value: STAGE.position[2],
+          min: -3,
+          max: 3,
+          step: 0.01,
+          onChange: (v) => {
+            STAGE.position[2] = v;
+            DEV.dirtyStage = true;
+          },
+        },
+        srotX: {
+          value: stageDeg[0],
+          min: -180,
+          max: 180,
+          step: 1,
+          onChange: (v) => {
+            STAGE.rotationEuler[0] = (v * Math.PI) / 180;
+            DEV.dirtyStage = true;
+          },
+        },
+        srotY: {
+          value: stageDeg[1],
+          min: -180,
+          max: 180,
+          step: 1,
+          onChange: (v) => {
+            STAGE.rotationEuler[1] = (v * Math.PI) / 180;
+            DEV.dirtyStage = true;
+          },
+        },
+        srotZ: {
+          value: stageDeg[2],
+          min: -180,
+          max: 180,
+          step: 1,
+          onChange: (v) => {
+            STAGE.rotationEuler[2] = (v * Math.PI) / 180;
+            DEV.dirtyStage = true;
+          },
+        },
+        sscale: {
+          value: STAGE.scale,
+          min: 0.2,
+          max: 3,
+          step: 0.01,
+          onChange: (v) => {
+            STAGE.scale = v;
+            DEV.dirtyStage = true;
+          },
+        },
+      },
+      { collapsed: true }
+    ),
     "copy URL": button(() => {
       const url = buildTuningURL();
       window.history.replaceState(null, "", url);
       if (navigator.clipboard) navigator.clipboard.writeText(url);
     }),
+    "save card": button(saveCard),
+    "copy manifest": button(copyManifest),
   }));
 
-  // Expose set() so the gizmo back-solve can drive the sliders
+  // Expose set() so gizmo captures and phase jumps can drive the sliders
   useEffect(() => {
     DEV.setLeva = set;
     return () => {
@@ -311,14 +609,18 @@ function DevControls({ initialP }) {
     };
   }, [set]);
 
-  // Keyboard: W translate / E rotate / R scale / Q off
+  // Keyboard: W translate / E rotate / R scale / Q off / T target toggle
   useEffect(() => {
     const onKey = (ev) => {
       const tag = ev.target && ev.target.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA") return; // don't hijack Leva typing
+      const k = ev.key.toLowerCase();
+      if (k === "t") {
+        set({ target: DEV.gizmoTarget === "settle" ? "stage" : "settle" });
+        return;
+      }
       const map = { w: "move", e: "rotate", r: "scale", q: "off" };
-      const v = map[ev.key.toLowerCase()];
-      if (v) set({ gizmo: v });
+      if (map[k]) set({ gizmo: map[k] });
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -331,18 +633,23 @@ function DevControls({ initialP }) {
 // DevGizmo — lives inside <Canvas>. Polls the plain-mutable DEV state
 // once per frame (setState only on change — dev-rig pattern, no extra
 // deps, React stays out of the render loop otherwise).
+// Targets: settle (whole-model group, p forced to 1, back-solved on
+// release) or stage (outermost group, any p, direct read on release).
 // Hold Shift while dragging to snap (0.1 units / 15° / 0.05 scale).
 // ---------------------------------------------------------
 function DevGizmo() {
   const { viewport } = useThree();
   const [mode, setMode] = useState("off");
+  const [target, setTarget] = useState("settle");
   const [ready, setReady] = useState(false);
   const [snap, setSnap] = useState(false);
 
   useFrame(() => {
     if (DEV.gizmo !== mode) setMode(DEV.gizmo);
-    const hasObj = !!DEV.modelGroup;
-    if (hasObj !== ready) setReady(hasObj);
+    if (DEV.gizmoTarget !== target) setTarget(DEV.gizmoTarget);
+    const obj = DEV.gizmoTarget === "stage" ? DEV.stageGroup : DEV.modelGroup;
+    const has = !!obj;
+    if (has !== ready) setReady(has);
   });
 
   useEffect(() => {
@@ -358,9 +665,12 @@ function DevGizmo() {
 
   if (mode === "off" || !ready) return null;
 
+  const obj = target === "stage" ? DEV.stageGroup : DEV.modelGroup;
+
   return (
     <TransformControls
-      object={DEV.modelGroup}
+      key={`${mode}-${target}`}
+      object={obj}
       mode={mode}
       size={0.8}
       translationSnap={snap ? 0.1 : null}
@@ -368,8 +678,8 @@ function DevGizmo() {
       scaleSnap={snap ? 0.05 : null}
       onMouseDown={() => {
         DEV.gizmoDragging = true;
-        // Guard: capture maths is only valid at the settle endpoint
-        if (DEV.lastP !== 1) {
+        // Settle capture maths is only valid at the endpoint
+        if (target === "settle" && DEV.lastP !== 1) {
           DEV.lastP = 1;
           if (DEV.applyProgress) DEV.applyProgress(1);
           if (DEV.setLeva) DEV.setLeva({ p: 1 });
@@ -377,9 +687,10 @@ function DevGizmo() {
       }}
       onMouseUp={() => {
         DEV.gizmoDragging = false;
-        // Back-solve BEFORE the next frame's lerp runs — the lerp target
+        // Capture BEFORE the next frame's lerp runs — the lerp target
         // then equals the pose just set, so there is no snap-back.
-        captureSettleFromObject(viewport);
+        if (target === "stage") captureStageFromObject();
+        else captureSettleFromObject(viewport);
       }}
     />
   );
@@ -390,13 +701,17 @@ function DevGizmo() {
 //
 //   ?mode=scroll|autoplay|standalone   (unchanged tri-mode driver)
 //   ?bg=%230a0a0c                      opaque background; default transparent
-//   ?p=0.85          freeze the timeline at a fixed progress (tuning)
-//   ?settle=0,180,0  override SETTLE.targetEuler, degrees (tuning)
-//   ?tilt=18         override START.tilt, degrees (tuning)
+//   ?p=0.85          freeze the timeline at a fixed progress (tuning/capture)
+//   ?settle=0,180,0  override SETTLE.targetEuler, degrees
+//   ?tilt=18         override START.tilt, degrees
 //   ?lift=0.08       override SETTLE.arcLift, viewport-height fraction
-//   ?size=1.6        override MODEL.targetSize (tuning)
-//   ?pscale=0.8      override SETTLE.scale (tuning)
-//   ?dev=1           Leva rig + pose gizmo (W/E/R/Q, Shift = snap)
+//   ?size=1.6        override MODEL.targetSize
+//   ?pscale=0.8      override SETTLE.scale
+//   ?spos=x,y,z      STAGE position, world units
+//   ?srot=x,y,z      STAGE rotation, degrees
+//   ?sscale=1        STAGE uniform scale
+//   ?dev=1           Pose Studio (Leva rig + gizmo; W/E/R/Q, T = target,
+//                    Shift = snap)
 // ============================================
 function resolveRuntimeConfig() {
   const params = new URLSearchParams(window.location.search);
@@ -443,6 +758,27 @@ function resolveRuntimeConfig() {
   if (!isNaN(pscaleParam) && pscaleParam > 0) {
     SETTLE.scale = pscaleParam;
   }
+
+  // ---- STAGE channel (applies in production too — per-page framing) ----
+  const sposParam = params.get("spos");
+  if (sposParam) {
+    const parts = sposParam.split(",").map((v) => parseFloat(v));
+    if (parts.length === 3 && parts.every((v) => !isNaN(v))) {
+      STAGE.position = parts;
+    }
+  }
+  const srotParam = params.get("srot");
+  if (srotParam) {
+    const parts = srotParam.split(",").map((v) => parseFloat(v));
+    if (parts.length === 3 && parts.every((v) => !isNaN(v))) {
+      STAGE.rotationEuler = parts.map((deg) => (deg * Math.PI) / 180);
+    }
+  }
+  const sscaleParam = parseFloat(params.get("sscale"));
+  if (!isNaN(sscaleParam) && sscaleParam > 0) {
+    STAGE.scale = sscaleParam;
+  }
+  DEV.dirtyStage = true;
 
   const dev = params.get("dev") === "1" || params.get("dev") === "true";
   DEV.enabled = dev;
@@ -572,6 +908,7 @@ function IPhoneExploded({
   const oledGroupRef = useRef();
   const bodyGroupRef = useRef();
   const modelGroupRef = useRef(); // whole-model group — settle rotation + drift
+  const stageGroupRef = useRef(); // v2.6 — constant world transform, timeline-free
 
   // ---------------------------------------------------------
   // SORTING: layers by node name (unchanged from v1).
@@ -718,6 +1055,9 @@ child.renderOrder = 3;
   // centre point. One-time measurement; explode offsets are 0 at mount.
   // maxDim/cLocal cached in fitRef so the dev rig can re-fit on ?dev
   // size changes without re-measuring.
+  // NOTE (v2.6): measurement runs before the stage transform is applied
+  // (dirtyStage applies in the first useFrame, after this layout effect),
+  // so the Box3 is measured in the identity stage frame — exact.
   // ---------------------------------------------------------
   const pivotRef = useRef();
   const measuredRef = useRef(false);
@@ -730,8 +1070,11 @@ child.renderOrder = 3;
     // express the world-frame tilt composition.
     if (modelGroupRef.current) {
       modelGroupRef.current.quaternion.copy(quatsRef.current.qStart);
-      // Register the whole-model group with the dev gizmo
+      // Register gizmo targets
       DEV.modelGroup = modelGroupRef.current;
+    }
+    if (stageGroupRef.current) {
+      DEV.stageGroup = stageGroupRef.current;
     }
     g.position.set(0, 0, 0);
     g.scale.setScalar(1);
@@ -757,6 +1100,7 @@ child.renderOrder = 3;
   useEffect(() => {
     return () => {
       if (DEV.modelGroup === modelGroupRef.current) DEV.modelGroup = null;
+      if (DEV.stageGroup === stageGroupRef.current) DEV.stageGroup = null;
     };
   }, []);
 
@@ -816,6 +1160,26 @@ child.renderOrder = 3;
       DEV.dirtyFit = false;
     }
 
+    // STAGE apply — runs in production too (URL-driven framing channel).
+    // useFrame is otherwise forbidden from writing this group; only the
+    // dirty flag (URL parse / Leva sliders / capture sync) triggers it,
+    // and never mid-drag when the gizmo owns the transform.
+    if (
+      DEV.dirtyStage &&
+      stageGroupRef.current &&
+      !(DEV.gizmoDragging && DEV.gizmoTarget === "stage")
+    ) {
+      const g = stageGroupRef.current;
+      g.position.set(STAGE.position[0], STAGE.position[1], STAGE.position[2]);
+      g.rotation.set(
+        STAGE.rotationEuler[0],
+        STAGE.rotationEuler[1],
+        STAGE.rotationEuler[2]
+      );
+      g.scale.setScalar(STAGE.scale);
+      DEV.dirtyStage = false;
+    }
+
     if (glassGroupRef.current) {
       const target = -(scrollState.glassOffset * explodeDistance * 2.0);
       glassGroupRef.current.position.z = THREE.MathUtils.lerp(
@@ -838,11 +1202,13 @@ child.renderOrder = 3;
       bodyGroupRef.current.position.z = 0;
     }
 
-    // Whole-model writes are suppressed while the gizmo is being dragged
-    // — otherwise the lerp fights the hand every frame. On release,
-    // captureSettleFromObject() has already made the params equal the
-    // pose, so the lerp target matches and nothing snaps back.
-    if (modelGroupRef.current && !DEV.gizmoDragging) {
+    // Whole-model writes are suppressed while the SETTLE-target gizmo is
+    // being dragged — otherwise the lerp fights the hand every frame.
+    // On release, captureSettleFromObject() has already made the params
+    // equal the pose, so the lerp target matches and nothing snaps back.
+    // Stage-target drags don't touch this group — no suppression needed.
+    const settleDrag = DEV.gizmoDragging && DEV.gizmoTarget === "settle";
+    if (modelGroupRef.current && !settleDrag) {
       const t = scrollState.rotate;
 
       // Single geodesic — smooth continuous rotation about one fixed axis
@@ -859,9 +1225,8 @@ child.renderOrder = 3;
       modelGroupRef.current.scale.setScalar(s);
 
       // Path: eased drift to the desktop rest slot + a subtle arc lift.
-      // v2.5 fix: sin(π·t) — sin(π) was a constant ~0, so the lift
-      // control did nothing. Bump peaks mid-transition, returns to 0
-      // at the approved p=1 resting height.
+      // v2.5 fix: sin(π·t) — sin(π) was a constant ~0. Bump peaks
+      // mid-transition, returns to 0 at the approved p=1 resting height.
       const isDesktop = state.size.width >= SETTLE.desktopMinWidth;
       const targetX = isDesktop
         ? state.viewport.width * SETTLE.xShiftFraction * t
@@ -883,40 +1248,42 @@ child.renderOrder = 3;
   });
 
   return (
-    <group ref={modelGroupRef}>
-      <group ref={pivotRef}>
-        {/* GLASS (Front Window + Bezel) */}
-        <group ref={glassGroupRef}>
-          {glassMeshes.map((m, i) => (
-            <primitive key={`glass-${i}`} object={m} />
-          ))}
-        </group>
+    <group ref={stageGroupRef}>
+      <group ref={modelGroupRef}>
+        <group ref={pivotRef}>
+          {/* GLASS (Front Window + Bezel) */}
+          <group ref={glassGroupRef}>
+            {glassMeshes.map((m, i) => (
+              <primitive key={`glass-${i}`} object={m} />
+            ))}
+          </group>
 
-        {/* OLED */}
-        <group ref={oledGroupRef}>
-          {oledMeshes.map((m, i) => (
-            <primitive key={`oled-${i}`} object={m} />
-          ))}
-        </group>
+          {/* OLED */}
+          <group ref={oledGroupRef}>
+            {oledMeshes.map((m, i) => (
+              <primitive key={`oled-${i}`} object={m} />
+            ))}
+          </group>
 
-        {/* BODY */}
-        <group ref={bodyGroupRef}>
-          {bodyMeshes.map((m, i) => (
-            <primitive key={`body-${i}`} object={m} />
-          ))}
+          {/* BODY */}
+          <group ref={bodyGroupRef}>
+            {bodyMeshes.map((m, i) => (
+              <primitive key={`body-${i}`} object={m} />
+            ))}
 
-          {/* Internals teardown texture */}
-          <mesh
-            position={[0, 8.06, -0.33]}
-            renderOrder={0}
-            geometry={internalsGeo}
-          >
-            <meshBasicMaterial
-              map={internTex}
-              toneMapped={false}
-              side={THREE.DoubleSide}
-            />
-          </mesh>
+            {/* Internals teardown texture */}
+            <mesh
+              position={[0, 8.06, -0.33]}
+              renderOrder={0}
+              geometry={internalsGeo}
+            >
+              <meshBasicMaterial
+                map={internTex}
+                toneMapped={false}
+                side={THREE.DoubleSide}
+              />
+            </mesh>
+          </group>
         </group>
       </group>
     </group>
@@ -1116,7 +1483,7 @@ export default function CrossSection3DScrollGLB(props) {
         <Leva
           collapsed={false}
           theme={LEVA_LIGHT}
-          titleBar={{ title: "iGlass tuning rig" }}
+          titleBar={{ title: "iGlass pose studio" }}
         />
       )}
       {dev && <DevControls initialP={freezeP ?? 0} />}
@@ -1136,10 +1503,14 @@ export default function CrossSection3DScrollGLB(props) {
             antialias: true,
             powerPreference: "high-performance",
             alpha: true,
+            // Dev only: lets save-card read the framebuffer after present.
+            // Never enabled in production (costs a buffer copy per frame).
+            preserveDrawingBuffer: dev,
           }}
           onCreated={({ gl }) => {
             gl.toneMapping = THREE.NoToneMapping;
             gl.setClearColor(0x000000, 0); // fully transparent clear
+            DEV.canvasEl = gl.domElement; // save-card frame source
           }}
           style={{ width: "100%", height: "100%" }}
         >
