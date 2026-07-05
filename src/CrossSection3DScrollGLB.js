@@ -17,40 +17,31 @@ import { Leva, useControls, button, buttonGroup, folder } from "leva";
 gsap.registerPlugin(ScrollTrigger);
 
 // ============================================
-// v2.7 — KEYBOARD DRIVE MODE
+// v2.9 — SCREEN-SPACE DRIVE
 //
-// v2.6 recap: STAGE channel (constant world transform, timeline-free,
-// gizmo target switch), phase-jump buttons, pose cards, capture manifest.
+// v2.7/2.8 nudged raw euler CHANNELS. Euler channels are only screen-pure
+// at simple orientations. At the current settle pose (~[96, -3, 82]) the
+// Y channel rotates about an axis pitched ~96° — a "flat yaw" dragged the
+// phone through X and Y, and channel signs flipped with orientation
+// (why the sign patch never felt right).
 //
-// v2.7 adds precision arrow-key nudging (mouse-drag acceleration at
-// macro zoom is unusable for fine work):
-//   Tab        cycle arrow mode: MOVE → ROTATE → ROLL·ZOOM
-//   G          cycle granularity: fine → mid → coarse
-//   Arrows     nudge the mode's two axes (hold = auto-repeat glide)
-//   [ / ]      nudge timeline p by the current granularity
-//   T          (existing) target toggle — arrows drive whichever
-//              channel is targeted: settle params or stage params
-// The `drive` readout in the panel always shows mode · grain (target).
-// Settle-target nudges snap p to 1 first (settle params are inert
-// below the endpoint — same rule as the gizmo).
-// ============================================
-
-// ============================================
-// v2.8 — SNAP CAPTURE (?snap=1)
+// v2.9: arrows mean what they say ON SCREEN, at any pose:
+//   MOVE (settle)  screen left/right/up/down — step is rotated through
+//                  the inverse STAGE frame before landing in shift/vshift,
+//                  so a rotated stage no longer makes slides diagonal.
+//   MOVE (stage)   unchanged — stage position is world = screen-pure.
+//   ROTATE         screen yaw (←/→) and screen pitch (↑/↓) — world-axis
+//                  quaternion PREMULTIPLY, euler-extracted back into the
+//                  sliders (the gizmo's own capture pattern).
+//   ROLL·ZOOM      screen roll (←/→, world-Z premultiply); zoom unchanged.
 //
-// Deterministic Playwright frame-baking. With ?snap=1 the lerp damping
-// goes to 1, so each frozen p renders its EXACT pose in a single frame
-// (no glide transient), and window.__iglassCaptureReady flips true once
-// assets are loaded and a few frames have flushed — the capture script
-// waits on that flag instead of guessing a settle delay.
+// Direction conventions live in SCREEN_ROT_SIGNS — flip a single value
+// if any rotation direction feels backwards. Note: euler extraction may
+// relabel the same rotation with different channel numbers mid-glide
+// (e.g. near gimbal boundaries); the quaternion — and the motion — is
+// continuous. Same note as gizmo capture.
 //
-// v2.8 fixes the v2.7 arrow-key inversions via a sign layer on DRIVE_MAP:
-//   MOVE       correct as-is
-//   ROTATE     both axes flipped (-1, -1)
-//   ROLL·ZOOM  ↑/↓ flipped, ←/→ kept
-// Stage-target signs left at +1 (untested — flip srot to -1 if reversed).
-//
-// Both additive — no timeline, geometry, or gizmo change.
+// v2.8 recap: ?snap=1 deterministic capture (damp→1 + readiness flag).
 // ============================================
 let CAPTURE_SNAP = false;
 let SNAP_FRAMES = 0;
@@ -138,6 +129,8 @@ const DEV = {
   setLeva: null, // Leva set() — bi-directional slider sync
   driveMode: 0, // 0 MOVE · 1 ROTATE · 2 ROLL·ZOOM (Tab cycles)
   driveGrain: 0, // 0 fine · 1 mid · 2 coarse (G cycles)
+  viewport: null, // { width, height } world units — stashed by DevGizmo,
+  //                 used by the screen-space MOVE compensation
 };
 
 // ---------------------------------------------------------
@@ -158,18 +151,27 @@ const GRAIN_STEPS = {
   p: [0.002, 0.01, 0.05], // timeline progress
 };
 
-// (target → mode → axis) → [levaKey, stepClass, sign]. x = ←/→, y = ↑/↓
-// sign flips screen-space feel without touching the underlying maths.
+// Screen-rotation direction conventions. Flip a SINGLE value here if any
+// direction feels backwards — this is the only sign surface in v2.9.
+//   yaw   +1 → ArrowRight turns the front face to the viewer's right
+//   pitch -1 → ArrowUp tips the front face upward
+//   roll  -1 → ArrowRight rolls clockwise on screen
+const SCREEN_ROT_SIGNS = { yaw: 1, pitch: -1, roll: -1 };
+
+// Plain-channel map — consulted ONLY for the paths that are already
+// screen-pure: stage MOVE (world position = screen axes) and the two
+// zooms. ROTATE / ROLL and settle MOVE route through the screen-space
+// helpers below instead. x = ←/→, y = ↑/↓
 const DRIVE_MAP = {
   settle: [
-    { x: ["shift", "frac", 1], y: ["vshift", "frac", 1] },    // MOVE       — correct
-    { x: ["settleY", "deg", -1], y: ["settleX", "deg", -1] }, // ROTATE     — both flipped
-    { x: ["settleZ", "deg", 1], y: ["size", "size", -1] },    // ROLL·ZOOM  — ↑/↓ flipped, ←/→ kept
+    { x: null, y: null },                                 // MOVE      — screen-space path
+    { x: null, y: null },                                 // ROTATE    — screen-space path
+    { x: null, y: ["size", "size", -1] },                 // ROLL·ZOOM — roll screen-space; ↑ zooms in
   ],
   stage: [
-    { x: ["sposX", "unit", 1], y: ["sposY", "unit", 1] },     // MOVE
-    { x: ["srotY", "deg", 1], y: ["srotX", "deg", 1] },       // ROTATE     — untested; flip to -1,-1 if reversed
-    { x: ["srotZ", "deg", 1], y: ["sscale", "size", 1] },     // ROLL·ZOOM  — untested
+    { x: ["sposX", "unit", 1], y: ["sposY", "unit", 1] }, // MOVE      — world = screen-pure
+    { x: null, y: null },                                 // ROTATE    — screen-space path
+    { x: null, y: ["sscale", "size", 1] },                // ROLL·ZOOM — roll screen-space
   ],
 };
 
@@ -209,11 +211,118 @@ function driveLabel() {
   return `${MODE_LABELS[DEV.driveMode]} · ${GRAIN_LABELS[DEV.driveGrain]} (${DEV.gizmoTarget})`;
 }
 
+function stageQuat() {
+  return new THREE.Quaternion().setFromEuler(
+    new THREE.Euler(
+      STAGE.rotationEuler[0],
+      STAGE.rotationEuler[1],
+      STAGE.rotationEuler[2]
+    )
+  );
+}
+
+// ---------------------------------------------------------
+// MOVE (settle) — screen-space slide.
+// shift/vshift live in STAGE-LOCAL space; a rotated stage turns a plain
+// channel nudge into a diagonal. Compensation: express the step as a
+// world (screen) delta, rotate it through the INVERSE stage frame,
+// divide by stage scale, land it back in viewport fractions.
+// local.z is dropped — the channels can't express stage-local depth
+// (at extreme stage rotations the slide weakens accordingly).
+// ---------------------------------------------------------
+function nudgeSettleMoveScreen(set, axis, dir) {
+  const step = GRAIN_STEPS.frac[DEV.driveGrain] * dir;
+  const aspect = DEV.viewport
+    ? DEV.viewport.width / DEV.viewport.height
+    : window.innerWidth / window.innerHeight;
+
+  // World delta in vh units (x steps are vw fractions → ×aspect)
+  const world =
+    axis === "x"
+      ? new THREE.Vector3(step * aspect, 0, 0)
+      : new THREE.Vector3(0, step, 0);
+
+  const local = world
+    .applyQuaternion(stageQuat().invert())
+    .divideScalar(STAGE.scale || 1);
+
+  const dShift = local.x / aspect; // vh units → vw fraction
+  const dVshift = local.y;
+
+  const [sLo, sHi] = DRIVE_CLAMPS.shift;
+  const [vLo, vHi] = DRIVE_CLAMPS.vshift;
+  set({
+    shift: Number(
+      Math.min(sHi, Math.max(sLo, SETTLE.xShiftFraction + dShift)).toFixed(4)
+    ),
+    vshift: Number(
+      Math.min(vHi, Math.max(vLo, SETTLE.yShiftFraction + dVshift)).toFixed(4)
+    ),
+  });
+}
+
+// ---------------------------------------------------------
+// ROTATE / ROLL — screen-space rotation.
+// World-axis quaternion PREMULTIPLIED onto the pose, then extracted back
+// to euler channels through the sliders (the gizmo's capture pattern).
+// Settle pose lives INSIDE the stage frame: world rotation W maps to the
+// stage-local rotation Rs⁻¹·W·Rs before premultiplying.
+// ---------------------------------------------------------
+function nudgeRotateScreen(set, axis, dir, isRoll) {
+  const stepRad = (GRAIN_STEPS.deg[DEV.driveGrain] * Math.PI) / 180;
+  let axisVec, sign;
+  if (isRoll) {
+    axisVec = new THREE.Vector3(0, 0, 1);
+    sign = SCREEN_ROT_SIGNS.roll;
+  } else if (axis === "x") {
+    axisVec = new THREE.Vector3(0, 1, 0); // ←/→ = yaw about screen-vertical
+    sign = SCREEN_ROT_SIGNS.yaw;
+  } else {
+    axisVec = new THREE.Vector3(1, 0, 0); // ↑/↓ = pitch about screen-horizontal
+    sign = SCREEN_ROT_SIGNS.pitch;
+  }
+  const W = new THREE.Quaternion().setFromAxisAngle(
+    axisVec,
+    stepRad * dir * sign
+  );
+
+  const toDeg = (r) => Number(((r * 180) / Math.PI).toFixed(2));
+
+  if (DEV.gizmoTarget === "stage") {
+    const q = stageQuat().premultiply(W);
+    const e = new THREE.Euler().setFromQuaternion(q, "XYZ");
+    set({ srotX: toDeg(e.x), srotY: toDeg(e.y), srotZ: toDeg(e.z) });
+  } else {
+    const Rs = stageQuat();
+    const localW = Rs.clone().invert().multiply(W).multiply(Rs);
+    const q = new THREE.Quaternion()
+      .setFromEuler(
+        new THREE.Euler(
+          SETTLE.targetEuler[0],
+          SETTLE.targetEuler[1],
+          SETTLE.targetEuler[2]
+        )
+      )
+      .premultiply(localW);
+    const e = new THREE.Euler().setFromQuaternion(q, "XYZ");
+    set({ settleX: toDeg(e.x), settleY: toDeg(e.y), settleZ: toDeg(e.z) });
+  }
+}
+
 function driveNudge(set, axis, dir) {
   // Settle params are inert below the endpoint — snap there first
   // (same rule as the gizmo)
   if (DEV.gizmoTarget === "settle" && DEV.lastP !== 1) jumpToP(1);
-  const [param, cls, sign] = DRIVE_MAP[DEV.gizmoTarget][DEV.driveMode][axis];
+  const mode = DEV.driveMode;
+
+  // Screen-space paths (v2.9)
+  if (mode === 0 && DEV.gizmoTarget === "settle")
+    return nudgeSettleMoveScreen(set, axis, dir);
+  if (mode === 1) return nudgeRotateScreen(set, axis, dir, false);
+  if (mode === 2 && axis === "x") return nudgeRotateScreen(set, axis, dir, true);
+
+  // Plain channels: stage MOVE + the two zooms
+  const [param, cls, sign] = DRIVE_MAP[DEV.gizmoTarget][mode][axis];
   const step = GRAIN_STEPS[cls][DEV.driveGrain] * dir * sign;
   const [lo, hi] = DRIVE_CLAMPS[param];
   const next = Math.min(hi, Math.max(lo, DRIVE_READERS[param]() + step));
@@ -758,6 +867,7 @@ function DevControls({ initialP }) {
 // group, p forced to 1, back-solved on release) or stage (outermost
 // group, any p, direct read on release).
 // Hold Shift while dragging to snap (0.1 units / 15° / 0.05 scale).
+// Also stashes the world-unit viewport for the screen-space MOVE maths.
 // ---------------------------------------------------------
 function DevGizmo() {
   const { viewport } = useThree();
@@ -767,6 +877,7 @@ function DevGizmo() {
   const [snap, setSnap] = useState(false);
 
   useFrame(() => {
+    DEV.viewport = { width: viewport.width, height: viewport.height };
     if (DEV.gizmo !== mode) setMode(DEV.gizmo);
     if (DEV.gizmoTarget !== target) setTarget(DEV.gizmoTarget);
     const obj = DEV.gizmoTarget === "stage" ? DEV.stageGroup : DEV.modelGroup;
