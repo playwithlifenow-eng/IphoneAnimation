@@ -17,27 +17,22 @@ import { Leva, useControls, button, buttonGroup, folder } from "leva";
 gsap.registerPlugin(ScrollTrigger);
 
 // ============================================
-// v2.6 — POSE STUDIO (dev-rig expansion)
+// v2.7 — KEYBOARD DRIVE MODE
 //
-// v2.5 recap: TransformControls gizmo on the whole-model group,
-// back-solving SETTLE params at p=1; arcLift sin(π·t) fix.
+// v2.6 recap: STAGE channel (constant world transform, timeline-free,
+// gizmo target switch), phase-jump buttons, pose cards, capture manifest.
 //
-// v2.6 adds (all additive — production identical at defaults):
-//   STAGE channel   New outermost group with a constant world transform
-//                   (pos/rot/scale), NEVER written by useFrame. The gizmo
-//                   'target' switch edits it at ANY p — this is how you
-//                   pose the EXPLODED phone in XYZ (settle params are
-//                   t-gated and can't). Serialises to ?spos/?srot/?sscale,
-//                   so it doubles as a per-page framing control in prod.
-//   phase jumps     Buttons snapping p to ½explode / hold / ½reasm / end.
-//   save card       Downloads one PNG: rendered frame + decoded parameter
-//                   table + URL. Desktop pose-library format; paste the
-//                   card back to Claude and the pose is reconstructable
-//                   from the table (not OCR-of-a-URL).
-//   copy manifest   Clipboard JSON for the Playwright p-sweep capture
-//                   pipeline (constants baked into baseURL; script
-//                   appends &p=… per frame).
-//   wider panel     Leva sizes block — value boxes no longer clip.
+// v2.7 adds precision arrow-key nudging (mouse-drag acceleration at
+// macro zoom is unusable for fine work):
+//   Tab        cycle arrow mode: MOVE → ROTATE → ROLL·ZOOM
+//   G          cycle granularity: fine → mid → coarse
+//   Arrows     nudge the mode's two axes (hold = auto-repeat glide)
+//   [ / ]      nudge timeline p by the current granularity
+//   T          (existing) target toggle — arrows drive whichever
+//              channel is targeted: settle params or stage params
+// The `drive` readout in the panel always shows mode · grain (target).
+// Settle-target nudges snap p to 1 first (settle params are inert
+// below the endpoint — same rule as the gizmo).
 // ============================================
 
 // ============================================
@@ -69,17 +64,13 @@ const TIMELINE = {
 };
 
 const START = {
-  // Rest-pose tilt toward the viewer, radians. v1's OrbitControls clamped
-  // the camera ~18° above the equator on mount; with controls removed the
-  // equivalent view is restored by tilting the phone instead — the camera
-  // (and the approved p=1 finale framing) stays untouched.
-  // Overridable: ?tilt=deg
+  // Rest-pose tilt toward the viewer, radians. Overridable: ?tilt=deg
   tilt: Math.PI / 10, // 18°
 };
 
 const SETTLE = {
-  // Final pose. [0, PI, 0] = upright portrait, front face to camera
-  // (validated visually). Overridable for tuning: ?settle=x,y,z (degrees)
+  // Final pose. [0, PI, 0] = upright portrait, front face to camera.
+  // Overridable: ?settle=x,y,z (degrees)
   targetEuler: [0, Math.PI, 0],
   scale: 0.8, // upright phone scales down to stay inside the frame
   xShiftFraction: 0.22, // desktop rest slot: fraction of viewport width
@@ -89,14 +80,10 @@ const SETTLE = {
 };
 
 // STAGE — constant world transform on the OUTERMOST group. Identity by
-// default (zero production change). Unlike SETTLE, it is NOT gated by the
-// timeline: it applies at every p, so the exploded phone can be posed
-// anywhere in frame. useFrame never writes this group — the gizmo (target:
-// stage) and the Leva stage folder are its only writers.
-// Overridable: ?spos=x,y,z (world units) ?srot=x,y,z (deg) ?sscale=s
-// Note: the settle drift's viewport-fraction maths runs INSIDE the stage
-// frame — with a rotated/scaled stage, shift/vshift move in stage-local
-// axes. Fine in practice; stage is identity in the approved choreography.
+// default. NOT gated by the timeline: applies at every p, so the exploded
+// phone can be posed anywhere in frame. useFrame never writes this group —
+// the gizmo (target: stage), the Leva stage folder, and the arrow drive
+// are its only writers. Overridable: ?spos=x,y,z ?srot=x,y,z (deg) ?sscale=s
 const STAGE = {
   position: [0, 0, 0],
   rotationEuler: [0, 0, 0], // radians, XYZ order
@@ -110,8 +97,7 @@ const MODEL = {
 // ============================================
 // DEV RIG — additive instrumentation only.
 // Writes to the SAME config objects the animation already reads.
-// Active only with ?dev=1. Dirty flags tell the render loop which
-// mount-time derivations to recompute.
+// Active only with ?dev=1.
 // ============================================
 const DEV = {
   enabled: false,
@@ -130,12 +116,92 @@ const DEV = {
   stageGroup: null, // live Object3D — stage gizmo target
   canvasEl: null, // WebGL canvas element — save-card frame source
   setLeva: null, // Leva set() — bi-directional slider sync
+  driveMode: 0, // 0 MOVE · 1 ROTATE · 2 ROLL·ZOOM (Tab cycles)
+  driveGrain: 0, // 0 fine · 1 mid · 2 coarse (G cycles)
 };
 
 // ---------------------------------------------------------
+// KEYBOARD DRIVE — arrow-key nudging.
+// Tab cycles mode, G cycles granularity, T (existing) picks the channel.
+// Nudges route through Leva set() → the same onChange writers the
+// sliders use, so config objects, dirty flags, and the panel stay in
+// sync with zero new write paths.
+// ---------------------------------------------------------
+const MODE_LABELS = ["MOVE", "ROTATE", "ROLL·ZOOM"];
+const GRAIN_LABELS = ["fine", "mid", "coarse"];
+
+const GRAIN_STEPS = {
+  frac: [0.002, 0.01, 0.05], // shift / vshift (viewport fractions)
+  deg: [0.5, 2, 10], // all rotation params (degrees)
+  unit: [0.005, 0.02, 0.1], // stage position (world units)
+  size: [0.01, 0.05, 0.25], // size / sscale
+  p: [0.002, 0.01, 0.05], // timeline progress
+};
+
+// (target → mode → axis) → [levaKey, stepClass]. x = ←/→, y = ↑/↓
+const DRIVE_MAP = {
+  settle: [
+    { x: ["shift", "frac"], y: ["vshift", "frac"] }, // MOVE
+    { x: ["settleY", "deg"], y: ["settleX", "deg"] }, // ROTATE (yaw / pitch)
+    { x: ["settleZ", "deg"], y: ["size", "size"] }, // ROLL·ZOOM
+  ],
+  stage: [
+    { x: ["sposX", "unit"], y: ["sposY", "unit"] }, // MOVE
+    { x: ["srotY", "deg"], y: ["srotX", "deg"] }, // ROTATE (yaw / pitch)
+    { x: ["srotZ", "deg"], y: ["sscale", "size"] }, // ROLL·ZOOM
+  ],
+};
+
+// Current values read from the config objects (single source of truth)
+const DRIVE_READERS = {
+  shift: () => SETTLE.xShiftFraction,
+  vshift: () => SETTLE.yShiftFraction,
+  settleX: () => (SETTLE.targetEuler[0] * 180) / Math.PI,
+  settleY: () => (SETTLE.targetEuler[1] * 180) / Math.PI,
+  settleZ: () => (SETTLE.targetEuler[2] * 180) / Math.PI,
+  size: () => MODEL.targetSize,
+  sposX: () => STAGE.position[0],
+  sposY: () => STAGE.position[1],
+  srotX: () => (STAGE.rotationEuler[0] * 180) / Math.PI,
+  srotY: () => (STAGE.rotationEuler[1] * 180) / Math.PI,
+  srotZ: () => (STAGE.rotationEuler[2] * 180) / Math.PI,
+  sscale: () => STAGE.scale,
+};
+
+// Match the slider ranges — Leva clamps anyway; this keeps maths honest
+const DRIVE_CLAMPS = {
+  shift: [-0.5, 0.5],
+  vshift: [-1, 1],
+  settleX: [-180, 180],
+  settleY: [-180, 180],
+  settleZ: [-180, 180],
+  size: [0.5, 6],
+  sposX: [-3, 3],
+  sposY: [-3, 3],
+  srotX: [-180, 180],
+  srotY: [-180, 180],
+  srotZ: [-180, 180],
+  sscale: [0.2, 3],
+};
+
+function driveLabel() {
+  return `${MODE_LABELS[DEV.driveMode]} · ${GRAIN_LABELS[DEV.driveGrain]} (${DEV.gizmoTarget})`;
+}
+
+function driveNudge(set, axis, dir) {
+  // Settle params are inert below the endpoint — snap there first
+  // (same rule as the gizmo)
+  if (DEV.gizmoTarget === "settle" && DEV.lastP !== 1) jumpToP(1);
+  const [param, cls] = DRIVE_MAP[DEV.gizmoTarget][DEV.driveMode][axis];
+  const step = GRAIN_STEPS[cls][DEV.driveGrain] * dir;
+  const [lo, hi] = DRIVE_CLAMPS[param];
+  const next = Math.min(hi, Math.max(lo, DRIVE_READERS[param]() + step));
+  set({ [param]: Number(next.toFixed(4)) });
+}
+
+// ---------------------------------------------------------
 // URL / manifest serialisation — single source of truth for the
-// parameter → querystring mapping (copy URL, save card, manifest
-// all route through serialiseParams).
+// parameter → querystring mapping (copy URL, save card, manifest).
 // ---------------------------------------------------------
 function serialiseParams(params) {
   const deg = (r) => Math.round((r * 180) / Math.PI);
@@ -160,8 +226,7 @@ function buildTuningURL() {
 }
 
 // Capture base URL: constants only — no dev (no panel/gizmo in frames),
-// no p (the Playwright script appends &p=<value> per frame; the ?p freeze
-// branch pins progress and hides scrollbars without dev mode).
+// no p (the Playwright script appends &p=<value> per frame).
 function buildCaptureBaseURL() {
   const params = new URLSearchParams();
   serialiseParams(params);
@@ -173,10 +238,10 @@ function copyManifest() {
     type: "iglass-capture-manifest",
     version: 1,
     baseURL: buildCaptureBaseURL(),
-    sweepParam: "p", // script visits `${baseURL}&p=${value}`
+    sweepParam: "p", // script visits `${baseURL}&p=${value}` per frame
     startValue: 0.0, // edit to target a sub-range (e.g. explode = 0→0.35)
     endValue: 1.0,
-    totalFrames: 90,
+    totalFrames: 90, // 60–120 = mobile image-sequence budget
     viewport: { width: 1600, height: 900, deviceScaleFactor: 2 },
     captureSelector: "canvas", // screenshot the WebGL canvas only
   };
@@ -185,11 +250,10 @@ function copyManifest() {
 }
 
 // ---------------------------------------------------------
-// SAVE CARD — composites the current rendered frame + a decoded
-// parameter table + the full URL into one PNG and downloads it.
-// The table is the machine-read channel when a card is pasted back
-// to Claude (large monospace decoded values, not OCR-of-a-URL).
-// Requires preserveDrawingBuffer (enabled in dev mode only).
+// SAVE CARD — rendered frame + decoded parameter table + URL in one
+// downloaded PNG. The decoded table is the authoritative machine-read
+// channel when a card is pasted back to an AI. Requires
+// preserveDrawingBuffer (enabled in dev mode only).
 // ---------------------------------------------------------
 function saveCard() {
   const src = DEV.canvasEl;
@@ -378,7 +442,6 @@ const LEVA_LIGHT = {
     highlight2: "#25332b",
     highlight3: "#0d1512",
   },
-  // v2.6: wider panel — value boxes were clipping 4+ character numbers
   sizes: {
     rootWidth: "340px",
     controlWidth: "180px",
@@ -415,6 +478,7 @@ function DevControls({ initialP }) {
         }
       },
     },
+    drive: { value: "MOVE · fine (settle)", editable: false },
     jump: buttonGroup({
       "½exp": () => jumpToP(0.175),
       hold: () => jumpToP(0.4),
@@ -601,7 +665,8 @@ function DevControls({ initialP }) {
     "copy manifest": button(copyManifest),
   }));
 
-  // Expose set() so gizmo captures and phase jumps can drive the sliders
+  // Expose set() so gizmo captures, phase jumps, and the arrow drive
+  // can push values back into the sliders
   useEffect(() => {
     DEV.setLeva = set;
     return () => {
@@ -609,14 +674,51 @@ function DevControls({ initialP }) {
     };
   }, [set]);
 
-  // Keyboard: W translate / E rotate / R scale / Q off / T target toggle
+  // Keyboard surface:
+  //   W/E/R  gizmo translate/rotate/scale     Q  gizmo off
+  //   T      target toggle (settle | stage)
+  //   Tab    arrow mode cycle                 G  granularity cycle
+  //   Arrows nudge (hold = glide)             [ ] timeline p nudge
   useEffect(() => {
     const onKey = (ev) => {
       const tag = ev.target && ev.target.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA") return; // don't hijack Leva typing
+
+      // ---- arrow drive ----
+      if (ev.key === "Tab") {
+        ev.preventDefault(); // keep focus out of the browser tab cycle
+        DEV.driveMode = (DEV.driveMode + 1) % 3;
+        set({ drive: driveLabel() });
+        return;
+      }
+      if (ev.key === "ArrowLeft" || ev.key === "ArrowRight") {
+        ev.preventDefault(); // stop page scroll
+        driveNudge(set, "x", ev.key === "ArrowRight" ? 1 : -1);
+        return;
+      }
+      if (ev.key === "ArrowUp" || ev.key === "ArrowDown") {
+        ev.preventDefault();
+        driveNudge(set, "y", ev.key === "ArrowUp" ? 1 : -1);
+        return;
+      }
+
       const k = ev.key.toLowerCase();
+      if (k === "g") {
+        DEV.driveGrain = (DEV.driveGrain + 1) % 3;
+        set({ drive: driveLabel() });
+        return;
+      }
+      if (k === "[" || k === "]") {
+        const step = GRAIN_STEPS.p[DEV.driveGrain] * (k === "]" ? 1 : -1);
+        jumpToP(Math.min(1, Math.max(0, DEV.lastP + step)));
+        return;
+      }
+
+      // ---- gizmo / target ----
       if (k === "t") {
-        set({ target: DEV.gizmoTarget === "settle" ? "stage" : "settle" });
+        const next = DEV.gizmoTarget === "settle" ? "stage" : "settle";
+        set({ target: next });
+        set({ drive: `${MODE_LABELS[DEV.driveMode]} · ${GRAIN_LABELS[DEV.driveGrain]} (${next})` });
         return;
       }
       const map = { w: "move", e: "rotate", r: "scale", q: "off" };
@@ -631,10 +733,9 @@ function DevControls({ initialP }) {
 
 // ---------------------------------------------------------
 // DevGizmo — lives inside <Canvas>. Polls the plain-mutable DEV state
-// once per frame (setState only on change — dev-rig pattern, no extra
-// deps, React stays out of the render loop otherwise).
-// Targets: settle (whole-model group, p forced to 1, back-solved on
-// release) or stage (outermost group, any p, direct read on release).
+// once per frame (setState only on change). Targets: settle (whole-model
+// group, p forced to 1, back-solved on release) or stage (outermost
+// group, any p, direct read on release).
 // Hold Shift while dragging to snap (0.1 units / 15° / 0.05 scale).
 // ---------------------------------------------------------
 function DevGizmo() {
@@ -678,7 +779,7 @@ function DevGizmo() {
       scaleSnap={snap ? 0.05 : null}
       onMouseDown={() => {
         DEV.gizmoDragging = true;
-        // Settle capture maths is only valid at the endpoint
+        // Guard: settle capture maths is only valid at the endpoint
         if (target === "settle" && DEV.lastP !== 1) {
           DEV.lastP = 1;
           if (DEV.applyProgress) DEV.applyProgress(1);
@@ -710,8 +811,8 @@ function DevGizmo() {
 //   ?spos=x,y,z      STAGE position, world units
 //   ?srot=x,y,z      STAGE rotation, degrees
 //   ?sscale=1        STAGE uniform scale
-//   ?dev=1           Pose Studio (Leva rig + gizmo; W/E/R/Q, T = target,
-//                    Shift = snap)
+//   ?dev=1           Pose Studio (gizmo W/E/R/Q, T target, Shift snap,
+//                    Tab arrow-mode, G grain, arrows nudge, [ ] p nudge)
 // ============================================
 function resolveRuntimeConfig() {
   const params = new URLSearchParams(window.location.search);
@@ -740,12 +841,10 @@ function resolveRuntimeConfig() {
   if (!isNaN(liftParam)) {
     SETTLE.arcLift = liftParam;
   }
-  // ---- Horizontal shift driver ----
   const shiftParam = parseFloat(params.get("shift"));
   if (!isNaN(shiftParam)) {
     SETTLE.xShiftFraction = shiftParam;
   }
-  // ---- Vertical shift driver ----
   const vShiftParam = parseFloat(params.get("vshift"));
   if (!isNaN(vShiftParam)) {
     SETTLE.yShiftFraction = vShiftParam;
@@ -908,14 +1007,12 @@ function IPhoneExploded({
   const oledGroupRef = useRef();
   const bodyGroupRef = useRef();
   const modelGroupRef = useRef(); // whole-model group — settle rotation + drift
-  const stageGroupRef = useRef(); // v2.6 — constant world transform, timeline-free
+  const stageGroupRef = useRef(); // constant world transform, timeline-free
 
   // ---------------------------------------------------------
   // SORTING: layers by node name (unchanged from v1).
   // Render order: Body 0 → OLED 1 → Glass Front 3 → Bezel 4 
   // NOTE: GLB duplicated hierarchy still pending Blender cleanup.
-  // Anisotropy is applied per-texture inside <Canvas> children via
-  // renderer caps at material creation below.
   // ---------------------------------------------------------
   const { glassMeshes, oledMeshes, bodyMeshes } = useMemo(() => {
     const glass = [];
@@ -1045,19 +1142,10 @@ child.renderOrder = 3;
   }, [clonedScene, oledTexture, maxAniso]);
 
   // ---------------------------------------------------------
-  // MEASURED PIVOT (replaces Drei <Center>/<Resize>).
-  // Measured AFTER mount on the RENDERED subtree — <primitive> strips
-  // the GLB's ancestor transforms, so measuring the source scene graph
-  // gives a different coordinate frame than what renders (v2.0 bug:
-  // size off by the GLB's ancestor scale, pivot off-centre).
-  // Rest rotation is axis-aligned (90° multiples), so the world-space
-  // box's max dimension is exact, and worldToLocal is exact for the
-  // centre point. One-time measurement; explode offsets are 0 at mount.
-  // maxDim/cLocal cached in fitRef so the dev rig can re-fit on ?dev
-  // size changes without re-measuring.
-  // NOTE (v2.6): measurement runs before the stage transform is applied
-  // (dirtyStage applies in the first useFrame, after this layout effect),
-  // so the Box3 is measured in the identity stage frame — exact.
+  // MEASURED PIVOT (contract §2.13) — render-frame Box3 measurement.
+  // Runs before the stage transform is applied (dirtyStage applies in
+  // the first useFrame, after this layout effect), so the Box3 is
+  // measured in the identity stage frame — exact.
   // ---------------------------------------------------------
   const pivotRef = useRef();
   const measuredRef = useRef(false);
@@ -1070,7 +1158,6 @@ child.renderOrder = 3;
     // express the world-frame tilt composition.
     if (modelGroupRef.current) {
       modelGroupRef.current.quaternion.copy(quatsRef.current.qStart);
-      // Register gizmo targets
       DEV.modelGroup = modelGroupRef.current;
     }
     if (stageGroupRef.current) {
@@ -1105,18 +1192,10 @@ child.renderOrder = 3;
   }, []);
 
   // ---------------------------------------------------------
-  // SETTLE rotation endpoints — SINGLE geodesic slerp.
-  // A quaternion geodesic is a rotation about one fixed axis: the phone
-  // turns smoothly and continuously to face forward, no waypoint corner
-  // (the v2.1 two-stage path produced a visible left-right jerk).
-  //
+  // SETTLE rotation endpoints — SINGLE geodesic slerp (contract §3.3).
   // Rest pose untouched; viewer tilt applied as a WORLD-X rotation on
-  // top of it (premultiply). Mutating the compound Euler's X term
-  // applied the tilt about the phone's LOCAL long axis instead —
-  // rolling it back-face-up (v2.2 defect).
-  //
-  // Held in a ref (not useMemo) so the dev rig can re-derive when
-  // ?dev Leva controls touch START.tilt / SETTLE.targetEuler.
+  // top of it (premultiply). Held in a ref so the dev rig can re-derive
+  // when Leva controls touch START.tilt / SETTLE.targetEuler.
   // ---------------------------------------------------------
   const computeQuats = () => {
     const rest = new THREE.Quaternion().setFromEuler(
@@ -1161,9 +1240,8 @@ child.renderOrder = 3;
     }
 
     // STAGE apply — runs in production too (URL-driven framing channel).
-    // useFrame is otherwise forbidden from writing this group; only the
-    // dirty flag (URL parse / Leva sliders / capture sync) triggers it,
-    // and never mid-drag when the gizmo owns the transform.
+    // Only the dirty flag triggers it, and never mid-drag when the
+    // gizmo owns the transform.
     if (
       DEV.dirtyStage &&
       stageGroupRef.current &&
@@ -1203,9 +1281,8 @@ child.renderOrder = 3;
     }
 
     // Whole-model writes are suppressed while the SETTLE-target gizmo is
-    // being dragged — otherwise the lerp fights the hand every frame.
-    // On release, captureSettleFromObject() has already made the params
-    // equal the pose, so the lerp target matches and nothing snaps back.
+    // being dragged. On release, capture has already made the params
+    // equal the pose, so the lerp target matches — no snap-back.
     // Stage-target drags don't touch this group — no suppression needed.
     const settleDrag = DEV.gizmoDragging && DEV.gizmoTarget === "settle";
     if (modelGroupRef.current && !settleDrag) {
@@ -1225,8 +1302,8 @@ child.renderOrder = 3;
       modelGroupRef.current.scale.setScalar(s);
 
       // Path: eased drift to the desktop rest slot + a subtle arc lift.
-      // v2.5 fix: sin(π·t) — sin(π) was a constant ~0. Bump peaks
-      // mid-transition, returns to 0 at the approved p=1 resting height.
+      // sin(π·t): bump peaks mid-transition, returns to 0 at the
+      // approved p=1 resting height.
       const isDesktop = state.size.width >= SETTLE.desktopMinWidth;
       const targetX = isDesktop
         ? state.viewport.width * SETTLE.xShiftFraction * t
@@ -1504,7 +1581,6 @@ export default function CrossSection3DScrollGLB(props) {
             powerPreference: "high-performance",
             alpha: true,
             // Dev only: lets save-card read the framebuffer after present.
-            // Never enabled in production (costs a buffer copy per frame).
             preserveDrawingBuffer: dev,
           }}
           onCreated={({ gl }) => {
