@@ -138,17 +138,18 @@ const GRAIN_STEPS = {
   p: [0.002, 0.01, 0.05], // timeline progress
 };
 
-// (target → mode → axis) → [levaKey, stepClass]. x = ←/→, y = ↑/↓
+// (target → mode → axis) → [levaKey, stepClass, sign]. x = ←/→, y = ↑/↓
+// sign flips screen-space feel without touching the underlying maths.
 const DRIVE_MAP = {
   settle: [
-    { x: ["shift", "frac"], y: ["vshift", "frac"] }, // MOVE
-    { x: ["settleY", "deg"], y: ["settleX", "deg"] }, // ROTATE (yaw / pitch)
-    { x: ["settleZ", "deg"], y: ["size", "size"] }, // ROLL·ZOOM
+    { x: ["shift", "frac", 1], y: ["vshift", "frac", 1] },    // MOVE       — correct
+    { x: ["settleY", "deg", -1], y: ["settleX", "deg", -1] }, // ROTATE     — both flipped
+    { x: ["settleZ", "deg", 1], y: ["size", "size", -1] },    // ROLL·ZOOM  — ↑/↓ flipped, ←/→ kept
   ],
   stage: [
-    { x: ["sposX", "unit"], y: ["sposY", "unit"] }, // MOVE
-    { x: ["srotY", "deg"], y: ["srotX", "deg"] }, // ROTATE (yaw / pitch)
-    { x: ["srotZ", "deg"], y: ["sscale", "size"] }, // ROLL·ZOOM
+    { x: ["sposX", "unit", 1], y: ["sposY", "unit", 1] },     // MOVE
+    { x: ["srotY", "deg", 1], y: ["srotX", "deg", 1] },       // ROTATE     — untested; flip to -1,-1 if reversed
+    { x: ["srotZ", "deg", 1], y: ["sscale", "size", 1] },     // ROLL·ZOOM  — untested
   ],
 };
 
@@ -192,8 +193,8 @@ function driveNudge(set, axis, dir) {
   // Settle params are inert below the endpoint — snap there first
   // (same rule as the gizmo)
   if (DEV.gizmoTarget === "settle" && DEV.lastP !== 1) jumpToP(1);
-  const [param, cls] = DRIVE_MAP[DEV.gizmoTarget][DEV.driveMode][axis];
-  const step = GRAIN_STEPS[cls][DEV.driveGrain] * dir;
+  const [param, cls, sign] = DRIVE_MAP[DEV.gizmoTarget][DEV.driveMode][axis];
+  const step = GRAIN_STEPS[cls][DEV.driveGrain] * dir * sign;
   const [lo, hi] = DRIVE_CLAMPS[param];
   const next = Math.min(hi, Math.max(lo, DRIVE_READERS[param]() + step));
   set({ [param]: Number(next.toFixed(4)) });
