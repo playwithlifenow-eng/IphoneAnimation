@@ -36,6 +36,26 @@ gsap.registerPlugin(ScrollTrigger);
 // ============================================
 
 // ============================================
+// v2.8 — SNAP CAPTURE (?snap=1)
+//
+// Deterministic Playwright frame-baking. With ?snap=1 the lerp damping
+// goes to 1, so each frozen p renders its EXACT pose in a single frame
+// (no glide transient), and window.__iglassCaptureReady flips true once
+// assets are loaded and a few frames have flushed — the capture script
+// waits on that flag instead of guessing a settle delay.
+//
+// v2.8 fixes the v2.7 arrow-key inversions via a sign layer on DRIVE_MAP:
+//   MOVE       correct as-is
+//   ROTATE     both axes flipped (-1, -1)
+//   ROLL·ZOOM  ↑/↓ flipped, ←/→ kept
+// Stage-target signs left at +1 (untested — flip srot to -1 if reversed).
+//
+// Both additive — no timeline, geometry, or gizmo change.
+// ============================================
+let CAPTURE_SNAP = false;
+let SNAP_FRAMES = 0;
+
+// ============================================
 // Utility
 // ============================================
 function mapRange(value, inMin, inMax, outMin, outMax) {
@@ -812,6 +832,8 @@ function DevGizmo() {
 //   ?spos=x,y,z      STAGE position, world units
 //   ?srot=x,y,z      STAGE rotation, degrees
 //   ?sscale=1        STAGE uniform scale
+//   ?snap=1          deterministic capture: damp→1 (exact pose per frozen
+//                    p) + window.__iglassCaptureReady flag for Playwright
 //   ?dev=1           Pose Studio (gizmo W/E/R/Q, T target, Shift snap,
 //                    Tab arrow-mode, G grain, arrows nudge, [ ] p nudge)
 // ============================================
@@ -882,6 +904,10 @@ function resolveRuntimeConfig() {
 
   const dev = params.get("dev") === "1" || params.get("dev") === "true";
   DEV.enabled = dev;
+
+  // Deterministic capture flag (Playwright frame-baking). damp→1 in the
+  // useFrame + window.__iglassCaptureReady signal once settled.
+  CAPTURE_SNAP = params.get("snap") === "1" || params.get("snap") === "true";
 
   const pParam = parseFloat(params.get("p"));
   let freezeP = !isNaN(pParam) ? Math.max(0, Math.min(1, pParam)) : null;
@@ -1221,7 +1247,8 @@ child.renderOrder = 3;
   // lerp smoothing (contract §3.1) — damping lives here.
   // ---------------------------------------------------------
   useFrame((state) => {
-    const damp = 0.1;
+    // ?snap=1 → damp 1: each frozen p renders its exact pose in one frame.
+    const damp = CAPTURE_SNAP ? 1 : 0.1;
 
     // Dev rig: re-derive mount-time values when Leva touched them
     if (DEV.dirtyQuat) {
@@ -1322,6 +1349,13 @@ child.renderOrder = 3;
         targetY,
         damp
       );
+    }
+
+    // Snap-capture readiness signal — Playwright waits on this flag.
+    // damp=1 means the pose is exact after the first write; a few frames
+    // of margin cover the STAGE dirty-apply and texture upload.
+    if (CAPTURE_SNAP && !window.__iglassCaptureReady) {
+      if (++SNAP_FRAMES >= 3) window.__iglassCaptureReady = true;
     }
   });
 
