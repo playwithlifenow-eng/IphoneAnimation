@@ -12,51 +12,62 @@ import {
 import * as THREE from "three";
 import { gsap } from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
-import { Leva, useControls, button, buttonGroup, folder } from "leva";
+import { Leva, useControls, button, folder } from "leva";
 
 gsap.registerPlugin(ScrollTrigger);
 
 // ============================================
-// v3.0 — STUDIO UPGRADE
+// v3.1 — ANCHORED GIZMO + VISUAL DASHBOARD
+// (production maths untouched — dev rig only)
 //
-// New in v3.0 (production maths untouched — dev rig only):
-//   GIZMO VISIBILITY  helper meshes are anchored at the target origin;
-//                     when the origin leaves the frustum at macro zoom,
-//                     their bounding spheres cull and the handles vanish.
-//                     Fix: frustumCulled=false traversal + camera near
-//                     0.01. Feature-detects the r169 getHelper() shape.
-//                     Residual: anchor BEHIND the camera is geometric —
-//                     use the arrow drive in that regime.
-//   SPACE TOGGLE      gizmo world/local. World (default) drags parallel
-//                     to the screen at any pose; local slides along the
-//                     phone's own axes. Scale mode is local regardless.
-//   WIRING            driven-key coupling. One master, one driven,
-//                     linear ratio, anchored at enable:
-//                       driven = drivenAnchor + (master−masterAnchor)×ratio
-//                     Fires for slider drags AND arrow-key nudges; gizmo
-//                     drags apply once on release (capture is mouseUp).
-//                     "reset run" restores BOTH ends to their anchors.
-//   SNAPSHOTS         explicit start origin + A/B/C bookmark slots.
-//                     Warp restores every param including p. Origin is
-//                     auto-captured at boot from the URL-loaded pose.
-//   SPIRIT LEVEL      snaps stage or settle euler channels to the
-//                     nearest 90°.
-//   PANEL REGROUP     Leva folders + honest labels. Keys unchanged —
-//                     they are load-bearing (readers/maps/clamps/URL).
-//                     Euler channels are labelled "euler X °" etc., NOT
-//                     pitch/yaw — euler channels are not screen axes at
-//                     arbitrary poses (see v2.9 note below). Screen-pure
-//                     control = arrow drive + world-space gizmo.
+//   PROXY GIZMO      TransformControls no longer attaches to the phone.
+//                    It attaches to an invisible PROXY object that
+//                    follows the target but is CLAMPED to the visible
+//                    frame every frame. Drag deltas are relayed to the
+//                    real target (world → stage-local conversion for
+//                    settle). The gizmo therefore CANNOT leave the
+//                    screen. The v3.0 frustumCulled fix only covered
+//                    origins barely out of frame — an origin far
+//                    off-screen is geometrically unreachable by any
+//                    handle size; the anchor itself had to move.
+//                    Capture on release is unchanged: it reads the real
+//                    target, exactly as before.
+//   FAT HANDLES      size 1.35 (was 0.8), arrow shafts/heads 2.2×
+//                    radial, and the INVISIBLE picker meshes (the
+//                    actual hit zones) fattened 1.6–2.4×. The
+//                    thin-line grab problem was mostly pickers, not
+//                    visuals.
+//   CLICK-TO-TARGET  click the phone → settle target + LOCAL space;
+//                    click empty background → stage target + WORLD
+//                    space (predictive space binding). The Leva
+//                    gizmo/target/space dropdowns are gone. T still
+//                    toggles targets; W/E/R/Q still set gizmo mode.
+//                    Click-distance + drag-timestamp guards stop drags
+//                    from retargeting mid-gesture.
+//   EULER SANITISE   capture + screen-rotate writes wrap to
+//                    (-180, 180] at 0.01° precision before touching
+//                    the sliders — kills the release snatch (Leva
+//                    clamp → onChange → dirty-apply feedback loop).
+//   DASHBOARD        custom light-theme overlay (left side):
+//                    · target / mode / space chips
+//                    · PRIMITIVES — clean baseline positions (L/C/R,
+//                      T/M/B, near/mid/far) and rotations
+//                      (−90/−45/0/45/90/180 per axis), target-aware
+//                    · 60 PERSISTENT SLOTS (localStorage — click =
+//                      warp, Shift+click = save, right-click = clear;
+//                      green when occupied; survives tab close/reboot)
+//                    · origin / spirit-level / copy-URL / save-card /
+//                      manifest actions
+//                    Leva stays MOUNTED but boots COLLAPSED — its
+//                    onChange handlers are the single write path (URL
+//                    serialisation, wiring, snapshots, arrow drive and
+//                    gizmo capture all route through them). The
+//                    numbers are hidden, not removed.
 //
-// v2.9 recap — SCREEN-SPACE DRIVE: arrows mean what they say ON SCREEN
-// at any pose. MOVE (settle) rotates the step through the inverse STAGE
-// frame; ROTATE/ROLL premultiply world-axis quaternions and extract back
-// to euler sliders (the gizmo's capture pattern). Direction conventions
-// live in SCREEN_ROT_SIGNS. Euler extraction may relabel the same
-// rotation with different channel numbers mid-glide; the quaternion —
-// and the motion — is continuous.
-//
-// v2.8 recap: ?snap=1 deterministic capture (damp→1 + readiness flag).
+// v3.0 recap: world/local space toggle, driven-key wiring, origin +
+// A/B/C snapshots (A/B/C superseded by the 60-slot grid), spirit level,
+// panel regroup. v2.9 recap: screen-space arrow drive (SCREEN_ROT_SIGNS
+// is the only sign surface). v2.8 recap: ?snap=1 deterministic capture.
 // ============================================
 let CAPTURE_SNAP = false;
 let SNAP_FRAMES = 0;
@@ -72,6 +83,19 @@ function mapRange(value, inMin, inMax, outMin, outMax) {
 
 function smoothstep(t) {
   return t * t * (3 - 2 * t);
+}
+
+// Radians → degrees wrapped to (-180, 180], 0.01° precision.
+// EVERY rotation value that goes back into a Leva slider passes through
+// this. An extracted euler that lands outside the slider range gets
+// CLAMPED by Leva, the clamp fires onChange, onChange marks the rig
+// dirty, and the next frame warps the phone to the corrupted value —
+// that was the release "snatch". Wrapped values can never clamp.
+function wrapDeg(rad) {
+  let d = (rad * 180) / Math.PI;
+  d = ((((d + 180) % 360) + 360) % 360) - 180;
+  if (d === -180) d = 180;
+  return Number(d.toFixed(2));
 }
 
 // ============================================
@@ -136,9 +160,11 @@ const DEV = {
   lastP: 0,
   gizmo: "off", // "off" | "translate" | "rotate" | "scale"
   gizmoTarget: "settle", // "settle" (p=1 endpoint, back-solved) | "stage"
-  gizmoSpace: "world", // "world" | "local" — drag-axis frame (v3.0)
+  gizmoSpace: "local", // "world" | "local" — auto-bound by target (v3.1)
   gizmoDragging: false, // true while dragging — settle-target drags
   //                       suppress whole-model useFrame writes
+  lastDragEnd: 0, // performance.now() at drag release — guards
+  //                pointerMissed against retargeting after a drag
   modelGroup: null, // live Object3D — settle gizmo target
   stageGroup: null, // live Object3D — stage gizmo target
   canvasEl: null, // WebGL canvas element — save-card frame source
@@ -151,7 +177,7 @@ const DEV = {
 
 // ---------------------------------------------------------
 // KEYBOARD DRIVE — arrow-key nudging.
-// Tab cycles mode, G cycles granularity, T (existing) picks the channel.
+// Tab cycles mode, G cycles granularity, T toggles the target.
 // Nudges route through Leva set() → the same onChange writers the
 // sliders use, so config objects, dirty flags, and the panel stay in
 // sync with zero new write paths.
@@ -192,7 +218,7 @@ const DRIVE_MAP = {
 };
 
 // Current values read from the config objects (single source of truth).
-// v3.0: completed map — snapshots and wiring read every pose param here.
+// Snapshots, slots, and wiring read every pose param here.
 const DRIVE_READERS = {
   shift: () => SETTLE.xShiftFraction,
   vshift: () => SETTLE.yShiftFraction,
@@ -233,7 +259,33 @@ const DRIVE_CLAMPS = {
 };
 
 // ---------------------------------------------------------
-// PARAMETER WIRING (v3.0) — driven-key coupling.
+// GIZMO CONTEXT (v3.1) — click-to-target + predictive space binding.
+// One function owns the 2×2 matrix:
+//   stage  → world space (framing tracks the screen edges)
+//   settle → local space (component work tracks the phone's own axes)
+// Called by: clicking the phone (→settle), clicking the background
+// (→stage), the T key, and the dashboard chips.
+// ---------------------------------------------------------
+function changeGizmoContext(targetMode) {
+  if (DEV.gizmoDragging) return; // never retarget mid-drag
+  DEV.gizmoTarget = targetMode;
+  DEV.gizmoSpace = targetMode === "stage" ? "world" : "local";
+  if (targetMode === "settle" && DEV.gizmo !== "off" && DEV.lastP !== 1) {
+    jumpToP(1); // settle params are defined at the endpoint only
+  }
+  if (DEV.setLeva) DEV.setLeva({ drive: driveLabel() });
+}
+
+function setGizmoMode(v) {
+  // v: "off" | "translate" | "rotate" | "scale"
+  DEV.gizmo = v;
+  if (v !== "off" && DEV.gizmoTarget === "settle" && DEV.lastP !== 1) {
+    jumpToP(1);
+  }
+}
+
+// ---------------------------------------------------------
+// PARAMETER WIRING — driven-key coupling.
 // One master, one driven, linear ratio, anchored at enable time:
 //   driven = drivenAnchor + (master − masterAnchor) × ratio
 // Fires on every Leva onChange of the master: slider drags, arrow-key
@@ -292,13 +344,36 @@ function wireResetRun() {
 }
 
 // ---------------------------------------------------------
-// SNAPSHOT ENGINE (v3.0) — explicit "start origin" + three bookmark
-// slots. A snapshot is a complete pose-parameter record (all readers
-// + p). Warp routes through DEV.setLeva → the sliders' own onChange
-// writers — no new write path. Origin is auto-captured at boot from
-// the URL-loaded pose (see DevControls).
+// SNAPSHOT / SLOT ENGINE — a snapshot is a complete pose-parameter
+// record (all readers + p). Warps route through DEV.setLeva → the
+// sliders' own onChange writers — no new write path.
+// v3.1: the A/B/C bookmark slots are superseded by the 60-slot
+// persistent grid on the dashboard (localStorage). The explicit start
+// origin remains — auto-captured at boot from the URL-loaded pose.
 // ---------------------------------------------------------
-const SNAPSHOTS = { origin: null, A: null, B: null, C: null };
+const SNAPSHOTS = { origin: null };
+
+const SLOT_KEY = "iglass_pose_slots_v1";
+const SLOT_COUNT = 60;
+
+function loadSlots() {
+  try {
+    const raw = window.localStorage.getItem(SLOT_KEY);
+    const arr = raw ? JSON.parse(raw) : null;
+    if (Array.isArray(arr) && arr.length === SLOT_COUNT) return arr;
+  } catch (e) {
+    /* corrupted store → fresh grid */
+  }
+  return Array(SLOT_COUNT).fill(null);
+}
+
+function persistSlots(slots) {
+  try {
+    window.localStorage.setItem(SLOT_KEY, JSON.stringify(slots));
+  } catch (e) {
+    /* storage full/blocked — slots stay session-only */
+  }
+}
 
 function readPoseParams() {
   const o = {};
@@ -311,14 +386,17 @@ function takeSnapshot(slot) {
   SNAPSHOTS[slot] = readPoseParams();
 }
 
-function warpToSnapshot(slot) {
-  const snap = SNAPSHOTS[slot];
+function warpToParams(snap) {
   if (!snap || !DEV.setLeva) return;
   WIRE.suspended = true;
   const { p, ...rest } = snap;
   DEV.setLeva(rest);
-  jumpToP(p);
+  if (typeof p === "number") jumpToP(p);
   WIRE.suspended = false;
+}
+
+function warpToSnapshot(slot) {
+  warpToParams(SNAPSHOTS[slot]);
 }
 
 // Spirit level — snaps each euler channel to the nearest 90°.
@@ -423,12 +501,10 @@ function nudgeRotateScreen(set, axis, dir, isRoll) {
     stepRad * dir * sign
   );
 
-  const toDeg = (r) => Number(((r * 180) / Math.PI).toFixed(2));
-
   if (DEV.gizmoTarget === "stage") {
     const q = stageQuat().premultiply(W);
     const e = new THREE.Euler().setFromQuaternion(q, "XYZ");
-    set({ srotX: toDeg(e.x), srotY: toDeg(e.y), srotZ: toDeg(e.z) });
+    set({ srotX: wrapDeg(e.x), srotY: wrapDeg(e.y), srotZ: wrapDeg(e.z) });
   } else {
     const Rs = stageQuat();
     const localW = Rs.clone().invert().multiply(W).multiply(Rs);
@@ -442,7 +518,7 @@ function nudgeRotateScreen(set, axis, dir, isRoll) {
       )
       .premultiply(localW);
     const e = new THREE.Euler().setFromQuaternion(q, "XYZ");
-    set({ settleX: toDeg(e.x), settleY: toDeg(e.y), settleZ: toDeg(e.z) });
+    set({ settleX: wrapDeg(e.x), settleY: wrapDeg(e.y), settleZ: wrapDeg(e.z) });
   }
 }
 
@@ -648,17 +724,20 @@ function captureSettleFromObject(viewport) {
   DEV.dirtyQuat = true;
 
   // Sync the Leva sliders (their onChange re-writes the same values —
-  // idempotent). Note: Euler extraction may express the same rotation
-  // with different angles than you typed (e.g. [180,0,180] ≡ [0,180,0]);
-  // the quaternion — and therefore the motion — is identical.
+  // idempotent). Angles wrapped to (-180,180] at 0.01° — outside-range
+  // values would be CLAMPED by Leva and the clamp's onChange would warp
+  // the phone (the release snatch). Note: euler extraction may express
+  // the same rotation with different channel numbers than you typed
+  // (e.g. [180,0,180] ≡ [0,180,0]); the quaternion — and therefore the
+  // motion — is identical.
   if (DEV.setLeva) {
     DEV.setLeva({
       pscale: Number(SETTLE.scale.toFixed(2)),
       shift: Number(SETTLE.xShiftFraction.toFixed(3)),
       vshift: Number(SETTLE.yShiftFraction.toFixed(3)),
-      settleX: Math.round((e.x * 180) / Math.PI),
-      settleY: Math.round((e.y * 180) / Math.PI),
-      settleZ: Math.round((e.z * 180) / Math.PI),
+      settleX: wrapDeg(e.x),
+      settleY: wrapDeg(e.y),
+      settleZ: wrapDeg(e.z),
     });
   }
 }
@@ -683,9 +762,9 @@ function captureStageFromObject() {
       sposX: Number(STAGE.position[0].toFixed(2)),
       sposY: Number(STAGE.position[1].toFixed(2)),
       sposZ: Number(STAGE.position[2].toFixed(2)),
-      srotX: Math.round((e.x * 180) / Math.PI),
-      srotY: Math.round((e.y * 180) / Math.PI),
-      srotZ: Math.round((e.z * 180) / Math.PI),
+      srotX: wrapDeg(e.x),
+      srotY: wrapDeg(e.y),
+      srotZ: wrapDeg(e.z),
       sscale: Number(STAGE.scale.toFixed(2)),
     });
   }
@@ -721,38 +800,7 @@ function DevControls({ initialP }) {
   const stageDeg = STAGE.rotationEuler.map((r) => (r * 180) / Math.PI);
 
   const [, set] = useControls(() => ({
-    gizmo: {
-      value: "off",
-      options: ["off", "move", "rotate", "scale"],
-      onChange: (v) => {
-        DEV.gizmo = v === "move" ? "translate" : v;
-        // Settle-target gizmo tuning is defined at the endpoint — snap
-        // there. Stage target works at any p, leave progress alone.
-        if (v !== "off" && DEV.gizmoTarget === "settle") {
-          DEV.lastP = 1;
-          if (DEV.applyProgress) DEV.applyProgress(1);
-        }
-      },
-    },
-    target: {
-      value: "settle",
-      options: ["settle", "stage"],
-      onChange: (v) => {
-        DEV.gizmoTarget = v;
-        if (v === "settle" && DEV.gizmo !== "off") {
-          DEV.lastP = 1;
-          if (DEV.applyProgress) DEV.applyProgress(1);
-        }
-      },
-    },
-    space: {
-      value: "world",
-      options: ["world", "local"],
-      onChange: (v) => {
-        DEV.gizmoSpace = v;
-      },
-    },
-    drive: { value: "MOVE · fine (settle)", editable: false },
+    drive: { value: driveLabel(), editable: false },
     "🔗 wiring": folder(
       {
         wire: {
@@ -792,37 +840,8 @@ function DevControls({ initialP }) {
       },
       { collapsed: true }
     ),
-    "📸 origin & slots": folder(
-      {
-        originBtns: buttonGroup({
-          "set origin": () => takeSnapshot("origin"),
-          "⏪ warp": () => warpToSnapshot("origin"),
-        }),
-        saveSlots: buttonGroup({
-          "save A": () => takeSnapshot("A"),
-          "save B": () => takeSnapshot("B"),
-          "save C": () => takeSnapshot("C"),
-        }),
-        goSlots: buttonGroup({
-          "→ A": () => warpToSnapshot("A"),
-          "→ B": () => warpToSnapshot("B"),
-          "→ C": () => warpToSnapshot("C"),
-        }),
-        levelBtns: buttonGroup({
-          "level stage": () => snapLevel("stage"),
-          "level settle": () => snapLevel("settle"),
-        }),
-      },
-      { collapsed: false }
-    ),
     "⏱ timeline": folder(
       {
-        jump: buttonGroup({
-          "½exp": () => jumpToP(0.175),
-          hold: () => jumpToP(0.4),
-          "½asm": () => jumpToP(0.575),
-          end: () => jumpToP(1),
-        }),
         p: {
           value: initialP,
           min: 0,
@@ -1040,18 +1059,11 @@ function DevControls({ initialP }) {
       },
       { collapsed: true }
     ),
-    "copy URL": button(() => {
-      const url = buildTuningURL();
-      window.history.replaceState(null, "", url);
-      if (navigator.clipboard) navigator.clipboard.writeText(url);
-    }),
-    "save card": button(saveCard),
-    "copy manifest": button(copyManifest),
   }));
 
-  // Expose set() so gizmo captures, phase jumps, warps, wiring, and the
-  // arrow drive can push values back into the sliders. The URL-loaded
-  // pose becomes the initial start origin.
+  // Expose set() so gizmo captures, phase jumps, warps, wiring, slots,
+  // primitives, and the arrow drive can push values back into the
+  // sliders. The URL-loaded pose becomes the initial start origin.
   useEffect(() => {
     DEV.setLeva = set;
     if (!SNAPSHOTS.origin) takeSnapshot("origin");
@@ -1062,7 +1074,7 @@ function DevControls({ initialP }) {
 
   // Keyboard surface:
   //   W/E/R  gizmo translate/rotate/scale     Q  gizmo off
-  //   T      target toggle (settle | stage)
+  //   T      target toggle (settle | stage) — space auto-binds
   //   Tab    arrow mode cycle                 G  granularity cycle
   //   Arrows nudge (hold = glide)             [ ] timeline p nudge
   useEffect(() => {
@@ -1102,13 +1114,11 @@ function DevControls({ initialP }) {
 
       // ---- gizmo / target ----
       if (k === "t") {
-        const next = DEV.gizmoTarget === "settle" ? "stage" : "settle";
-        set({ target: next });
-        set({ drive: `${MODE_LABELS[DEV.driveMode]} · ${GRAIN_LABELS[DEV.driveGrain]} (${next})` });
+        changeGizmoContext(DEV.gizmoTarget === "settle" ? "stage" : "settle");
         return;
       }
-      const map = { w: "move", e: "rotate", r: "scale", q: "off" };
-      if (map[k]) set({ gizmo: map[k] });
+      const map = { w: "translate", e: "rotate", r: "scale", q: "off" };
+      if (map[k]) setGizmoMode(map[k]);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -1118,22 +1128,369 @@ function DevControls({ initialP }) {
 }
 
 // ---------------------------------------------------------
-// DevGizmo — lives inside <Canvas>. Polls the plain-mutable DEV state
-// once per frame (setState only on change). Targets: settle (whole-model
-// group, p forced to 1, back-solved on release) or stage (outermost
-// group, any p, direct read on release).
+// DEV DASHBOARD (v3.1) — custom overlay, left side. The primary visual
+// surface: target/mode chips, transformation primitives, 60 persistent
+// pose slots (localStorage), and the global actions. All writes route
+// through DEV.setLeva → the sliders' own onChange writers, so the URL /
+// manifest / wiring machinery is untouched.
+// ---------------------------------------------------------
+const UI = {
+  panel: {
+    position: "fixed",
+    top: 12,
+    left: 12,
+    width: 258,
+    zIndex: 1000,
+    background: "rgba(255,255,255,0.95)",
+    border: "1px solid #dde8e0",
+    borderRadius: 12,
+    boxShadow: "0 6px 24px rgba(20,60,40,0.14)",
+    padding: 10,
+    fontFamily: "ui-monospace, Menlo, Consolas, monospace",
+    fontSize: 11,
+    color: "#0d1512",
+    maxHeight: "94vh",
+    overflowY: "auto",
+    userSelect: "none",
+  },
+  head: {
+    fontWeight: 700,
+    fontSize: 10,
+    letterSpacing: 1,
+    color: "#2e7d52",
+    margin: "10px 0 4px",
+    textTransform: "uppercase",
+  },
+  row: { display: "flex", flexWrap: "wrap", alignItems: "center" },
+  hint: { fontSize: 9, color: "#8aa094", lineHeight: 1.5, marginTop: 8 },
+  axisLabel: {
+    width: 26,
+    fontSize: 9,
+    color: "#5a6b60",
+    display: "inline-block",
+  },
+};
+
+const chipStyle = (active, wide) => ({
+  padding: wide ? "4px 9px" : "3px 6px",
+  margin: 2,
+  borderRadius: 6,
+  border: "1px solid " + (active ? "#2e7d52" : "#d5e2d9"),
+  background: active ? "#2e7d52" : "#f4f8f5",
+  color: active ? "#ffffff" : "#25332b",
+  cursor: "pointer",
+  fontSize: 10,
+  lineHeight: 1.4,
+  display: "inline-block",
+});
+
+const slotStyle = (filled) => ({
+  width: 20,
+  height: 20,
+  borderRadius: 4,
+  border: "1px solid " + (filled ? "#2e7d52" : "#d5e2d9"),
+  background: filled ? "#3c9a68" : "#fbfdfb",
+  color: filled ? "#ffffff" : "#9ab0a2",
+  fontSize: 8,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  cursor: "pointer",
+});
+
+const PRIM_ROT_VALUES = [-90, -45, 0, 45, 90, 180];
+
+function DevDashboard() {
+  // Poll the plain-mutable DEV state — dashboard is dev-only, a 150ms
+  // tick is invisible and avoids threading React state through the rig.
+  const [, force] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => force((n) => n + 1), 150);
+    return () => clearInterval(id);
+  }, []);
+
+  const [slots, setSlots] = useState(loadSlots);
+
+  const isStage = DEV.gizmoTarget === "stage";
+
+  // Primitives write through the same Leva pipeline as everything else.
+  const prim = (vals) => {
+    if (!isStage && DEV.lastP !== 1) jumpToP(1); // settle params inert below p=1
+    if (!DEV.setLeva) return;
+    WIRE.suspended = true;
+    DEV.setLeva(vals);
+    WIRE.suspended = false;
+  };
+
+  const rotParam = (axis) => (isStage ? `srot${axis}` : `settle${axis}`);
+
+  const slotClick = (i, ev) => {
+    if (ev.shiftKey) {
+      const next = [...slots];
+      next[i] = readPoseParams();
+      setSlots(next);
+      persistSlots(next);
+    } else if (slots[i]) {
+      warpToParams(slots[i]);
+    }
+  };
+
+  const slotClear = (i, ev) => {
+    ev.preventDefault();
+    if (!slots[i]) return;
+    const next = [...slots];
+    next[i] = null;
+    setSlots(next);
+    persistSlots(next);
+  };
+
+  // Position primitives — target-aware. Stage moves in world units;
+  // settle moves in viewport fractions (+ settle scale as the zoom).
+  const posPrims = isStage
+    ? {
+        x: [
+          ["L", { sposX: -1.2 }],
+          ["C", { sposX: 0 }],
+          ["R", { sposX: 1.2 }],
+        ],
+        y: [
+          ["T", { sposY: 0.7 }],
+          ["M", { sposY: 0 }],
+          ["B", { sposY: -0.7 }],
+        ],
+        z: [
+          ["near", { sposZ: 1.2 }],
+          ["mid", { sposZ: 0 }],
+          ["far", { sposZ: -1.2 }],
+        ],
+      }
+    : {
+        x: [
+          ["L", { shift: -0.25 }],
+          ["C", { shift: 0 }],
+          ["R", { shift: 0.25 }],
+        ],
+        y: [
+          ["T", { vshift: 0.35 }],
+          ["M", { vshift: 0 }],
+          ["B", { vshift: -0.35 }],
+        ],
+        z: [
+          ["near", { pscale: 1.2 }],
+          ["mid", { pscale: 0.8 }],
+          ["far", { pscale: 0.5 }],
+        ],
+      };
+
+  const filledCount = slots.filter(Boolean).length;
+
+  return (
+    <div style={UI.panel}>
+      <div
+        style={{
+          fontWeight: 700,
+          fontSize: 11,
+          color: "#2e7d52",
+          letterSpacing: 1,
+        }}
+      >
+        iGLASS POSE STUDIO
+      </div>
+
+      {/* ---- target / space / mode ---- */}
+      <div style={UI.head}>target</div>
+      <div style={UI.row}>
+        <span
+          style={chipStyle(!isStage, true)}
+          onClick={() => changeGizmoContext("settle")}
+        >
+          📱 phone (settle)
+        </span>
+        <span
+          style={chipStyle(isStage, true)}
+          onClick={() => changeGizmoContext("stage")}
+        >
+          🎬 stage
+        </span>
+        <span
+          style={chipStyle(false)}
+          title="space auto-binds to target — click to override"
+          onClick={() => {
+            DEV.gizmoSpace = DEV.gizmoSpace === "world" ? "local" : "world";
+          }}
+        >
+          {DEV.gizmoSpace}
+        </span>
+      </div>
+
+      <div style={UI.head}>gizmo</div>
+      <div style={UI.row}>
+        {[
+          ["move", "translate"],
+          ["rotate", "rotate"],
+          ["scale", "scale"],
+          ["off", "off"],
+        ].map(([label, v]) => (
+          <span
+            key={v}
+            style={chipStyle(DEV.gizmo === v)}
+            onClick={() => setGizmoMode(v)}
+          >
+            {label}
+          </span>
+        ))}
+        <span style={{ fontSize: 9, color: "#8aa094", marginLeft: 4 }}>
+          {MODE_LABELS[DEV.driveMode]} · {GRAIN_LABELS[DEV.driveGrain]}
+        </span>
+      </div>
+
+      {/* ---- primitives ---- */}
+      <div style={UI.head}>📐 primitives — position</div>
+      {[
+        ["↔", posPrims.x],
+        ["↕", posPrims.y],
+        ["🔍", posPrims.z],
+      ].map(([icon, entries]) => (
+        <div style={UI.row} key={icon}>
+          <span style={UI.axisLabel}>{icon}</span>
+          {entries.map(([label, vals]) => (
+            <span key={label} style={chipStyle(false)} onClick={() => prim(vals)}>
+              {label}
+            </span>
+          ))}
+        </div>
+      ))}
+
+      <div style={UI.head}>📐 primitives — rotation °</div>
+      {["X", "Y", "Z"].map((axis) => (
+        <div style={UI.row} key={axis}>
+          <span style={UI.axisLabel}>
+            {axis === "X" ? "🔄X" : axis === "Y" ? "↺Y" : "⤾Z"}
+          </span>
+          {PRIM_ROT_VALUES.map((deg) => (
+            <span
+              key={deg}
+              style={chipStyle(false)}
+              onClick={() => prim({ [rotParam(axis)]: deg })}
+            >
+              {deg}
+            </span>
+          ))}
+        </div>
+      ))}
+
+      {/* ---- 60 persistent slots ---- */}
+      <div style={UI.head}>
+        💾 pose slots ({filledCount}/{SLOT_COUNT})
+      </div>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(10, 20px)",
+          gap: 3,
+        }}
+      >
+        {slots.map((s, i) => (
+          <div
+            key={i}
+            style={slotStyle(!!s)}
+            title={
+              s
+                ? `slot ${i + 1} — click: warp · right-click: clear`
+                : `slot ${i + 1} — shift+click: save`
+            }
+            onClick={(ev) => slotClick(i, ev)}
+            onContextMenu={(ev) => slotClear(i, ev)}
+          >
+            {i + 1}
+          </div>
+        ))}
+      </div>
+
+      {/* ---- actions ---- */}
+      <div style={UI.head}>🛠 actions</div>
+      <div style={UI.row}>
+        <span style={chipStyle(false)} onClick={() => takeSnapshot("origin")}>
+          set origin
+        </span>
+        <span style={chipStyle(false)} onClick={() => warpToSnapshot("origin")}>
+          ⏪ origin
+        </span>
+        <span style={chipStyle(false)} onClick={() => snapLevel("stage")}>
+          level stage
+        </span>
+        <span style={chipStyle(false)} onClick={() => snapLevel("settle")}>
+          level settle
+        </span>
+      </div>
+      <div style={UI.row}>
+        <span
+          style={chipStyle(false, true)}
+          onClick={() => {
+            const url = buildTuningURL();
+            window.history.replaceState(null, "", url);
+            if (navigator.clipboard) navigator.clipboard.writeText(url);
+          }}
+        >
+          📋 copy URL
+        </span>
+        <span style={chipStyle(false, true)} onClick={saveCard}>
+          📸 save card
+        </span>
+        <span style={chipStyle(false, true)} onClick={copyManifest}>
+          🎞 manifest
+        </span>
+      </div>
+
+      <div style={UI.hint}>
+        click phone = phone target · click background = stage
+        <br />
+        slots: shift+click save · click warp · right-click clear
+        <br />
+        keys: W/E/R/Q gizmo · T target · Tab/G arrow drive · [ ] playhead
+        <br />
+        numeric sliders: Leva panel (top-right, collapsed)
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------
+// DevGizmo (v3.1) — PROXY-ANCHORED TransformControls.
+//
+// The controls attach to an invisible proxy Object3D, never to the
+// phone. Every frame (when not dragging) the proxy is placed at the
+// target's world position CLAMPED to the visible frame (NDC ±0.85 x,
+// ±0.78 y, behind-camera rescue), and copies the target's world
+// quaternion + scale so local-space handles align with the phone.
+// During a drag, the proxy's transform deltas are relayed to the real
+// target (world → stage-local conversion for the settle target). On
+// release, the existing capture functions read the real target —
+// back-solve contract unchanged.
+//
 // Hold Shift while dragging to snap (0.1 units / 15° / 0.05 scale).
 // Also stashes the world-unit viewport for the screen-space MOVE maths.
-// v3.0: visibility hardening + world/local space.
 // ---------------------------------------------------------
 function DevGizmo() {
-  const { viewport } = useThree();
+  const { viewport, camera } = useThree();
   const ctrlRef = useRef();
+  const dragRef = useRef(null);
   const [mode, setMode] = useState("off");
-  const [target, setTarget] = useState("settle");
-  const [space, setSpace] = useState("world");
+  const [target, setTarget] = useState(DEV.gizmoTarget);
+  const [space, setSpace] = useState(DEV.gizmoSpace);
   const [ready, setReady] = useState(false);
   const [snap, setSnap] = useState(false);
+
+  const proxy = useMemo(() => {
+    const o = new THREE.Object3D();
+    o.name = "iglass-gizmo-proxy";
+    return o;
+  }, []);
+
+  const tmp = useMemo(
+    () => ({ v: new THREE.Vector3(), c: new THREE.Vector3() }),
+    []
+  );
 
   useFrame(() => {
     DEV.viewport = { width: viewport.width, height: viewport.height };
@@ -1143,6 +1500,32 @@ function DevGizmo() {
     const obj = DEV.gizmoTarget === "stage" ? DEV.stageGroup : DEV.modelGroup;
     const has = !!obj;
     if (has !== ready) setReady(has);
+
+    // ---- proxy anchor: follow the target, clamped to the frame ----
+    if (obj && !DEV.gizmoDragging) {
+      obj.getWorldPosition(tmp.v);
+
+      // Behind-camera rescue: pull the anchor to just in front of the
+      // lens so projection stays meaningful.
+      tmp.c.copy(tmp.v).applyMatrix4(camera.matrixWorldInverse);
+      if (tmp.c.z > -0.25) {
+        tmp.c.z = -0.25;
+        tmp.v.copy(tmp.c).applyMatrix4(camera.matrixWorld);
+      }
+
+      const ndc = tmp.c.copy(tmp.v).project(camera);
+      const cx = Math.max(-0.85, Math.min(0.85, ndc.x));
+      const cy = Math.max(-0.78, Math.min(0.78, ndc.y));
+      if (cx !== ndc.x || cy !== ndc.y) {
+        // Origin outside the frame → park the gizmo at the nearest
+        // on-screen point, at the target's own depth.
+        proxy.position.set(cx, cy, ndc.z).unproject(camera);
+      } else {
+        proxy.position.copy(tmp.v);
+      }
+      obj.getWorldQuaternion(proxy.quaternion);
+      proxy.scale.setScalar(obj.scale.x || 1);
+    }
   });
 
   useEffect(() => {
@@ -1156,12 +1539,14 @@ function DevGizmo() {
     };
   }, []);
 
-  // Visibility hardening — the gizmo's helper meshes are anchored at the
-  // target origin; when that origin leaves the frustum (macro zoom),
-  // their bounding spheres cull and the handles vanish. frustumCulled =
-  // false keeps any handle that extends into view rendering. Depth flags
-  // are the stock defaults, enforced defensively. three r169+ moved the
-  // scene-graph part behind getHelper() — feature-detect both shapes.
+  // Visibility hardening + FATTENING. frustumCulled=false keeps handles
+  // rendering; depth flags keep them on top. Fattening: the invisible
+  // picker meshes (material.visible === false) are the real hit zones —
+  // cylinders get 2.4× radial, other shapes 1.6× uniform (torus pickers
+  // excluded: uniform scaling would move the hit ring off the visual
+  // ring). Visible arrow shafts/heads (CylinderGeometry) get 2.2×
+  // radial. three r169+ moved the scene-graph part behind getHelper()
+  // — feature-detect both shapes.
   useEffect(() => {
     const ctrl = ctrlRef.current;
     if (!ctrl) return;
@@ -1176,41 +1561,113 @@ function DevGizmo() {
         child.material.depthWrite = false;
         child.material.transparent = true;
       }
+      if (child.userData.__iglassFat) return;
+      child.userData.__iglassFat = true;
+      const geoType =
+        child.geometry && child.geometry.type ? child.geometry.type : "";
+      if (child.isMesh && child.material && child.material.visible === false) {
+        // Invisible picker — the actual grab zone
+        if (geoType === "CylinderGeometry") {
+          child.scale.x *= 2.4;
+          child.scale.z *= 2.4;
+        } else if (geoType !== "TorusGeometry") {
+          child.scale.multiplyScalar(1.6);
+        }
+      } else if (child.isMesh && geoType === "CylinderGeometry") {
+        // Visible arrow shaft / head — fatten radially, keep length
+        child.scale.x *= 2.2;
+        child.scale.z *= 2.2;
+      }
     });
   }, [mode, target, ready]);
 
-  if (mode === "off" || !ready) return null;
+  // Relay proxy deltas to the real target, live during the drag.
+  const applyDrag = () => {
+    const d = dragRef.current;
+    const obj = DEV.gizmoTarget === "stage" ? DEV.stageGroup : DEV.modelGroup;
+    if (!d || !obj) return;
 
-  const obj = target === "stage" ? DEV.stageGroup : DEV.modelGroup;
+    if (DEV.gizmo === "translate") {
+      const delta = proxy.position.clone().sub(d.proxyPos);
+      if (DEV.gizmoTarget === "settle") {
+        // World delta → stage-local (model group lives inside the stage)
+        delta
+          .applyQuaternion(d.stageQuatInv)
+          .divideScalar(d.stageScale || 1);
+      }
+      obj.position.copy(d.targetPos).add(delta);
+    } else if (DEV.gizmo === "rotate") {
+      // World-frame rotation delta of the proxy
+      const dq = proxy.quaternion.clone().multiply(d.proxyQuatInv);
+      let localDelta = dq;
+      if (DEV.gizmoTarget === "settle") {
+        localDelta = d.stageQuatInv.clone().multiply(dq).multiply(d.stageQuat);
+      }
+      obj.quaternion.copy(localDelta.multiply(d.targetQuat));
+    } else if (DEV.gizmo === "scale") {
+      const k =
+        (proxy.scale.x + proxy.scale.y + proxy.scale.z) /
+        (3 * (d.proxyScale || 1));
+      obj.scale.setScalar(d.targetScale * k);
+    }
+  };
+
+  const onDown = () => {
+    DEV.gizmoDragging = true;
+    // Guard: settle capture maths is only valid at the endpoint
+    if (DEV.gizmoTarget === "settle" && DEV.lastP !== 1) {
+      DEV.lastP = 1;
+      if (DEV.applyProgress) DEV.applyProgress(1);
+      if (DEV.setLeva) DEV.setLeva({ p: 1 });
+    }
+    const obj = DEV.gizmoTarget === "stage" ? DEV.stageGroup : DEV.modelGroup;
+    if (!obj) return;
+    const rs = DEV.stageGroup
+      ? DEV.stageGroup.quaternion.clone()
+      : new THREE.Quaternion();
+    dragRef.current = {
+      proxyPos: proxy.position.clone(),
+      proxyQuatInv: proxy.quaternion.clone().invert(),
+      proxyScale: proxy.scale.x || 1,
+      targetPos: obj.position.clone(),
+      targetQuat: obj.quaternion.clone(),
+      targetScale: obj.scale.x || 1,
+      stageQuat: rs,
+      stageQuatInv: rs.clone().invert(),
+      stageScale: DEV.stageGroup ? DEV.stageGroup.scale.x || 1 : 1,
+    };
+  };
+
+  const onUp = () => {
+    DEV.gizmoDragging = false;
+    DEV.lastDragEnd = performance.now();
+    dragRef.current = null;
+    // Capture BEFORE the next frame's lerp runs — the lerp target then
+    // equals the pose just set, so there is no snap-back.
+    if (DEV.gizmoTarget === "stage") captureStageFromObject();
+    else captureSettleFromObject(viewport);
+  };
 
   return (
-    <TransformControls
-      key={`${mode}-${target}`}
-      ref={ctrlRef}
-      object={obj}
-      mode={mode}
-      space={space}
-      size={0.8}
-      translationSnap={snap ? 0.1 : null}
-      rotationSnap={snap ? Math.PI / 12 : null}
-      scaleSnap={snap ? 0.05 : null}
-      onMouseDown={() => {
-        DEV.gizmoDragging = true;
-        // Guard: settle capture maths is only valid at the endpoint
-        if (target === "settle" && DEV.lastP !== 1) {
-          DEV.lastP = 1;
-          if (DEV.applyProgress) DEV.applyProgress(1);
-          if (DEV.setLeva) DEV.setLeva({ p: 1 });
-        }
-      }}
-      onMouseUp={() => {
-        DEV.gizmoDragging = false;
-        // Capture BEFORE the next frame's lerp runs — the lerp target
-        // then equals the pose just set, so there is no snap-back.
-        if (target === "stage") captureStageFromObject();
-        else captureSettleFromObject(viewport);
-      }}
-    />
+    <>
+      <primitive object={proxy} />
+      {mode !== "off" && ready && (
+        <TransformControls
+          key={`${mode}-${target}`}
+          ref={ctrlRef}
+          object={proxy}
+          mode={mode}
+          space={space}
+          size={1.35}
+          translationSnap={snap ? 0.1 : null}
+          rotationSnap={snap ? Math.PI / 12 : null}
+          scaleSnap={snap ? 0.05 : null}
+          onMouseDown={onDown}
+          onObjectChange={applyDrag}
+          onMouseUp={onUp}
+        />
+      )}
+    </>
   );
 }
 
@@ -1230,9 +1687,9 @@ function DevGizmo() {
 //   ?sscale=1        STAGE uniform scale
 //   ?snap=1          deterministic capture: damp→1 (exact pose per frozen
 //                    p) + window.__iglassCaptureReady flag for Playwright
-//   ?dev=1           Pose Studio (gizmo W/E/R/Q, T target, Shift snap,
-//                    Tab arrow-mode, G grain, arrows nudge, [ ] p nudge,
-//                    world/local space, wiring, origin & slots)
+//   ?dev=1           Pose Studio (dashboard + gizmo W/E/R/Q, T target,
+//                    Shift snap, Tab arrow-mode, G grain, arrows nudge,
+//                    [ ] p nudge, click-to-target, 60 pose slots)
 // ============================================
 function resolveRuntimeConfig() {
   const params = new URLSearchParams(window.location.search);
@@ -1301,6 +1758,8 @@ function resolveRuntimeConfig() {
 
   const dev = params.get("dev") === "1" || params.get("dev") === "true";
   DEV.enabled = dev;
+  // Predictive space binding boot state: default target is settle → local
+  DEV.gizmoSpace = DEV.gizmoTarget === "stage" ? "world" : "local";
 
   // Deterministic capture flag (Playwright frame-baking). damp→1 in the
   // useFrame + window.__iglassCaptureReady signal once settled.
@@ -1758,7 +2217,18 @@ child.renderOrder = 3;
 
   return (
     <group ref={stageGroupRef}>
-      <group ref={modelGroupRef}>
+      <group
+        ref={modelGroupRef}
+        // Click-to-target (v3.1): tapping any part of the phone selects
+        // the settle target (+ local space). event.delta filters out
+        // gizmo drags and camera gestures — only clean clicks retarget.
+        onClick={(e) => {
+          if (!DEV.enabled) return;
+          if (e.delta > 4) return;
+          e.stopPropagation();
+          changeGizmoContext("settle");
+        }}
+      >
         <group ref={pivotRef}>
           {/* GLASS (Front Window + Bezel) */}
           <group ref={glassGroupRef}>
@@ -1853,7 +2323,7 @@ function Scene({
 }
 
 // ============================================
-// Main Component — headless canvas, no DOM UI
+// Main Component — headless canvas, no DOM UI (dashboard is dev-only)
 // ============================================
 export default function CrossSection3DScrollGLB(props) {
   const merged = { ...defaultProps, ...props };
@@ -1990,12 +2460,13 @@ export default function CrossSection3DScrollGLB(props) {
     >
       {dev && (
         <Leva
-          collapsed={false}
+          collapsed={true}
           theme={LEVA_LIGHT}
-          titleBar={{ title: "iGlass pose studio" }}
+          titleBar={{ title: "numeric sliders" }}
         />
       )}
       {dev && <DevControls initialP={freezeP ?? 0} />}
+      {dev && <DevDashboard />}
       <div
         ref={stickyRef}
         style={{
@@ -2019,6 +2490,19 @@ export default function CrossSection3DScrollGLB(props) {
             gl.toneMapping = THREE.NoToneMapping;
             gl.setClearColor(0x000000, 0); // fully transparent clear
             DEV.canvasEl = gl.domElement; // save-card frame source
+          }}
+          // Click-to-target (v3.1): a click that hits nothing = the
+          // background = the stage. Guards: never mid-drag, never within
+          // 250ms of a drag release (a drag that ends over empty space
+          // must not retarget).
+          onPointerMissed={() => {
+            if (!DEV.enabled) return;
+            if (
+              DEV.gizmoDragging ||
+              performance.now() - DEV.lastDragEnd < 250
+            )
+              return;
+            changeGizmoContext("stage");
           }}
           style={{ width: "100%", height: "100%" }}
         >
