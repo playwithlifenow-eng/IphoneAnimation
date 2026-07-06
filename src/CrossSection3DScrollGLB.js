@@ -120,11 +120,6 @@ const MODEL = {
   targetSize: 1.6, // world units — largest model dimension after fit
 };
 
-const GLASS_ALIGNMENT = {
-  y: -0.1,
-  z: 0.1,
-};
-
 // ============================================
 // DEV RIG — additive instrumentation only.
 // Writes to the SAME config objects the animation already reads.
@@ -1689,19 +1684,10 @@ child.renderOrder = 3;
     }
 
     if (glassGroupRef.current) {
-      const targetZ =
-        GLASS_ALIGNMENT.z -
-        scrollState.glassOffset * explodeDistance * 2.0;
-
-      glassGroupRef.current.position.y = THREE.MathUtils.lerp(
-        glassGroupRef.current.position.y,
-        GLASS_ALIGNMENT.y,
-        damp
-      );
-
+      const target = -(scrollState.glassOffset * explodeDistance * 2.0);
       glassGroupRef.current.position.z = THREE.MathUtils.lerp(
         glassGroupRef.current.position.z,
-        targetZ,
+        target,
         damp
       );
     }
