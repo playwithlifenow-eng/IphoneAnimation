@@ -17,6 +17,29 @@ import { Leva, useControls, button, folder } from "leva";
 gsap.registerPlugin(ScrollTrigger);
 
 // ============================================
+// v3.3 — GLASS REGISTRATION + BODY EMISSION KILL
+// (builds on the v3.2 hierarchy bake; two small, independent, in-domain
+// corrections — glass-reg defaults to 0 so the only immediate visual
+// change is the emission kill)
+//
+//   GLASS REGISTRATION  The v3.2 rebase seated glass↔bezel and
+//                       glass↔body RELATIVELY, but the intact glass unit
+//                       still sits low on the screen's long axis (top gap
+//                       + low bottom bezel) because the source glass is
+//                       modelled low / undersized. GLASS_REG is a static
+//                       offset on the WHOLE glass group (front + bezel
+//                       together), dialled live via the "glass
+//                       registration" Leva folder and serialised to the
+//                       URL (?glassreg=x,y,z). y = up/down the screen.
+//                       Default (0,0,0) → byte-identical to v3.2.
+//   BODY EMISSION KILL  The GLB rear-glass material carries emission 0.35
+//                       → it self-illuminates. Cleared group-wide on the
+//                       body meshes (nothing there should glow; OLED is
+//                       separate). The rear panel's remaining see-through
+//                       look is an OPEN shell (missing front-cap geometry)
+//                       and is a Blender fix (#7), not an R3F one.
+//
+// ============================================
 // v3.2 — HIERARCHY BAKE (first production-maths change since v2.x;
 // dev rig untouched from v3.1)
 //
@@ -148,6 +171,19 @@ const STAGE = {
 const MODEL = {
   targetSize: 1.6, // world units — largest model dimension after fit
 };
+
+// GLASS_REG (v3.3) — static registration offset for the WHOLE glass unit
+// (Glass_Front + Glass_Bezel together), in the model's raw local units
+// (1 unit ≈ 10 mm). The v3.2 anchored rebase fixed glass↔bezel and
+// glass↔body RELATIVE seating; this handles the residual where the intact
+// unit sits slightly low on the screen's long axis (top gap + low bottom
+// bezel) because the source glass geometry is modelled low / undersized.
+//   y = up/down the screen (long axis)   x = across   z = depth (added to
+//   the explode target, so the explode animation is unaffected)
+// Dial it live in the "glass registration" Leva folder until the top gap
+// closes; the value serialises to the URL. Default (0,0,0) = byte-identical
+// to v3.2. Overridable: ?glassreg=x,y,z
+const GLASS_REG = { x: 0, y: 0, z: 0 };
 
 // ============================================
 // DEV RIG — additive instrumentation only.
@@ -563,6 +599,10 @@ function serialiseParams(params) {
   params.set("spos", STAGE.position.map((v) => v.toFixed(3)).join(","));
   params.set("srot", STAGE.rotationEuler.map(deg).join(","));
   params.set("sscale", STAGE.scale.toFixed(2));
+  params.set(
+    "glassreg",
+    [GLASS_REG.x, GLASS_REG.y, GLASS_REG.z].map((v) => v.toFixed(3)).join(",")
+  );
 }
 
 function buildTuningURL() {
@@ -617,6 +657,7 @@ function saveCard() {
     `settle ${SETTLE.targetEuler.map(deg).join(", ")}    pscale ${SETTLE.scale.toFixed(2)}`,
     `shift ${SETTLE.xShiftFraction.toFixed(3)}    vshift ${SETTLE.yShiftFraction.toFixed(3)}    lift ${SETTLE.arcLift.toFixed(3)}`,
     `stage pos ${STAGE.position.map((v) => v.toFixed(2)).join(", ")}    rot ${STAGE.rotationEuler.map(deg).join(", ")}    scl ${STAGE.scale.toFixed(2)}`,
+    `glassreg ${[GLASS_REG.x, GLASS_REG.y, GLASS_REG.z].map((v) => v.toFixed(3)).join(", ")}`,
   ];
   const url = buildTuningURL();
 
@@ -1063,6 +1104,47 @@ function DevControls({ initialP }) {
         },
       },
       { collapsed: true }
+    ),
+    // GLASS_REG (v3.3) — whole-glass-unit registration. Drag while
+    // watching the top edge; when the top gap closes and the bottom
+    // bezel seats against the chassis, it's aligned. Read the value
+    // off the URL (📋 copy URL) or the saved pose card. Units are raw
+    // model units (≈ 10 mm each). No dirty flag — useFrame reads these
+    // live every frame.
+    "🔲 glass registration": folder(
+      {
+        glassRegY: {
+          value: GLASS_REG.y,
+          min: -1,
+          max: 1,
+          step: 0.005,
+          label: "up / down (Y)",
+          onChange: (v) => {
+            GLASS_REG.y = v;
+          },
+        },
+        glassRegX: {
+          value: GLASS_REG.x,
+          min: -1,
+          max: 1,
+          step: 0.005,
+          label: "across (X)",
+          onChange: (v) => {
+            GLASS_REG.x = v;
+          },
+        },
+        glassRegZ: {
+          value: GLASS_REG.z,
+          min: -1,
+          max: 1,
+          step: 0.005,
+          label: "depth (Z)",
+          onChange: (v) => {
+            GLASS_REG.z = v;
+          },
+        },
+      },
+      { collapsed: false }
     ),
   }));
 
@@ -1761,6 +1843,17 @@ function resolveRuntimeConfig() {
   }
   DEV.dirtyStage = true;
 
+  // ---- GLASS_REG (v3.3) — whole-glass-unit registration offset ----
+  const glassregParam = params.get("glassreg");
+  if (glassregParam) {
+    const parts = glassregParam.split(",").map((v) => parseFloat(v));
+    if (parts.length === 3 && parts.every((v) => !isNaN(v))) {
+      GLASS_REG.x = parts[0];
+      GLASS_REG.y = parts[1];
+      GLASS_REG.z = parts[2];
+    }
+  }
+
   const dev = params.get("dev") === "1" || params.get("dev") === "true";
   DEV.enabled = dev;
   // Predictive space binding boot state: default target is settle → local
@@ -2022,6 +2115,21 @@ child.renderOrder = 3;
           child.material = child.material.clone();
           const mat = child.material;
 
+          // v3.3: kill any baked emission on body materials. The GLB
+          // rear-glass panel carries emission 0.35 (forensic audit) → it
+          // self-illuminates and reads bright even after the duplicate-
+          // body filter halved it. Nothing in the body group should glow
+          // (the OLED is a separate group with its own unlit material),
+          // so this is a corrective clear, not a workaround. Names are
+          // hashed, so it's applied group-wide rather than to the rear
+          // mesh by name. NOTE (Phase 2 / Blender #7): the rear panel is
+          // also an OPEN shell (no front cap) — its see-through look is
+          // missing geometry, which R3F cannot cap; that is fixed in
+          // Blender, not here.
+          if (mat.emissive) mat.emissive.setRGB(0, 0, 0);
+          if ("emissiveIntensity" in mat) mat.emissiveIntensity = 0;
+          mat.emissiveMap = null;
+
           // GLB body materials include semi-transparent glass covers
           // (Dynamic Island / sensor windows / camera glass). Forcing
           // transparent=false alone turns these into opaque MID-GREY —
@@ -2207,12 +2315,17 @@ child.renderOrder = 3;
     }
 
     if (glassGroupRef.current) {
+      // v3.3: GLASS_REG rides the whole glass unit. z registration adds
+      // to the explode target (explode animation unaffected); x/y are
+      // static screen-plane registration.
       const target = -(scrollState.glassOffset * explodeDistance * 2.0);
       glassGroupRef.current.position.z = THREE.MathUtils.lerp(
         glassGroupRef.current.position.z,
-        target,
+        target + GLASS_REG.z,
         damp
       );
+      glassGroupRef.current.position.x = GLASS_REG.x;
+      glassGroupRef.current.position.y = GLASS_REG.y;
     }
 
     if (oledGroupRef.current) {
