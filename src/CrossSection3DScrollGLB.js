@@ -17,57 +17,62 @@ import { Leva, useControls, button, folder } from "leva";
 gsap.registerPlugin(ScrollTrigger);
 
 // ============================================
-// v3.1 — ANCHORED GIZMO + VISUAL DASHBOARD
-// (production maths untouched — dev rig only)
+// v3.2 — HIERARCHY BAKE (first production-maths change since v2.x;
+// dev rig untouched from v3.1)
 //
-//   PROXY GIZMO      TransformControls no longer attaches to the phone.
-//                    It attaches to an invisible PROXY object that
-//                    follows the target but is CLAMPED to the visible
-//                    frame every frame. Drag deltas are relayed to the
-//                    real target (world → stage-local conversion for
-//                    settle). The gizmo therefore CANNOT leave the
-//                    screen. The v3.0 frustumCulled fix only covered
-//                    origins barely out of frame — an origin far
-//                    off-screen is geometrically unreachable by any
-//                    handle size; the anchor itself had to move.
-//                    Capture on release is unchanged: it reads the real
-//                    target, exactly as before.
-//   FAT HANDLES      size 1.35 (was 0.8), arrow shafts/heads 2.2×
-//                    radial, and the INVISIBLE picker meshes (the
-//                    actual hit zones) fattened 1.6–2.4×. The
-//                    thin-line grab problem was mostly pickers, not
-//                    visuals.
-//   CLICK-TO-TARGET  click the phone → settle target + LOCAL space;
-//                    click empty background → stage target + WORLD
-//                    space (predictive space binding). The Leva
-//                    gizmo/target/space dropdowns are gone. T still
-//                    toggles targets; W/E/R/Q still set gizmo mode.
-//                    Click-distance + drag-timestamp guards stop drags
-//                    from retargeting mid-gesture.
-//   EULER SANITISE   capture + screen-rotate writes wrap to
-//                    (-180, 180] at 0.01° precision before touching
-//                    the sliders — kills the release snatch (Leva
-//                    clamp → onChange → dirty-apply feedback loop).
-//   DASHBOARD        custom light-theme overlay (left side):
-//                    · target / mode / space chips
-//                    · PRIMITIVES — clean baseline positions (L/C/R,
-//                      T/M/B, near/mid/far) and rotations
-//                      (−90/−45/0/45/90/180 per axis), target-aware
-//                    · 60 PERSISTENT SLOTS (localStorage — click =
-//                      warp, Shift+click = save, right-click = clear;
-//                      green when occupied; survives tab close/reboot)
-//                    · origin / spirit-level / copy-URL / save-card /
-//                      manifest actions
-//                    Leva stays MOUNTED but boots COLLAPSED — its
-//                    onChange handlers are the single write path (URL
-//                    serialisation, wiring, snapshots, arrow drive and
-//                    gizmo capture all route through them). The
-//                    numbers are hidden, not removed.
+//   WHAT WAS WRONG   In the GLB, Glass_Bezel is a CHILD NODE of
+//                    Glass_Front, and Glass_Front carries a node
+//                    translation of (+0.025272, −0.091440, −0.088344)
+//                    raw units (≈ +0.25, −0.91, −0.88 mm). traverse()
+//                    + <primitive> re-parents every mesh into the
+//                    glass/oled/body groups; three.js add() removes an
+//                    object from its previous parent, so the bezel
+//                    LOST that inherited offset and rendered at the
+//                    origin while the glass kept its own node
+//                    transform. That relative displacement IS the
+//                    perimeter reveal + top-edge gap visible in the
+//                    R3F scene but absent in Blender. (Verified
+//                    against the deployed GLB's node data 2026-07-07:
+//                    the bezel's dropped transform matches the visible
+//                    misregistration to four decimals.)
+//   THE FIX          ANCHORED REBASE. Before any re-parenting, world
+//                    matrices are computed for the intact GLB graph,
+//                    then every mesh's local transform is rewritten:
+//                      newLocal = anchorOldLocal · anchorWorld⁻¹ · meshWorld
+//                    with the first primary body primitive as anchor.
+//                    Every mesh lands at its TRUE pose relative to the
+//                    body, expressed in the exact frame the body
+//                    already rendered in. For THIS GLB the algebra
+//                    collapses so the ONLY changed transform is
+//                    Glass_Bezel's (it gains the missing parent
+//                    offset). Internals plane, explodeDistance, rest
+//                    quaternion, pivot fit: untouched by construction
+//                    — no unit retune exists. Robust to future
+//                    re-exports: any hierarchy the GLB ships, meshes
+//                    land at their true relative pose.
+//   DUPLICATE BODY   The GLB contains two co-located full phones
+//                    (Body Frame + Body Frame.001, 99.998% identical
+//                    geometry). The duplicate's 35 primitives are now
+//                    filtered out at classification — never mounted,
+//                    never rendered. Expected visible result: rear
+//                    panel brightness roughly halves, z-fight flicker
+//                    and doubled reflections gone. Display_OLED.001 is
+//                    NOT part of this filter — it is the only OLED in
+//                    the file and is kept. Blender-side deletion of
+//                    the duplicate follows in Phase 2; this is the
+//                    render-side guard until then.
+//   STILL PENDING    (deliberately NOT changed in v3.2 — one variable
+//                    per phase): bezel depthTest/renderOrder
+//                    workarounds, glass polygonOffset, OLED whole-
+//                    object re-skin + UV stretch, compound-mesh
+//                    splits. Those are Phase 2/3 (Blender surgery)
+//                    and the post-surgery R3F cleanup.
 //
-// v3.0 recap: world/local space toggle, driven-key wiring, origin +
-// A/B/C snapshots (A/B/C superseded by the 60-slot grid), spirit level,
-// panel regroup. v2.9 recap: screen-space arrow drive (SCREEN_ROT_SIGNS
-// is the only sign surface). v2.8 recap: ?snap=1 deterministic capture.
+// v3.1 recap: proxy-anchored gizmo, fat handles, click-to-target,
+// euler sanitise, 60-slot persistent dashboard. v3.0: world/local
+// space, wiring, snapshots, spirit level. v2.9: screen-space arrow
+// drive (SCREEN_ROT_SIGNS is the only sign surface). v2.8: ?snap=1
+// deterministic capture.
 // ============================================
 let CAPTURE_SNAP = false;
 let SNAP_FRAMES = 0;
@@ -1893,17 +1898,53 @@ function IPhoneExploded({
   const stageGroupRef = useRef(); // constant world transform, timeline-free
 
   // ---------------------------------------------------------
-  // SORTING: layers by node name (unchanged from v1).
-  // Render order: Body 0 → OLED 1 → Glass Front 3 → Bezel 4 
-  // NOTE: GLB duplicated hierarchy still pending Blender cleanup.
+  // SORTING + HIERARCHY BAKE (v3.2).
+  // Layers by node name (v1 sorting) — but two new steps bracket it:
+  //   (1) BEFORE classify: updateMatrixWorld(true) on the intact clone,
+  //       so every mesh's matrixWorld is the TRUE pose the GLB encodes
+  //       (with Glass_Bezel still inheriting Glass_Front's transform).
+  //   (1b) inDuplicateBodyTree filter drops the co-located second phone
+  //       (Body Frame.001 subtree) — never classified, never mounted.
+  //   (3) AFTER classify, BEFORE the <primitive> mounts re-parent the
+  //       meshes: ANCHORED REBASE rewrites each mesh's local transform to
+  //       its body-relative world pose. Mounting then can't drop anything
+  //       — the transform the parent chain carried is baked in.
+  //
+  // Render order: Body 0 → OLED 1 → Glass Front 3 → Bezel 4
+  // NOTE: GLB duplicated hierarchy still pending Blender cleanup (Phase 2).
   // ---------------------------------------------------------
   const { glassMeshes, oledMeshes, bodyMeshes } = useMemo(() => {
     const glass = [];
     const oled = [];
     const body = [];
 
+    // (1) World matrices for the INTACT graph — ground truth for the
+    // rebase. MUST run before any mesh is re-parented by <primitive>.
+    clonedScene.updateMatrixWorld(true);
+
+    // (1b) Duplicate-body filter. Second co-located phone lives under
+    // node "Body Frame.001" (mesh faSjZVwGMQJEFBf.001, 35 prims). Match
+    // on a normalised ancestor-chain name — the 35 primitives are
+    // children carrying hash names, so the whole chain must be checked.
+    // Display_OLED.001 does NOT match (it is the only OLED, kept).
+    const normName = (s) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+    const inDuplicateBodyTree = (o) => {
+      for (let p = o; p; p = p.parent) {
+        const n = normName(p.name);
+        if (n.includes("bodyframe001") || n.startsWith("fasjzvwgmqjefbf001")) {
+          return true;
+        }
+      }
+      return false;
+    };
+
     clonedScene.traverse((child) => {
       if (child.isMesh) {
+        // Duplicate phone: never pushed → never mounted → never rendered.
+        // Expected: rear brightness roughly halves, z-fight flicker gone.
+        // Blender-side deletion follows in Phase 2.
+        if (inDuplicateBodyTree(child)) return;
+
         const name = child.name.toLowerCase();
 
         if (name.includes("bezel") || name.includes("glass_bezel")) {
@@ -2020,6 +2061,29 @@ child.renderOrder = 3;
         }
       }
     });
+
+    // ---- (3) ANCHORED REBASE (v3.2 — the hierarchy fix) ----
+    // newLocal = anchorOldLocal · anchorWorld⁻¹ · meshWorld
+    // Anchor = first primary body primitive. Every mesh lands at its TRUE
+    // pose relative to the body, expressed in the exact frame the body
+    // already rendered in — so pivot fit, rest quaternion, internals
+    // plane, and explode distances need NO retune. Verified against the
+    // deployed GLB (2026-07-07): the only transform this changes is
+    // Glass_Bezel's — it gains the (+0.025272, −0.091440, −0.088344)
+    // parent offset that flattening was dropping (the perimeter reveal /
+    // top-edge gap). Robust to future re-exports.
+    const allMeshes = [...glass, ...oled, ...body];
+    const anchorMesh = body[0] || allMeshes[0];
+    if (anchorMesh) {
+      const anchorLocal = anchorMesh.matrix.clone();
+      const anchorWorldInv = anchorMesh.matrixWorld.clone().invert();
+      const rebased = new THREE.Matrix4();
+      for (const m of allMeshes) {
+        rebased.multiplyMatrices(anchorWorldInv, m.matrixWorld);
+        rebased.premultiply(anchorLocal);
+        rebased.decompose(m.position, m.quaternion, m.scale);
+      }
+    }
 
     return { glassMeshes: glass, oledMeshes: oled, bodyMeshes: body };
   }, [clonedScene, oledTexture, maxAniso]);
