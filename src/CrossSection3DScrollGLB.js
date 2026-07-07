@@ -17,6 +17,26 @@ import { Leva, useControls, button, folder } from "leva";
 gsap.registerPlugin(ScrollTrigger);
 
 // ============================================
+// v3.5 — GLASS-REG BAKED + LEVA REINSTATED + HUD SIGN FIX + VISUAL WIRING
+//
+//   GLASS-REG BAKE     Tuned registration (x −0.03, y 0.09, z 0.07) is now
+//                      the compiled default — regression-proof, no URL
+//                      dependency. Sliders still live-dial on top of it.
+//   LEVA REINSTATED    v3.4 hid the whole Leva panel — which also removed
+//                      the timeline playhead (the explode/raise lever) and
+//                      the glass-registration dials. Panel is back top-right,
+//                      collapsed by default: dashboard for visual driving,
+//                      Leva for the numeric levers when needed.
+//   HUD SIGN FIX       Sat-Nav ring rotation directions inverted via
+//                      HUD_ROT_SIGNS — a dedicated sign surface so the
+//                      ring's feel is tunable without touching the
+//                      arrow-key conventions (SCREEN_ROT_SIGNS untouched).
+//   VISUAL WIRING      Compound motion (the driven-key master/driven/ratio
+//                      coupling) surfaced on the dashboard as "🔗 compound
+//                      motion" — on/off, master, driven, ratio drag, reset
+//                      run. Same WIRE engine underneath, zero new maths.
+//
+// ============================================
 // v3.4 — SAT-NAV HUD + TRUE SQUARE-UP + PANEL-AWARE GIZMO
 // (pure UI / input-surface layer — production maths from v3.3 frozen:
 //  hierarchy bake, measured pivot, geodesic slerp, glass-reg all untouched)
@@ -189,9 +209,11 @@ const MODEL = {
 //   y = up/down the screen (long axis)   x = across   z = depth (added to
 //   the explode target, so the explode animation is unaffected)
 // Dial it live in the "glass registration" Leva folder until the top gap
-// closes; the value serialises to the URL. Default (0,0,0) = byte-identical
-// to v3.2. Overridable: ?glassreg=x,y,z
-const GLASS_REG = { x: 0, y: 0, z: 0 };
+// closes; the value serialises to the URL. Overridable: ?glassreg=x,y,z
+// v3.5: TUNED VALUES BAKED IN as the new defaults (measured 2026-07-07,
+// Matthew's live dial-in). No URL param needed — every load, every page,
+// every future session starts registered. URL still overrides if present.
+const GLASS_REG = { x: -0.03, y: 0.09, z: 0.07 };
 
 // ============================================
 // DEV RIG — additive instrumentation only.
@@ -250,6 +272,12 @@ const GRAIN_STEPS = {
 //   pitch -1 → ArrowUp tips the front face upward
 //   roll  -1 → ArrowRight rolls clockwise on screen
 const SCREEN_ROT_SIGNS = { yaw: 1, pitch: -1, roll: -1 };
+
+// v3.5 — Sat-Nav ring's OWN sign surface, multiplied on top of
+// SCREEN_ROT_SIGNS. The ring felt inverted relative to the (correct)
+// arrow keys, so it gets an independent flip layer: change a value here
+// to retune the ring's feel without ever touching the keyboard drive.
+const HUD_ROT_SIGNS = { yaw: -1, pitch: -1, roll: -1 };
 
 // Plain-channel map — consulted ONLY for the paths that are already
 // screen-pure: stage MOVE (world position = screen axes) and the two
@@ -1329,6 +1357,17 @@ const chipStyle = (active, wide) => ({
   display: "inline-block",
 });
 
+const SEL_STYLE = {
+  fontFamily: "ui-monospace, Menlo, Consolas, monospace",
+  fontSize: 10,
+  color: "#25332b",
+  background: "#f4f8f5",
+  border: "1px solid #d5e2d9",
+  borderRadius: 6,
+  padding: "3px 4px",
+  maxWidth: 96,
+};
+
 const slotStyle = (filled) => ({
   width: 20,
   height: 20,
@@ -1531,6 +1570,89 @@ function DevDashboard() {
         ))}
       </div>
 
+      {/* ---- compound motion (v3.5) — visual surface for the WIRE
+           driven-key engine. Master moves → driven follows at ratio.
+           Same engine, same anchors, zero new maths: every gesture that
+           routes through Leva onChange (ring, canvas drag, arrows,
+           gizmo release) drives the coupling automatically. ---- */}
+      <div style={UI.head}>🔗 compound motion</div>
+      <div style={UI.row}>
+        <span
+          style={chipStyle(WIRE.enabled, true)}
+          title="couple two parameters — moving the master drives the driven at the set ratio"
+          onClick={() => {
+            WIRE.enabled = !WIRE.enabled;
+            if (WIRE.enabled) wireAnchors();
+          }}
+        >
+          {WIRE.enabled ? "● wired" : "○ wire on"}
+        </span>
+        <span
+          style={chipStyle(false)}
+          title="restore both parameters to their anchors — adjust ratio, run again"
+          onClick={wireResetRun}
+        >
+          ↺ reset run
+        </span>
+      </div>
+      <div style={{ ...UI.row, marginTop: 3 }}>
+        <select
+          style={SEL_STYLE}
+          value={WIRE.master}
+          title="master — the parameter you drive"
+          onChange={(ev) => {
+            WIRE.master = ev.target.value;
+            if (WIRE.enabled) wireAnchors();
+          }}
+        >
+          {WIREABLE.map((k) => (
+            <option key={k} value={k}>
+              {k}
+            </option>
+          ))}
+        </select>
+        <span style={{ margin: "0 4px", color: "#5a6b60", fontSize: 10 }}>→</span>
+        <select
+          style={SEL_STYLE}
+          value={WIRE.driven}
+          title="driven — follows the master"
+          onChange={(ev) => {
+            WIRE.driven = ev.target.value;
+            if (WIRE.enabled) wireAnchors();
+          }}
+        >
+          {WIREABLE.map((k) => (
+            <option key={k} value={k}>
+              {k}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div style={{ ...UI.row, marginTop: 3, alignItems: "center" }}>
+        <input
+          type="range"
+          min={-5}
+          max={5}
+          step={0.01}
+          value={WIRE.ratio}
+          style={{ width: 150, accentColor: "#2e7d52" }}
+          title="ratio — driven units per master unit (negative = opposite direction)"
+          onChange={(ev) => {
+            WIRE.ratio = parseFloat(ev.target.value);
+          }}
+        />
+        <span
+          style={{
+            marginLeft: 6,
+            fontSize: 10,
+            color: "#25332b",
+            minWidth: 34,
+          }}
+        >
+          ×{WIRE.ratio.toFixed(2)}
+        </span>
+      </div>
+
       {/* ---- 60 persistent slots ---- */}
       <div style={UI.head}>
         💾 pose slots ({filledCount}/{SLOT_COUNT})
@@ -1678,12 +1800,18 @@ function SatNavHUD() {
       const W = new THREE.Quaternion();
       if (state.mode === "roll") {
         const ang = Math.atan2(my - cy, mx - cx);
-        const delta = (ang - state.startAng) * SCREEN_ROT_SIGNS.roll;
+        const delta =
+          (ang - state.startAng) * SCREEN_ROT_SIGNS.roll * HUD_ROT_SIGNS.roll;
         W.setFromAxisAngle(new THREE.Vector3(0, 0, 1), delta);
       } else {
         const gain = 0.006; // radians per pixel — tune to taste
-        const yaw = (mx - state.startX) * gain * SCREEN_ROT_SIGNS.yaw;
-        const pitch = (my - state.startY) * gain * SCREEN_ROT_SIGNS.pitch;
+        const yaw =
+          (mx - state.startX) * gain * SCREEN_ROT_SIGNS.yaw * HUD_ROT_SIGNS.yaw;
+        const pitch =
+          (my - state.startY) *
+          gain *
+          SCREEN_ROT_SIGNS.pitch *
+          HUD_ROT_SIGNS.pitch;
         const Qyaw = new THREE.Quaternion().setFromAxisAngle(
           new THREE.Vector3(0, 1, 0),
           yaw
@@ -3063,12 +3191,14 @@ export default function CrossSection3DScrollGLB(props) {
         background: bg,
       }}
     >
-      {/* Leva is MOUNTED but HIDDEN — it stays the central write bus
-          (arrow drive, gizmo capture, slots, wiring, Sat-Nav all route
-          through its set()), while the dashboard is the only visible UI. */}
+      {/* Leva REINSTATED (v3.5) — collapsed top-right. Hiding it in v3.4
+          also removed the timeline playhead (the explode/raise lever) and
+          the glass-registration dials. It stays the central write bus AND
+          the numeric-lever surface: dashboard for visual driving, Leva
+          for playhead p, glass reg, tilt/lift, and wiring numerics. */}
       {dev && (
         <Leva
-          hidden
+          collapsed={true}
           theme={LEVA_LIGHT}
           titleBar={{ title: "numeric sliders" }}
         />
