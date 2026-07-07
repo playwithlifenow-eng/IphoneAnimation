@@ -17,85 +17,47 @@ import { Leva, useControls, button, folder } from "leva";
 gsap.registerPlugin(ScrollTrigger);
 
 // ============================================
-// v3.3 — GLASS REGISTRATION + BODY EMISSION KILL
-// (builds on the v3.2 hierarchy bake; two small, independent, in-domain
-// corrections — glass-reg defaults to 0 so the only immediate visual
-// change is the emission kill)
+// v3.4 — SAT-NAV HUD + TRUE SQUARE-UP + PANEL-AWARE GIZMO
+// (pure UI / input-surface layer — production maths from v3.3 frozen:
+//  hierarchy bake, measured pivot, geodesic slerp, glass-reg all untouched)
 //
-//   GLASS REGISTRATION  The v3.2 rebase seated glass↔bezel and
-//                       glass↔body RELATIVELY, but the intact glass unit
-//                       still sits low on the screen's long axis (top gap
-//                       + low bottom bezel) because the source glass is
-//                       modelled low / undersized. GLASS_REG is a static
-//                       offset on the WHOLE glass group (front + bezel
-//                       together), dialled live via the "glass
-//                       registration" Leva folder and serialised to the
-//                       URL (?glassreg=x,y,z). y = up/down the screen.
-//                       Default (0,0,0) → byte-identical to v3.2.
-//   BODY EMISSION KILL  The GLB rear-glass material carries emission 0.35
-//                       → it self-illuminates. Cleared group-wide on the
-//                       body meshes (nothing there should glow; OLED is
-//                       separate). The rear panel's remaining see-through
-//                       look is an OPEN shell (missing front-cap geometry)
-//                       and is a Blender fix (#7), not an R3F one.
+//   SQUARE-UP (was "level")  The old snapLevel rounded each euler CHANNEL
+//                            to the nearest 90° independently. Euler
+//                            channels couple (gimbal), so the same button
+//                            landed a different orientation depending on
+//                            where the phone sat — the "doesn't work
+//                            across every position/target" bug. Replaced
+//                            with snapQuatTo90: snaps the ORIENTATION to
+//                            the nearest axis-aligned frame (basis-vector
+//                            snap → re-orthonormalised → back to euler).
+//                            Identical everywhere, target-agnostic, no
+//                            jump. One "⊞ square up" button acts on the
+//                            active target.
+//   PANEL-AWARE GIZMO        The proxy-anchor left clamp was a fixed
+//                            NDC −0.85 → still parked the gizmo BEHIND the
+//                            left panel. The clamp now reads DEV.leftClampNDC,
+//                            recomputed from the live panel width. Collapse
+//                            the panel (▾ in its header) and the gizmo
+//                            reclaims the full left edge.
+//   SAT-NAV HUD              Primitives + numeric sliders removed from view
+//                            (Leva mounted but hidden — still the write bus).
+//                            New canvas-native controls, all routing through
+//                            the SAME screen-space maths:
+//                              · steering RING — drag the band = roll,
+//                                drag inside = yaw/pitch (rotate mode)
+//                              · drag empty canvas = move (move mode)
+//                              · scroll wheel = zoom (stage scale, any mode)
+//                              · mini-proxy PiP (bottom-right) mirrors the
+//                                phone's live orientation
+//                            Gizmo (W/E/R/Q) is unchanged and takes
+//                            precedence — it auto-suspends the HUD, so it
+//                            stays your surgical final-5% tool.
 //
-// ============================================
-// v3.2 — HIERARCHY BAKE (first production-maths change since v2.x;
-// dev rig untouched from v3.1)
-//
-//   WHAT WAS WRONG   In the GLB, Glass_Bezel is a CHILD NODE of
-//                    Glass_Front, and Glass_Front carries a node
-//                    translation of (+0.025272, −0.091440, −0.088344)
-//                    raw units (≈ +0.25, −0.91, −0.88 mm). traverse()
-//                    + <primitive> re-parents every mesh into the
-//                    glass/oled/body groups; three.js add() removes an
-//                    object from its previous parent, so the bezel
-//                    LOST that inherited offset and rendered at the
-//                    origin while the glass kept its own node
-//                    transform. That relative displacement IS the
-//                    perimeter reveal + top-edge gap visible in the
-//                    R3F scene but absent in Blender. (Verified
-//                    against the deployed GLB's node data 2026-07-07:
-//                    the bezel's dropped transform matches the visible
-//                    misregistration to four decimals.)
-//   THE FIX          ANCHORED REBASE. Before any re-parenting, world
-//                    matrices are computed for the intact GLB graph,
-//                    then every mesh's local transform is rewritten:
-//                      newLocal = anchorOldLocal · anchorWorld⁻¹ · meshWorld
-//                    with the first primary body primitive as anchor.
-//                    Every mesh lands at its TRUE pose relative to the
-//                    body, expressed in the exact frame the body
-//                    already rendered in. For THIS GLB the algebra
-//                    collapses so the ONLY changed transform is
-//                    Glass_Bezel's (it gains the missing parent
-//                    offset). Internals plane, explodeDistance, rest
-//                    quaternion, pivot fit: untouched by construction
-//                    — no unit retune exists. Robust to future
-//                    re-exports: any hierarchy the GLB ships, meshes
-//                    land at their true relative pose.
-//   DUPLICATE BODY   The GLB contains two co-located full phones
-//                    (Body Frame + Body Frame.001, 99.998% identical
-//                    geometry). The duplicate's 35 primitives are now
-//                    filtered out at classification — never mounted,
-//                    never rendered. Expected visible result: rear
-//                    panel brightness roughly halves, z-fight flicker
-//                    and doubled reflections gone. Display_OLED.001 is
-//                    NOT part of this filter — it is the only OLED in
-//                    the file and is kept. Blender-side deletion of
-//                    the duplicate follows in Phase 2; this is the
-//                    render-side guard until then.
-//   STILL PENDING    (deliberately NOT changed in v3.2 — one variable
-//                    per phase): bezel depthTest/renderOrder
-//                    workarounds, glass polygonOffset, OLED whole-
-//                    object re-skin + UV stretch, compound-mesh
-//                    splits. Those are Phase 2/3 (Blender surgery)
-//                    and the post-surgery R3F cleanup.
-//
-// v3.1 recap: proxy-anchored gizmo, fat handles, click-to-target,
-// euler sanitise, 60-slot persistent dashboard. v3.0: world/local
-// space, wiring, snapshots, spirit level. v2.9: screen-space arrow
-// drive (SCREEN_ROT_SIGNS is the only sign surface). v2.8: ?snap=1
-// deterministic capture.
+// v3.3 recap: glass registration folder (?glassreg), body emission kill.
+// v3.2: hierarchy bake (anchored rebase, duplicate-body filter).
+// v3.1: proxy-anchored gizmo, fat handles, click-to-target, euler
+// sanitise, 60-slot dashboard. v3.0: world/local, wiring, snapshots,
+// spirit level. v2.9: screen-space arrow drive. v2.8: ?snap=1 capture.
 // ============================================
 let CAPTURE_SNAP = false;
 let SNAP_FRAMES = 0;
@@ -124,6 +86,52 @@ function wrapDeg(rad) {
   d = ((((d + 180) % 360) + 360) % 360) - 180;
   if (d === -180) d = 180;
   return Number(d.toFixed(2));
+}
+
+// ---------------------------------------------------------
+// TRUE SQUARE-UP (v3.4) — nearest axis-aligned ORIENTATION.
+// Snaps the rotation to the closest element of the cube's rotation
+// group by snapping each basis vector to its nearest signed cardinal,
+// then re-orthonormalising to guarantee a valid right-handed rotation.
+// This is orientation-space, not channel-space — so it lands the same
+// clean pose no matter where the phone is or which target is active.
+// ---------------------------------------------------------
+function nearestCardinal(v) {
+  const ax = Math.abs(v.x),
+    ay = Math.abs(v.y),
+    az = Math.abs(v.z);
+  if (ax >= ay && ax >= az)
+    return new THREE.Vector3(Math.sign(v.x) || 1, 0, 0);
+  if (ay >= az) return new THREE.Vector3(0, Math.sign(v.y) || 1, 0);
+  return new THREE.Vector3(0, 0, Math.sign(v.z) || 1);
+}
+
+function snapQuatTo90(q) {
+  const m = new THREE.Matrix4().makeRotationFromQuaternion(q);
+  const e = m.elements; // column-major: cols are the basis vectors
+  const xCol = new THREE.Vector3(e[0], e[1], e[2]);
+  const yCol = new THREE.Vector3(e[4], e[5], e[6]);
+
+  const sx = nearestCardinal(xCol);
+
+  // Strip any sx component from yCol so its snap cannot collide with sx
+  const yAdj = yCol.clone().sub(sx.clone().multiplyScalar(yCol.dot(sx)));
+  if (yAdj.lengthSq() < 1e-6) {
+    yAdj.set(sx.x ? 0 : 1, sx.x ? 1 : 0, 0);
+  }
+  let sy = nearestCardinal(yAdj);
+  if (Math.abs(sx.dot(sy)) > 0.5) {
+    // still collinear → force an orthogonal axis
+    sy = new THREE.Vector3(1, 0, 0).cross(sx);
+    if (sy.lengthSq() < 1e-6) sy = new THREE.Vector3(0, 1, 0).cross(sx);
+    sy.normalize();
+  }
+
+  const sz = new THREE.Vector3().crossVectors(sx, sy).normalize();
+  sy.crossVectors(sz, sx).normalize(); // re-derive to guarantee orthonormal
+
+  const snapped = new THREE.Matrix4().makeBasis(sx, sy, sz);
+  return new THREE.Quaternion().setFromRotationMatrix(snapped);
 }
 
 // ============================================
@@ -206,7 +214,7 @@ const DEV = {
   //                       suppress whole-model useFrame writes
   lastDragEnd: 0, // performance.now() at drag release — guards
   //                pointerMissed against retargeting after a drag
-  modelGroup: null, // live Object3D — settle gizmo target
+  modelGroup: null, // live Object3D — settle gizmo target + proxy mirror
   stageGroup: null, // live Object3D — stage gizmo target
   canvasEl: null, // WebGL canvas element — save-card frame source
   setLeva: null, // Leva set() — bi-directional slider sync
@@ -214,6 +222,8 @@ const DEV = {
   driveGrain: 0, // 0 fine · 1 mid · 2 coarse (G cycles)
   viewport: null, // { width, height } world units — stashed by DevGizmo,
   //                 used by the screen-space MOVE compensation
+  hudMode: "move", // v3.4 Sat-Nav: "move" | "rotate" | "off"
+  leftClampNDC: -0.85, // v3.4 panel-aware gizmo left bound (dashboard writes)
 };
 
 // ---------------------------------------------------------
@@ -440,25 +450,41 @@ function warpToSnapshot(slot) {
   warpToParams(SNAPSHOTS[slot]);
 }
 
-// Spirit level — snaps each euler channel to the nearest 90°.
-// Channel-wise rounding is not a true nearest-orientation snap for
-// arbitrary coupled euler triples, but at tuning poses it behaves as
-// the level.
+// TRUE SQUARE-UP (v3.4) — snaps the ACTIVE target's orientation to the
+// nearest axis-aligned frame. Orientation-space (quaternion) snap, so it
+// behaves identically at every position and for both targets — no gimbal
+// surprise. `which` is optional; defaults to the active gizmo target.
 function snapLevel(which) {
   if (!DEV.setLeva) return;
-  const n90 = (deg) => Math.round(deg / 90) * 90;
-  if (which === "stage") {
-    DEV.setLeva({
-      srotX: n90(DRIVE_READERS.srotX()),
-      srotY: n90(DRIVE_READERS.srotY()),
-      srotZ: n90(DRIVE_READERS.srotZ()),
-    });
+  const isStage = which ? which === "stage" : DEV.gizmoTarget === "stage";
+  if (!isStage && DEV.lastP !== 1) jumpToP(1); // settle params inert below p=1
+
+  const cur = isStage
+    ? new THREE.Quaternion().setFromEuler(
+        new THREE.Euler(
+          STAGE.rotationEuler[0],
+          STAGE.rotationEuler[1],
+          STAGE.rotationEuler[2]
+        )
+      )
+    : new THREE.Quaternion().setFromEuler(
+        new THREE.Euler(
+          SETTLE.targetEuler[0],
+          SETTLE.targetEuler[1],
+          SETTLE.targetEuler[2]
+        )
+      );
+
+  const snapped = snapQuatTo90(cur);
+  const e = new THREE.Euler().setFromQuaternion(snapped, "XYZ");
+
+  if (isStage) {
+    DEV.setLeva({ srotX: wrapDeg(e.x), srotY: wrapDeg(e.y), srotZ: wrapDeg(e.z) });
   } else {
-    if (DEV.lastP !== 1) jumpToP(1); // settle params inert below endpoint
     DEV.setLeva({
-      settleX: n90(DRIVE_READERS.settleX()),
-      settleY: n90(DRIVE_READERS.settleY()),
-      settleZ: n90(DRIVE_READERS.settleZ()),
+      settleX: wrapDeg(e.x),
+      settleY: wrapDeg(e.y),
+      settleZ: wrapDeg(e.z),
     });
   }
 }
@@ -558,6 +584,27 @@ function nudgeRotateScreen(set, axis, dir, isRoll) {
         )
       )
       .premultiply(localW);
+    const e = new THREE.Euler().setFromQuaternion(q, "XYZ");
+    set({ settleX: wrapDeg(e.x), settleY: wrapDeg(e.y), settleZ: wrapDeg(e.z) });
+  }
+}
+
+// ---------------------------------------------------------
+// applyRotationFromBase (v3.4) — the SAME premultiply maths as
+// nudgeRotateScreen, but composing a world rotation W onto a CAPTURED
+// base quaternion instead of re-reading the config. The steering ring
+// accumulates its total drag rotation from the pose at pointer-down, so
+// it is immune to Leva's async set()/onChange write-back race that would
+// otherwise drop intermediate frames of a continuous drag.
+// ---------------------------------------------------------
+function applyRotationFromBase(set, baseQuat, Rs, W, isStage) {
+  if (isStage) {
+    const q = baseQuat.clone().premultiply(W);
+    const e = new THREE.Euler().setFromQuaternion(q, "XYZ");
+    set({ srotX: wrapDeg(e.x), srotY: wrapDeg(e.y), srotZ: wrapDeg(e.z) });
+  } else {
+    const localW = Rs.clone().invert().multiply(W).multiply(Rs);
+    const q = baseQuat.clone().premultiply(localW);
     const e = new THREE.Euler().setFromQuaternion(q, "XYZ");
     set({ settleX: wrapDeg(e.x), settleY: wrapDeg(e.y), settleZ: wrapDeg(e.z) });
   }
@@ -1149,7 +1196,7 @@ function DevControls({ initialP }) {
   }));
 
   // Expose set() so gizmo captures, phase jumps, warps, wiring, slots,
-  // primitives, and the arrow drive can push values back into the
+  // the arrow drive, and the Sat-Nav HUD can push values back into the
   // sliders. The URL-loaded pose becomes the initial start origin.
   useEffect(() => {
     DEV.setLeva = set;
@@ -1215,11 +1262,13 @@ function DevControls({ initialP }) {
 }
 
 // ---------------------------------------------------------
-// DEV DASHBOARD (v3.1) — custom overlay, left side. The primary visual
-// surface: target/mode chips, transformation primitives, 60 persistent
-// pose slots (localStorage), and the global actions. All writes route
-// through DEV.setLeva → the sliders' own onChange writers, so the URL /
-// manifest / wiring machinery is untouched.
+// DEV DASHBOARD (v3.4) — the primary visual surface, left side.
+// Primitives + numeric rows removed; Leva is mounted-but-hidden as the
+// write bus. Collapsible header raises the panel out of the way (like
+// the right bar) and, crucially, recomputes DEV.leftClampNDC so the
+// gizmo parks to the RIGHT of the panel instead of behind it. All
+// writes route through DEV.setLeva → the sliders' own onChange writers,
+// so URL / manifest / wiring machinery is untouched.
 // ---------------------------------------------------------
 const UI = {
   panel: {
@@ -1240,6 +1289,21 @@ const UI = {
     overflowY: "auto",
     userSelect: "none",
   },
+  panelCollapsed: {
+    position: "fixed",
+    top: 12,
+    left: 12,
+    width: "auto",
+    zIndex: 1000,
+    background: "rgba(255,255,255,0.95)",
+    border: "1px solid #dde8e0",
+    borderRadius: 12,
+    boxShadow: "0 6px 24px rgba(20,60,40,0.14)",
+    padding: "6px 10px",
+    fontFamily: "ui-monospace, Menlo, Consolas, monospace",
+    color: "#0d1512",
+    userSelect: "none",
+  },
   head: {
     fontWeight: 700,
     fontSize: 10,
@@ -1250,12 +1314,6 @@ const UI = {
   },
   row: { display: "flex", flexWrap: "wrap", alignItems: "center" },
   hint: { fontSize: 9, color: "#8aa094", lineHeight: 1.5, marginTop: 8 },
-  axisLabel: {
-    width: 26,
-    fontSize: 9,
-    color: "#5a6b60",
-    display: "inline-block",
-  },
 };
 
 const chipStyle = (active, wide) => ({
@@ -1285,12 +1343,13 @@ const slotStyle = (filled) => ({
   cursor: "pointer",
 });
 
-const PRIM_ROT_VALUES = [-90, -45, 0, 45, 90, 180];
-
 function DevDashboard() {
   // Poll the plain-mutable DEV state — dashboard is dev-only, a 150ms
   // tick is invisible and avoids threading React state through the rig.
   const [, force] = useState(0);
+  const panelRef = useRef(null);
+  const [collapsed, setCollapsed] = useState(false);
+
   useEffect(() => {
     const id = setInterval(() => force((n) => n + 1), 150);
     return () => clearInterval(id);
@@ -1300,16 +1359,21 @@ function DevDashboard() {
 
   const isStage = DEV.gizmoTarget === "stage";
 
-  // Primitives write through the same Leva pipeline as everything else.
-  const prim = (vals) => {
-    if (!isStage && DEV.lastP !== 1) jumpToP(1); // settle params inert below p=1
-    if (!DEV.setLeva) return;
-    WIRE.suspended = true;
-    DEV.setLeva(vals);
-    WIRE.suspended = false;
-  };
-
-  const rotParam = (axis) => (isStage ? `srot${axis}` : `settle${axis}`);
+  // ---- panel-aware gizmo left clamp (the recurring "behind the panel"
+  // fix, made structural). Recomputed every tick from the live panel
+  // width so it can never drift out of sync with the layout again. ----
+  useEffect(() => {
+    const cw =
+      (DEV.canvasEl && DEV.canvasEl.clientWidth) || window.innerWidth || 1600;
+    const pw = collapsed
+      ? 0
+      : panelRef.current
+      ? panelRef.current.offsetWidth
+      : 258;
+    const rightPx = 12 + pw + 10; // left inset + panel width + gap
+    const ndc = -1 + (2 * rightPx) / cw;
+    DEV.leftClampNDC = Math.max(-0.9, Math.min(-0.15, ndc));
+  });
 
   const slotClick = (i, ev) => {
     if (ev.shiftKey) {
@@ -1331,60 +1395,63 @@ function DevDashboard() {
     persistSlots(next);
   };
 
-  // Position primitives — target-aware. Stage moves in world units;
-  // settle moves in viewport fractions (+ settle scale as the zoom).
-  const posPrims = isStage
-    ? {
-        x: [
-          ["L", { sposX: -1.2 }],
-          ["C", { sposX: 0 }],
-          ["R", { sposX: 1.2 }],
-        ],
-        y: [
-          ["T", { sposY: 0.7 }],
-          ["M", { sposY: 0 }],
-          ["B", { sposY: -0.7 }],
-        ],
-        z: [
-          ["near", { sposZ: 1.2 }],
-          ["mid", { sposZ: 0 }],
-          ["far", { sposZ: -1.2 }],
-        ],
-      }
-    : {
-        x: [
-          ["L", { shift: -0.25 }],
-          ["C", { shift: 0 }],
-          ["R", { shift: 0.25 }],
-        ],
-        y: [
-          ["T", { vshift: 0.35 }],
-          ["M", { vshift: 0 }],
-          ["B", { vshift: -0.35 }],
-        ],
-        z: [
-          ["near", { pscale: 1.2 }],
-          ["mid", { pscale: 0.8 }],
-          ["far", { pscale: 0.5 }],
-        ],
-      };
-
   const filledCount = slots.filter(Boolean).length;
 
+  // ---- collapsed pill ----
+  if (collapsed) {
+    return (
+      <div ref={panelRef} style={UI.panelCollapsed}>
+        <span
+          style={{
+            fontWeight: 700,
+            fontSize: 11,
+            color: "#2e7d52",
+            letterSpacing: 1,
+            marginRight: 8,
+          }}
+        >
+          iGLASS
+        </span>
+        <span
+          style={chipStyle(false)}
+          title="expand panel"
+          onClick={() => setCollapsed(false)}
+        >
+          ▸ open
+        </span>
+      </div>
+    );
+  }
+
   return (
-    <div style={UI.panel}>
+    <div ref={panelRef} style={UI.panel}>
       <div
         style={{
-          fontWeight: 700,
-          fontSize: 11,
-          color: "#2e7d52",
-          letterSpacing: 1,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
         }}
       >
-        iGLASS POSE STUDIO
+        <span
+          style={{
+            fontWeight: 700,
+            fontSize: 11,
+            color: "#2e7d52",
+            letterSpacing: 1,
+          }}
+        >
+          iGLASS POSE STUDIO
+        </span>
+        <span
+          style={chipStyle(false)}
+          title="collapse panel (frees the left edge for the gizmo)"
+          onClick={() => setCollapsed(true)}
+        >
+          ▾ hide
+        </span>
       </div>
 
-      {/* ---- target / space / mode ---- */}
+      {/* ---- target ---- */}
       <div style={UI.head}>target</div>
       <div style={UI.row}>
         <span
@@ -1399,18 +1466,54 @@ function DevDashboard() {
         >
           🎬 stage
         </span>
+      </div>
+
+      {/* ---- SQUARE UP (moved high; true orientation snap) ---- */}
+      <div style={UI.head}>⊞ square up</div>
+      <div style={UI.row}>
         <span
-          style={chipStyle(false)}
-          title="space auto-binds to target — click to override"
-          onClick={() => {
-            DEV.gizmoSpace = DEV.gizmoSpace === "world" ? "local" : "world";
-          }}
+          style={chipStyle(false, true)}
+          title="snap the active target to the nearest clean 90° orientation — same result at every position"
+          onClick={() => snapLevel()}
         >
-          {DEV.gizmoSpace}
+          ⊞ square up {isStage ? "stage" : "phone"}
         </span>
       </div>
 
-      <div style={UI.head}>gizmo</div>
+      {/* ---- Sat-Nav HUD mode ---- */}
+      <div style={UI.head}>🧭 sat-nav</div>
+      <div style={UI.row}>
+        <span
+          style={chipStyle(DEV.hudMode === "move")}
+          title="drag empty canvas = move · scroll = zoom"
+          onClick={() => {
+            DEV.hudMode = "move";
+          }}
+        >
+          🖐 move
+        </span>
+        <span
+          style={chipStyle(DEV.hudMode === "rotate")}
+          title="drag the ring band = roll · drag inside = yaw/pitch"
+          onClick={() => {
+            DEV.hudMode = "rotate";
+          }}
+        >
+          🔄 rotate
+        </span>
+        <span
+          style={chipStyle(DEV.hudMode === "off")}
+          title="HUD off — clicks only retarget"
+          onClick={() => {
+            DEV.hudMode = "off";
+          }}
+        >
+          ✋ off
+        </span>
+      </div>
+
+      {/* ---- gizmo (precision / final 5%) ---- */}
+      <div style={UI.head}>gizmo — precision (W/E/R/Q)</div>
       <div style={UI.row}>
         {[
           ["move", "translate"],
@@ -1426,45 +1529,7 @@ function DevDashboard() {
             {label}
           </span>
         ))}
-        <span style={{ fontSize: 9, color: "#8aa094", marginLeft: 4 }}>
-          {MODE_LABELS[DEV.driveMode]} · {GRAIN_LABELS[DEV.driveGrain]}
-        </span>
       </div>
-
-      {/* ---- primitives ---- */}
-      <div style={UI.head}>📐 primitives — position</div>
-      {[
-        ["↔", posPrims.x],
-        ["↕", posPrims.y],
-        ["🔍", posPrims.z],
-      ].map(([icon, entries]) => (
-        <div style={UI.row} key={icon}>
-          <span style={UI.axisLabel}>{icon}</span>
-          {entries.map(([label, vals]) => (
-            <span key={label} style={chipStyle(false)} onClick={() => prim(vals)}>
-              {label}
-            </span>
-          ))}
-        </div>
-      ))}
-
-      <div style={UI.head}>📐 primitives — rotation °</div>
-      {["X", "Y", "Z"].map((axis) => (
-        <div style={UI.row} key={axis}>
-          <span style={UI.axisLabel}>
-            {axis === "X" ? "🔄X" : axis === "Y" ? "↺Y" : "⤾Z"}
-          </span>
-          {PRIM_ROT_VALUES.map((deg) => (
-            <span
-              key={deg}
-              style={chipStyle(false)}
-              onClick={() => prim({ [rotParam(axis)]: deg })}
-            >
-              {deg}
-            </span>
-          ))}
-        </div>
-      ))}
 
       {/* ---- 60 persistent slots ---- */}
       <div style={UI.head}>
@@ -1503,12 +1568,6 @@ function DevDashboard() {
         <span style={chipStyle(false)} onClick={() => warpToSnapshot("origin")}>
           ⏪ origin
         </span>
-        <span style={chipStyle(false)} onClick={() => snapLevel("stage")}>
-          level stage
-        </span>
-        <span style={chipStyle(false)} onClick={() => snapLevel("settle")}>
-          level settle
-        </span>
       </div>
       <div style={UI.row}>
         <span
@@ -1530,30 +1589,324 @@ function DevDashboard() {
       </div>
 
       <div style={UI.hint}>
+        move mode: drag canvas = slide · scroll = zoom
+        <br />
+        rotate mode: drag ring = roll · drag inside ring = yaw/pitch
+        <br />
+        gizmo (W/E/R/Q) is precision-only — it overrides the sat-nav
+        <br />
         click phone = phone target · click background = stage
-        <br />
-        slots: shift+click save · click warp · right-click clear
-        <br />
-        keys: W/E/R/Q gizmo · T target · Tab/G arrow drive · [ ] playhead
-        <br />
-        numeric sliders: Leva panel (top-right, collapsed)
       </div>
     </div>
   );
 }
 
 // ---------------------------------------------------------
-// DevGizmo (v3.1) — PROXY-ANCHORED TransformControls.
+// SAT-NAV STEERING RING (v3.4) — SVG overlay, canvas-centred.
+// Interactive ONLY when hudMode==="rotate" AND the gizmo is off (the
+// gizmo takes precedence). Drag on the band = roll; drag inside the disc
+// = yaw/pitch. Both accumulate their total rotation from the pose
+// captured at pointer-down and feed applyRotationFromBase — the exact
+// premultiply maths the keyboard drive already uses. No new transform
+// path, so no new way to reintroduce the pendulum/snatch.
+// The container is pointer-events:none except the hit circle, so when
+// the ring is inactive every click falls straight through to the canvas
+// (gizmo, click-to-target, move-drag).
+// ---------------------------------------------------------
+function SatNavHUD() {
+  const [, force] = useState(0);
+  const drag = useRef(null);
+  useEffect(() => {
+    const id = setInterval(() => force((n) => n + 1), 120);
+    return () => clearInterval(id);
+  }, []);
+
+  const active = DEV.hudMode === "rotate" && DEV.gizmo === "off";
+
+  const cw = (DEV.canvasEl && DEV.canvasEl.clientWidth) || window.innerWidth;
+  const ch = (DEV.canvasEl && DEV.canvasEl.clientHeight) || window.innerHeight;
+  const cx = cw / 2;
+  const cy = ch / 2;
+  const R = Math.min(cx, cy) * 0.72;
+  const rInner = R * 0.62;
+
+  const onDown = (e) => {
+    if (!active || !DEV.setLeva) return;
+    const rect = DEV.canvasEl.getBoundingClientRect();
+    const px = e.clientX - rect.left;
+    const py = e.clientY - rect.top;
+    const dx = px - cx;
+    const dy = py - cy;
+    const dist = Math.hypot(dx, dy);
+    if (dist > R * 1.15) return;
+
+    if (DEV.gizmoTarget === "settle" && DEV.lastP !== 1) jumpToP(1);
+
+    const isStage = DEV.gizmoTarget === "stage";
+    const baseQuat = isStage
+      ? new THREE.Quaternion().setFromEuler(
+          new THREE.Euler(
+            STAGE.rotationEuler[0],
+            STAGE.rotationEuler[1],
+            STAGE.rotationEuler[2]
+          )
+        )
+      : new THREE.Quaternion().setFromEuler(
+          new THREE.Euler(
+            SETTLE.targetEuler[0],
+            SETTLE.targetEuler[1],
+            SETTLE.targetEuler[2]
+          )
+        );
+    const Rs = stageQuat();
+    const mode = dist <= rInner ? "yawpitch" : "roll";
+
+    const state = {
+      mode,
+      isStage,
+      baseQuat,
+      Rs,
+      startX: px,
+      startY: py,
+      startAng: Math.atan2(dy, dx),
+    };
+
+    const move = (ev) => {
+      const r2 = DEV.canvasEl.getBoundingClientRect();
+      const mx = ev.clientX - r2.left;
+      const my = ev.clientY - r2.top;
+      const W = new THREE.Quaternion();
+      if (state.mode === "roll") {
+        const ang = Math.atan2(my - cy, mx - cx);
+        const delta = (ang - state.startAng) * SCREEN_ROT_SIGNS.roll;
+        W.setFromAxisAngle(new THREE.Vector3(0, 0, 1), delta);
+      } else {
+        const gain = 0.006; // radians per pixel — tune to taste
+        const yaw = (mx - state.startX) * gain * SCREEN_ROT_SIGNS.yaw;
+        const pitch = (my - state.startY) * gain * SCREEN_ROT_SIGNS.pitch;
+        const Qyaw = new THREE.Quaternion().setFromAxisAngle(
+          new THREE.Vector3(0, 1, 0),
+          yaw
+        );
+        const Qpitch = new THREE.Quaternion().setFromAxisAngle(
+          new THREE.Vector3(1, 0, 0),
+          pitch
+        );
+        W.multiplyQuaternions(Qyaw, Qpitch);
+      }
+      applyRotationFromBase(DEV.setLeva, state.baseQuat, state.Rs, W, state.isStage);
+    };
+
+    const up = () => {
+      drag.current = null;
+      DEV.lastDragEnd = performance.now();
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+
+    drag.current = state;
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    e.preventDefault();
+  };
+
+  const ringOpacity = active ? 0.5 : 0.14;
+  const discFill = active ? "rgba(46,125,82,0.05)" : "rgba(46,125,82,0.02)";
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 850,
+        pointerEvents: "none",
+      }}
+    >
+      <svg
+        width={cw}
+        height={ch}
+        style={{ position: "absolute", left: 0, top: 0 }}
+      >
+        {/* inner disc — yaw/pitch pad */}
+        <circle
+          cx={cx}
+          cy={cy}
+          r={rInner}
+          fill={discFill}
+          stroke="#2e7d52"
+          strokeOpacity={ringOpacity * 0.5}
+          strokeDasharray="4 6"
+        />
+        {/* crosshair inside the disc (yaw ↔ / pitch ↕ hint) */}
+        <line
+          x1={cx - rInner * 0.5}
+          y1={cy}
+          x2={cx + rInner * 0.5}
+          y2={cy}
+          stroke="#2e7d52"
+          strokeOpacity={ringOpacity * 0.6}
+        />
+        <line
+          x1={cx}
+          y1={cy - rInner * 0.5}
+          x2={cx}
+          y2={cy + rInner * 0.5}
+          stroke="#2e7d52"
+          strokeOpacity={ringOpacity * 0.6}
+        />
+        {/* outer steering ring — roll band */}
+        <circle
+          cx={cx}
+          cy={cy}
+          r={R}
+          fill="none"
+          stroke="#2e7d52"
+          strokeOpacity={ringOpacity}
+          strokeWidth={active ? 3 : 2}
+        />
+        <circle
+          cx={cx}
+          cy={cy}
+          r={R * 0.9}
+          fill="none"
+          stroke="#3c9a68"
+          strokeOpacity={ringOpacity * 0.5}
+          strokeWidth={1}
+        />
+        {/* roll tick marks */}
+        {active &&
+          [0, 45, 90, 135, 180, 225, 270, 315].map((deg) => {
+            const a = (deg * Math.PI) / 180;
+            const x1 = cx + Math.cos(a) * R * 0.9;
+            const y1 = cy + Math.sin(a) * R * 0.9;
+            const x2 = cx + Math.cos(a) * R;
+            const y2 = cy + Math.sin(a) * R;
+            return (
+              <line
+                key={deg}
+                x1={x1}
+                y1={y1}
+                x2={x2}
+                y2={y2}
+                stroke="#2e7d52"
+                strokeOpacity={0.5}
+                strokeWidth={2}
+              />
+            );
+          })}
+        {/* single hit surface — branches roll vs yaw/pitch by distance */}
+        <circle
+          cx={cx}
+          cy={cy}
+          r={R * 1.15}
+          fill="transparent"
+          style={{
+            pointerEvents: active ? "auto" : "none",
+            cursor: active ? "grab" : "default",
+          }}
+          onPointerDown={onDown}
+        />
+      </svg>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------
+// MINI-PROXY ORIENTATION MIRROR (v3.4) — bottom-right PiP.
+// A second lightweight canvas rendering a phone-proportioned box that
+// copies DEV.modelGroup's live world quaternion each frame. Green front
+// face = the screen; green camera bump marks the back; the notch marks
+// "up" — so front/back/roll are unambiguous at a glance, even when the
+// main phone is exploded or off to the side.
+// ---------------------------------------------------------
+function ProxyPhone() {
+  const ref = useRef();
+  useFrame(() => {
+    const src = DEV.modelGroup;
+    if (src && ref.current) {
+      src.getWorldQuaternion(ref.current.quaternion);
+    }
+  });
+  return (
+    <group ref={ref}>
+      {/* chassis */}
+      <mesh>
+        <boxGeometry args={[0.62, 1.3, 0.08]} />
+        <meshStandardMaterial color="#1a2620" metalness={0.3} roughness={0.55} />
+      </mesh>
+      {/* front screen face (+Z) */}
+      <mesh position={[0, 0, 0.042]}>
+        <planeGeometry args={[0.52, 1.18]} />
+        <meshBasicMaterial color="#2e7d52" />
+      </mesh>
+      {/* notch — marks "up" */}
+      <mesh position={[0, 0.5, 0.05]}>
+        <boxGeometry args={[0.2, 0.05, 0.02]} />
+        <meshBasicMaterial color="#0d1512" />
+      </mesh>
+      {/* camera bump on the back (−Z) */}
+      <mesh position={[-0.15, 0.42, -0.06]}>
+        <boxGeometry args={[0.2, 0.2, 0.04]} />
+        <meshStandardMaterial color="#3c9a68" metalness={0.2} roughness={0.6} />
+      </mesh>
+    </group>
+  );
+}
+
+function DevProxyMirror() {
+  return (
+    <div
+      style={{
+        position: "fixed",
+        right: 12,
+        bottom: 12,
+        width: 120,
+        height: 150,
+        background: "rgba(255,255,255,0.95)",
+        border: "1px solid #dde8e0",
+        borderRadius: 12,
+        boxShadow: "0 6px 24px rgba(20,60,40,0.14)",
+        zIndex: 1000,
+        overflow: "hidden",
+      }}
+    >
+      <div
+        style={{
+          position: "absolute",
+          top: 5,
+          left: 8,
+          fontSize: 9,
+          fontFamily: "ui-monospace, Menlo, Consolas, monospace",
+          color: "#2e7d52",
+          letterSpacing: 1,
+          zIndex: 2,
+          pointerEvents: "none",
+        }}
+      >
+        ORIENT
+      </div>
+      <Canvas camera={{ position: [0, 0, 3.2], fov: 35 }} dpr={[1, 2]} gl={{ alpha: true }}>
+        <ambientLight intensity={0.9} />
+        <directionalLight position={[3, 4, 5]} intensity={1.2} />
+        <directionalLight position={[-3, -2, -4]} intensity={0.5} />
+        <ProxyPhone />
+      </Canvas>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------
+// DevGizmo (v3.1 → v3.4) — PROXY-ANCHORED TransformControls.
 //
 // The controls attach to an invisible proxy Object3D, never to the
 // phone. Every frame (when not dragging) the proxy is placed at the
-// target's world position CLAMPED to the visible frame (NDC ±0.85 x,
-// ±0.78 y, behind-camera rescue), and copies the target's world
-// quaternion + scale so local-space handles align with the phone.
-// During a drag, the proxy's transform deltas are relayed to the real
-// target (world → stage-local conversion for the settle target). On
-// release, the existing capture functions read the real target —
-// back-solve contract unchanged.
+// target's world position CLAMPED to the visible frame (NDC left bound
+// now DEV.leftClampNDC so the panel can't hide it; ±0.85 right, ±0.78 y,
+// behind-camera rescue), and copies the target's world quaternion +
+// scale so local-space handles align with the phone. During a drag, the
+// proxy's transform deltas are relayed to the real target (world →
+// stage-local conversion for the settle target). On release, the
+// existing capture functions read the real target — contract unchanged.
 //
 // Hold Shift while dragging to snap (0.1 units / 15° / 0.05 scale).
 // Also stashes the world-unit viewport for the screen-space MOVE maths.
@@ -1601,7 +1954,9 @@ function DevGizmo() {
       }
 
       const ndc = tmp.c.copy(tmp.v).project(camera);
-      const cx = Math.max(-0.85, Math.min(0.85, ndc.x));
+      // v3.4: left bound is panel-aware — the gizmo parks to the RIGHT
+      // of the left dashboard instead of vanishing behind it.
+      const cx = Math.max(DEV.leftClampNDC, Math.min(0.85, ndc.x));
       const cy = Math.max(-0.78, Math.min(0.78, ndc.y));
       if (cx !== ndc.x || cy !== ndc.y) {
         // Origin outside the frame → park the gizmo at the nearest
@@ -1774,9 +2129,9 @@ function DevGizmo() {
 //   ?sscale=1        STAGE uniform scale
 //   ?snap=1          deterministic capture: damp→1 (exact pose per frozen
 //                    p) + window.__iglassCaptureReady flag for Playwright
-//   ?dev=1           Pose Studio (dashboard + gizmo W/E/R/Q, T target,
-//                    Shift snap, Tab arrow-mode, G grain, arrows nudge,
-//                    [ ] p nudge, click-to-target, 60 pose slots)
+//   ?dev=1           Pose Studio (dashboard + Sat-Nav HUD + gizmo W/E/R/Q,
+//                    T target, Shift snap, Tab arrow-mode, G grain, arrows
+//                    nudge, [ ] p nudge, click-to-target, 60 pose slots)
 // ============================================
 function resolveRuntimeConfig() {
   const params = new URLSearchParams(window.location.search);
@@ -2041,36 +2396,36 @@ function IPhoneExploded({
         const name = child.name.toLowerCase();
 
         if (name.includes("bezel") || name.includes("glass_bezel")) {
-  child.material = new THREE.MeshStandardMaterial({
-    color: new THREE.Color(0x000000),
-    roughness: 0.7,
-    metalness: 0.0,
-    transparent: false,
-    depthWrite: false,
-    depthTest: false, // bezel opts out of depth entirely — no test, no fight, no flicker.
-                      // SAFE for this timeline only: front face never leaves the camera.
-                      // If the choreography ever shows the phone's back, revisit.
-  });
-  child.renderOrder = 4;
-  glass.push(child);
-} else if (
+          child.material = new THREE.MeshStandardMaterial({
+            color: new THREE.Color(0x000000),
+            roughness: 0.7,
+            metalness: 0.0,
+            transparent: false,
+            depthWrite: false,
+            depthTest: false, // bezel opts out of depth entirely — no test, no fight, no flicker.
+            // SAFE for this timeline only: front face never leaves the camera.
+            // If the choreography ever shows the phone's back, revisit.
+          });
+          child.renderOrder = 4;
+          glass.push(child);
+        } else if (
           name.includes("glass_front") ||
           name.includes("glass front") ||
           (name.includes("glass") && !name.includes("bezel"))
         ) {
           child.material = new THREE.MeshStandardMaterial({
-  color: new THREE.Color(0x000000), // black base: diffuse veil gone, specular unaffected
-  roughness: 0.04,
-  metalness: 0.0,
-  transparent: true,
-  opacity: 0.15,          // keep — OLED glow must survive the glass
-  depthWrite: false,
-  envMapIntensity: 1.2,   // ← was 2.0: reflections stay, blowout doesn't
-  polygonOffset: true,
-  polygonOffsetFactor: -2,
-  polygonOffsetUnits: -2,
-});
-child.renderOrder = 3;
+            color: new THREE.Color(0x000000), // black base: diffuse veil gone, specular unaffected
+            roughness: 0.04,
+            metalness: 0.0,
+            transparent: true,
+            opacity: 0.15, // keep — OLED glow must survive the glass
+            depthWrite: false,
+            envMapIntensity: 1.2, // ← was 2.0: reflections stay, blowout doesn't
+            polygonOffset: true,
+            polygonOffsetFactor: -2,
+            polygonOffsetUnits: -2,
+          });
+          child.renderOrder = 3;
           glass.push(child);
         } else if (name.includes("display") || name.includes("oled")) {
           // Programmatic UV fix — remove once UVs corrected in Blender.
@@ -2622,6 +2977,79 @@ export default function CrossSection3DScrollGLB(props) {
     return () => ctx.revert();
   }, [mode, freezeP, scrollDistance, glassStagger, oledStagger, phoneStagger]);
 
+  // ============================================
+  // SAT-NAV canvas handlers (v3.4) — drag-to-move + scroll-to-zoom.
+  // Attached to the sticky wrapper. Only act in move mode with the gizmo
+  // off; both route through DEV.setLeva → the existing onChange writers,
+  // so the URL / capture machinery is untouched. Drag translation
+  // accumulates from the pose at pointer-down (race-free vs Leva's async
+  // set/onChange). Zoom drives the stage scale (always-visible global
+  // zoom, independent of target or timeline position).
+  // ============================================
+  const onWrapPointerDown = (e) => {
+    if (!dev || !DEV.setLeva) return;
+    if (DEV.hudMode !== "move" || DEV.gizmo !== "off" || DEV.gizmoDragging) return;
+    if (DEV.gizmoTarget === "settle" && DEV.lastP !== 1) jumpToP(1);
+
+    const isStage = DEV.gizmoTarget === "stage";
+    const base = isStage
+      ? { a: STAGE.position[0], b: STAGE.position[1] }
+      : { a: SETTLE.xShiftFraction, b: SETTLE.yShiftFraction };
+    const Rs = stageQuat();
+    const vp = DEV.viewport || { width: 4, height: 2.4 };
+    const cw = DEV.canvasEl ? DEV.canvasEl.clientWidth : window.innerWidth;
+    const ch = DEV.canvasEl ? DEV.canvasEl.clientHeight : window.innerHeight;
+    const aspect = cw / ch;
+    const startX = e.clientX;
+    const startY = e.clientY;
+    let moved = false;
+
+    const move = (ev) => {
+      const dxPx = ev.clientX - startX;
+      const dyPx = ev.clientY - startY;
+      if (Math.hypot(dxPx, dyPx) > 3) moved = true;
+      const fx = dxPx / cw;
+      const fy = dyPx / ch;
+      if (isStage) {
+        const wdx = fx * vp.width;
+        const wdy = -fy * vp.height;
+        DEV.setLeva({
+          sposX: Number((base.a + wdx).toFixed(4)),
+          sposY: Number((base.b + wdy).toFixed(4)),
+        });
+      } else {
+        // Same inverse-stage-frame compensation as nudgeSettleMoveScreen
+        const world = new THREE.Vector3(fx * aspect, -fy, 0);
+        const local = world
+          .applyQuaternion(Rs.clone().invert())
+          .divideScalar(STAGE.scale || 1);
+        const dShift = local.x / aspect;
+        const dVshift = local.y;
+        DEV.setLeva({
+          shift: Number((base.a + dShift).toFixed(4)),
+          vshift: Number((base.b + dVshift).toFixed(4)),
+        });
+      }
+    };
+
+    const up = () => {
+      if (moved) DEV.lastDragEnd = performance.now();
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
+  const onWrapWheel = (e) => {
+    if (!dev || !DEV.setLeva) return;
+    const step = GRAIN_STEPS.size[DEV.driveGrain] * (e.deltaY < 0 ? 1 : -1);
+    const [lo, hi] = DRIVE_CLAMPS.sscale;
+    const next = Math.min(hi, Math.max(lo, STAGE.scale + step));
+    DEV.setLeva({ sscale: Number(next.toFixed(4)) });
+  };
+
   // Standalone mode owns its own scroll track; embedded modes are a
   // single fixed viewport — the Framer page owns the scroll.
   const containerHeight =
@@ -2635,15 +3063,20 @@ export default function CrossSection3DScrollGLB(props) {
         background: bg,
       }}
     >
+      {/* Leva is MOUNTED but HIDDEN — it stays the central write bus
+          (arrow drive, gizmo capture, slots, wiring, Sat-Nav all route
+          through its set()), while the dashboard is the only visible UI. */}
       {dev && (
         <Leva
-          collapsed={true}
+          hidden
           theme={LEVA_LIGHT}
           titleBar={{ title: "numeric sliders" }}
         />
       )}
       {dev && <DevControls initialP={freezeP ?? 0} />}
       {dev && <DevDashboard />}
+      {dev && <SatNavHUD />}
+      {dev && <DevProxyMirror />}
       <div
         ref={stickyRef}
         style={{
@@ -2651,6 +3084,8 @@ export default function CrossSection3DScrollGLB(props) {
           width: "100vw",
           overflow: "hidden",
         }}
+        onPointerDown={dev ? onWrapPointerDown : undefined}
+        onWheel={dev ? onWrapWheel : undefined}
       >
         <Canvas
           camera={{ position: [0, 0, 2.8], fov: 35, near: 0.01 }}
