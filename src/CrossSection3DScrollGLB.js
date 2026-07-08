@@ -17,67 +17,57 @@ import { Leva, useControls, button, folder } from "leva";
 gsap.registerPlugin(ScrollTrigger);
 
 // ============================================
-// v3.5 — GLASS-REG BAKED + LEVA REINSTATED + HUD SIGN FIX + VISUAL WIRING
+// v3.6 — TIMELINE LOCKS ABOLISHED + AUTO TARGET ROUTING + SMOOTH SQUARE-UP
 //
-//   GLASS-REG BAKE     Tuned registration (x −0.03, y 0.09, z 0.07) is now
-//                      the compiled default — regression-proof, no URL
-//                      dependency. Sliders still live-dial on top of it.
-//   LEVA REINSTATED    v3.4 hid the whole Leva panel — which also removed
-//                      the timeline playhead (the explode/raise lever) and
-//                      the glass-registration dials. Panel is back top-right,
-//                      collapsed by default: dashboard for visual driving,
-//                      Leva for the numeric levers when needed.
-//   HUD SIGN FIX       Sat-Nav ring rotation directions inverted via
-//                      HUD_ROT_SIGNS — a dedicated sign surface so the
-//                      ring's feel is tunable without touching the
-//                      arrow-key conventions (SCREEN_ROT_SIGNS untouched).
-//   VISUAL WIRING      Compound motion (the driven-key master/driven/ratio
-//                      coupling) surfaced on the dashboard as "🔗 compound
-//                      motion" — on/off, master, driven, ratio drag, reset
-//                      run. Same WIRE engine underneath, zero new maths.
+//   LOCKS ABOLISHED    Every implicit jumpToP(1) is DELETED — the gizmo,
+//                      sat-nav ring, canvas drag, arrow keys and square-up
+//                      NEVER move the playhead. The exploded phone can no
+//                      longer collapse because a control was touched.
+//                      The playhead moves only when YOU move it (slider,
+//                      [ ] keys, or a pose-slot warp that stored a p).
+//
+//   AUTO ROUTING       The reason the old locks existed: the phone's FINAL
+//                      pose (settle) is mathematically defined only at the
+//                      end of the timeline. Instead of forcing the timeline
+//                      there, whole-phone controls now route automatically:
+//                        p < 1  → controls drive the STAGE (valid at any p,
+//                                 never written by the animation loop — so
+//                                 no clobber, no snap-back, no jump)
+//                        p = 1  → "phone" target edits the final docked pose
+//                      The drive readout shows "·auto" when routing is
+//                      active. One rule, zero exceptions.
+//
+//   SMOOTH SQUARE-UP   Square-up is now a 450ms eased quaternion tween, not
+//                      an instant jump. It is also WORLD-space: "square up
+//                      phone" squares what you SEE on screen (at any p, any
+//                      stage rotation), fixing the "works in some conditions"
+//                      bug — the old version snapped euler channels in the
+//                      stage-local frame, so a rotated stage made it land
+//                      somewhere unexpected. Two buttons: phone / stage.
+//
+//   HUD SIGNS FLIPPED  Sat-Nav ring directions inverted again per report —
+//                      HUD_ROT_SIGNS all flipped to +1 (opposite of v3.5).
+//                      If any single axis still feels backwards it is a
+//                      ONE-NUMBER change in HUD_ROT_SIGNS.
+//
+//   ORIENT REMOVED     The bottom-right mini-proxy PiP is deleted — it had
+//                      no control function and covered the glass
+//                      registration sliders.
+//
+//   PLAIN LABELS       sposX/vshift/settleZ-style jargon replaced with
+//                      plain-English slider labels (stage ←→, final yaw °,
+//                      stage zoom, …). Param KEYS are unchanged — URLs,
+//                      pose slots, wiring and manifests are untouched.
 //
 // ============================================
-// v3.4 — SAT-NAV HUD + TRUE SQUARE-UP + PANEL-AWARE GIZMO
-// (pure UI / input-surface layer — production maths from v3.3 frozen:
-//  hierarchy bake, measured pivot, geodesic slerp, glass-reg all untouched)
-//
-//   SQUARE-UP (was "level")  The old snapLevel rounded each euler CHANNEL
-//                            to the nearest 90° independently. Euler
-//                            channels couple (gimbal), so the same button
-//                            landed a different orientation depending on
-//                            where the phone sat — the "doesn't work
-//                            across every position/target" bug. Replaced
-//                            with snapQuatTo90: snaps the ORIENTATION to
-//                            the nearest axis-aligned frame (basis-vector
-//                            snap → re-orthonormalised → back to euler).
-//                            Identical everywhere, target-agnostic, no
-//                            jump. One "⊞ square up" button acts on the
-//                            active target.
-//   PANEL-AWARE GIZMO        The proxy-anchor left clamp was a fixed
-//                            NDC −0.85 → still parked the gizmo BEHIND the
-//                            left panel. The clamp now reads DEV.leftClampNDC,
-//                            recomputed from the live panel width. Collapse
-//                            the panel (▾ in its header) and the gizmo
-//                            reclaims the full left edge.
-//   SAT-NAV HUD              Primitives + numeric sliders removed from view
-//                            (Leva mounted but hidden — still the write bus).
-//                            New canvas-native controls, all routing through
-//                            the SAME screen-space maths:
-//                              · steering RING — drag the band = roll,
-//                                drag inside = yaw/pitch (rotate mode)
-//                              · drag empty canvas = move (move mode)
-//                              · scroll wheel = zoom (stage scale, any mode)
-//                              · mini-proxy PiP (bottom-right) mirrors the
-//                                phone's live orientation
-//                            Gizmo (W/E/R/Q) is unchanged and takes
-//                            precedence — it auto-suspends the HUD, so it
-//                            stays your surgical final-5% tool.
-//
-// v3.3 recap: glass registration folder (?glassreg), body emission kill.
-// v3.2: hierarchy bake (anchored rebase, duplicate-body filter).
-// v3.1: proxy-anchored gizmo, fat handles, click-to-target, euler
-// sanitise, 60-slot dashboard. v3.0: world/local, wiring, snapshots,
-// spirit level. v2.9: screen-space arrow drive. v2.8: ?snap=1 capture.
+// v3.5 — glass-reg baked (x −0.03, y 0.09, z 0.07), Leva reinstated,
+// compound-motion dashboard surface.
+// v3.4 — sat-nav HUD, true square-up (quaternion), panel-aware gizmo.
+// v3.3 — glass registration folder, body emission kill.
+// v3.2 — hierarchy bake (anchored rebase, duplicate-body filter).
+// v3.1 — proxy-anchored gizmo, fat handles, click-to-target, 60 slots.
+// v3.0 — world/local, wiring, snapshots. v2.9 — screen-space arrow drive.
+// v2.8 — ?snap=1 capture.
 // ============================================
 let CAPTURE_SNAP = false;
 let SNAP_FRAMES = 0;
@@ -109,12 +99,13 @@ function wrapDeg(rad) {
 }
 
 // ---------------------------------------------------------
-// TRUE SQUARE-UP (v3.4) — nearest axis-aligned ORIENTATION.
+// TRUE SQUARE-UP maths (v3.4) — nearest axis-aligned ORIENTATION.
 // Snaps the rotation to the closest element of the cube's rotation
 // group by snapping each basis vector to its nearest signed cardinal,
 // then re-orthonormalising to guarantee a valid right-handed rotation.
-// This is orientation-space, not channel-space — so it lands the same
-// clean pose no matter where the phone is or which target is active.
+// Orientation-space, not channel-space — same clean pose everywhere.
+// (v3.6: this maths is unchanged; the CALLERS now tween smoothly and
+// operate in WORLD space — see squareUpPhone / squareUpStage.)
 // ---------------------------------------------------------
 function nearestCardinal(v) {
   const ax = Math.abs(v.x),
@@ -188,8 +179,11 @@ const SETTLE = {
 // STAGE — constant world transform on the OUTERMOST group. Identity by
 // default. NOT gated by the timeline: applies at every p, so the exploded
 // phone can be posed anywhere in frame. useFrame never writes this group —
-// the gizmo (target: stage), the Leva stage folder, and the arrow drive
-// are its only writers. Overridable: ?spos=x,y,z ?srot=x,y,z (deg) ?sscale=s
+// the gizmo, the Leva stage folder, the sat-nav and the arrow drive are
+// its only writers. Overridable: ?spos=x,y,z ?srot=x,y,z (deg) ?sscale=s
+// v3.6: this is the transform ALL whole-phone controls route to whenever
+// the playhead is below the endpoint — it is the "move the exploded phone
+// anywhere, any time" channel.
 const STAGE = {
   position: [0, 0, 0],
   rotationEuler: [0, 0, 0], // radians, XYZ order
@@ -208,11 +202,8 @@ const MODEL = {
 // bezel) because the source glass geometry is modelled low / undersized.
 //   y = up/down the screen (long axis)   x = across   z = depth (added to
 //   the explode target, so the explode animation is unaffected)
-// Dial it live in the "glass registration" Leva folder until the top gap
-// closes; the value serialises to the URL. Overridable: ?glassreg=x,y,z
-// v3.5: TUNED VALUES BAKED IN as the new defaults (measured 2026-07-07,
-// Matthew's live dial-in). No URL param needed — every load, every page,
-// every future session starts registered. URL still overrides if present.
+// v3.5: TUNED VALUES BAKED IN as the compiled defaults (measured
+// 2026-07-07, Matthew's live dial-in). URL still overrides if present.
 const GLASS_REG = { x: -0.03, y: 0.09, z: 0.07 };
 
 // ============================================
@@ -230,13 +221,15 @@ const DEV = {
   applyProgress: null, // registered by the driver effect
   lastP: 0,
   gizmo: "off", // "off" | "translate" | "rotate" | "scale"
-  gizmoTarget: "settle", // "settle" (p=1 endpoint, back-solved) | "stage"
-  gizmoSpace: "local", // "world" | "local" — auto-bound by target (v3.1)
+  gizmoTarget: "settle", // USER's chosen target. The EFFECTIVE target is
+  //                        effectiveTarget(): "settle" routes to "stage"
+  //                        whenever the playhead is below the endpoint.
+  gizmoSpace: "local", // "world" | "local" — auto-bound by effective target
   gizmoDragging: false, // true while dragging — settle-target drags
   //                       suppress whole-model useFrame writes
   lastDragEnd: 0, // performance.now() at drag release — guards
   //                pointerMissed against retargeting after a drag
-  modelGroup: null, // live Object3D — settle gizmo target + proxy mirror
+  modelGroup: null, // live Object3D — settle gizmo target
   stageGroup: null, // live Object3D — stage gizmo target
   canvasEl: null, // WebGL canvas element — save-card frame source
   setLeva: null, // Leva set() — bi-directional slider sync
@@ -244,9 +237,35 @@ const DEV = {
   driveGrain: 0, // 0 fine · 1 mid · 2 coarse (G cycles)
   viewport: null, // { width, height } world units — stashed by DevGizmo,
   //                 used by the screen-space MOVE compensation
-  hudMode: "move", // v3.4 Sat-Nav: "move" | "rotate" | "off"
-  leftClampNDC: -0.85, // v3.4 panel-aware gizmo left bound (dashboard writes)
+  hudMode: "move", // Sat-Nav: "move" | "rotate" | "off"
+  leftClampNDC: -0.85, // panel-aware gizmo left bound (dashboard writes)
 };
+
+// ---------------------------------------------------------
+// AUTO TARGET ROUTING (v3.6) — the single rule that replaced every
+// timeline lock in the rig.
+//
+//   The phone's FINAL pose (settle params) is only defined at the
+//   endpoint of the timeline. The old rig handled that by force-jumping
+//   the playhead to 1 whenever a settle-target control was touched —
+//   which collapsed the exploded layers and made the tool untrustable.
+//
+//   New rule: the playhead is NEVER moved implicitly. Below the
+//   endpoint, whole-phone controls transparently drive the STAGE
+//   transform instead — the stage is valid at every p, is never written
+//   by the animation loop, and moves the whole phone (exploded or not)
+//   exactly as you'd expect. At the endpoint, the "phone" target edits
+//   the final docked pose as before.
+// ---------------------------------------------------------
+function atEndpoint() {
+  return DEV.lastP >= 0.999;
+}
+
+function effectiveTarget() {
+  return DEV.gizmoTarget === "settle" && !atEndpoint()
+    ? "stage"
+    : DEV.gizmoTarget;
+}
 
 // ---------------------------------------------------------
 // KEYBOARD DRIVE — arrow-key nudging.
@@ -266,18 +285,18 @@ const GRAIN_STEPS = {
   p: [0.002, 0.01, 0.05], // timeline progress
 };
 
-// Screen-rotation direction conventions. Flip a SINGLE value here if any
-// direction feels backwards — this is the only sign surface in v2.9.
+// Screen-rotation direction conventions for the ARROW KEYS (which feel
+// correct — do not touch these to tune the ring).
 //   yaw   +1 → ArrowRight turns the front face to the viewer's right
 //   pitch -1 → ArrowUp tips the front face upward
 //   roll  -1 → ArrowRight rolls clockwise on screen
 const SCREEN_ROT_SIGNS = { yaw: 1, pitch: -1, roll: -1 };
 
-// v3.5 — Sat-Nav ring's OWN sign surface, multiplied on top of
-// SCREEN_ROT_SIGNS. The ring felt inverted relative to the (correct)
-// arrow keys, so it gets an independent flip layer: change a value here
-// to retune the ring's feel without ever touching the keyboard drive.
-const HUD_ROT_SIGNS = { yaw: -1, pitch: -1, roll: -1 };
+// Sat-Nav ring's OWN sign surface, multiplied on top of SCREEN_ROT_SIGNS.
+// v3.6: ALL FLIPPED to +1 (opposite of v3.5's -1s) — the ring was still
+// reported inverted. If any single axis feels backwards after this,
+// change ONLY that one value here; nothing else needs touching.
+const HUD_ROT_SIGNS = { yaw: 1, pitch: 1, roll: 1 };
 
 // Plain-channel map — consulted ONLY for the paths that are already
 // screen-pure: stage MOVE (world position = screen axes) and the two
@@ -338,29 +357,23 @@ const DRIVE_CLAMPS = {
 };
 
 // ---------------------------------------------------------
-// GIZMO CONTEXT (v3.1) — click-to-target + predictive space binding.
-// One function owns the 2×2 matrix:
-//   stage  → world space (framing tracks the screen edges)
-//   settle → local space (component work tracks the phone's own axes)
-// Called by: clicking the phone (→settle), clicking the background
-// (→stage), the T key, and the dashboard chips.
+// GIZMO CONTEXT — click-to-target + predictive space binding.
+// v3.6: NO playhead side-effects. Selecting a target never moves p.
+// Space binding follows the EFFECTIVE target:
+//   effective stage  → world space (framing tracks the screen edges)
+//   effective settle → local space (tracks the phone's own axes)
 // ---------------------------------------------------------
 function changeGizmoContext(targetMode) {
   if (DEV.gizmoDragging) return; // never retarget mid-drag
   DEV.gizmoTarget = targetMode;
-  DEV.gizmoSpace = targetMode === "stage" ? "world" : "local";
-  if (targetMode === "settle" && DEV.gizmo !== "off" && DEV.lastP !== 1) {
-    jumpToP(1); // settle params are defined at the endpoint only
-  }
+  DEV.gizmoSpace = effectiveTarget() === "stage" ? "world" : "local";
   if (DEV.setLeva) DEV.setLeva({ drive: driveLabel() });
 }
 
 function setGizmoMode(v) {
   // v: "off" | "translate" | "rotate" | "scale"
+  // v3.6: no playhead side-effects.
   DEV.gizmo = v;
-  if (v !== "off" && DEV.gizmoTarget === "settle" && DEV.lastP !== 1) {
-    jumpToP(1);
-  }
 }
 
 // ---------------------------------------------------------
@@ -368,13 +381,9 @@ function setGizmoMode(v) {
 // One master, one driven, linear ratio, anchored at enable time:
 //   driven = drivenAnchor + (master − masterAnchor) × ratio
 // Fires on every Leva onChange of the master: slider drags, arrow-key
-// nudges, and gizmo-release captures all route through it. During a
-// gizmo drag nothing fires (capture is mouseUp-only) — the coupling
-// applies once on release. Ratio is a raw-unit multiplier (degrees,
-// world units, and viewport fractions mix freely — e.g. sposZ→srotX
-// ratio 20 means 20° per world unit). Changing ratio mid-run re-slopes
-// the path from the ORIGINAL anchors on the next master change; the
-// intended loop is: run → reset run → adjust ratio → run again.
+// nudges, and gizmo-release captures all route through it. Ratio is a
+// raw-unit multiplier (degrees, world units, viewport fractions mix
+// freely). Intended loop: run → reset run → adjust ratio → run again.
 // ---------------------------------------------------------
 const WIREABLE = [
   "sposX", "sposY", "sposZ", "srotX", "srotY", "srotZ", "sscale",
@@ -425,10 +434,9 @@ function wireResetRun() {
 // ---------------------------------------------------------
 // SNAPSHOT / SLOT ENGINE — a snapshot is a complete pose-parameter
 // record (all readers + p). Warps route through DEV.setLeva → the
-// sliders' own onChange writers — no new write path.
-// v3.1: the A/B/C bookmark slots are superseded by the 60-slot
-// persistent grid on the dashboard (localStorage). The explicit start
-// origin remains — auto-captured at boot from the URL-loaded pose.
+// sliders' own onChange writers — no new write path. Warping to a slot
+// that stored a p DOES move the playhead — that is an explicit,
+// user-initiated warp, not an implicit lock.
 // ---------------------------------------------------------
 const SNAPSHOTS = { origin: null };
 
@@ -478,47 +486,106 @@ function warpToSnapshot(slot) {
   warpToParams(SNAPSHOTS[slot]);
 }
 
-// TRUE SQUARE-UP (v3.4) — snaps the ACTIVE target's orientation to the
-// nearest axis-aligned frame. Orientation-space (quaternion) snap, so it
-// behaves identically at every position and for both targets — no gimbal
-// surprise. `which` is optional; defaults to the active gizmo target.
-function snapLevel(which) {
+// ---------------------------------------------------------
+// SMOOTH SQUARE-UP (v3.6) — two changes over the old snapLevel:
+//
+//   1. WORLD-space. "Square up phone" snaps the phone's orientation AS
+//      SEEN ON SCREEN to the nearest 90° frame — at any playhead
+//      position and any stage rotation. (The old version snapped euler
+//      channels in the stage-local frame; with the stage rotated it
+//      landed somewhere unexpected — the "works in some conditions"
+//      bug.) How it writes depends on where the playhead is:
+//        p = 1 → adjusts the phone's final pose (settle eulers)
+//        p < 1 → adjusts the STAGE so the visible phone squares —
+//                the playhead is NEVER touched, layers stay raised.
+//   2. SMOOTH. 450ms eased quaternion slerp, written frame-by-frame
+//      through the same Leva write bus — no jump, and the motion takes
+//      the shortest rotational path.
+// ---------------------------------------------------------
+const SQUARE_ANIM = { raf: 0 };
+
+function cancelSquareAnim() {
+  if (SQUARE_ANIM.raf) cancelAnimationFrame(SQUARE_ANIM.raf);
+  SQUARE_ANIM.raf = 0;
+}
+
+function animateQuat(fromQ, toQ, writeFn, ms = 450) {
+  cancelSquareAnim();
+  const t0 = performance.now();
+  const q = new THREE.Quaternion();
+  const step = (now) => {
+    const t = Math.min(1, (now - t0) / ms);
+    q.slerpQuaternions(fromQ, toQ, smoothstep(t));
+    writeFn(q);
+    if (t < 1) {
+      SQUARE_ANIM.raf = requestAnimationFrame(step);
+    } else {
+      SQUARE_ANIM.raf = 0;
+    }
+  };
+  SQUARE_ANIM.raf = requestAnimationFrame(step);
+}
+
+function writeStageEuler(q) {
   if (!DEV.setLeva) return;
-  const isStage = which ? which === "stage" : DEV.gizmoTarget === "stage";
-  if (!isStage && DEV.lastP !== 1) jumpToP(1); // settle params inert below p=1
+  const e = new THREE.Euler().setFromQuaternion(q, "XYZ");
+  DEV.setLeva({ srotX: wrapDeg(e.x), srotY: wrapDeg(e.y), srotZ: wrapDeg(e.z) });
+}
 
-  const cur = isStage
-    ? new THREE.Quaternion().setFromEuler(
-        new THREE.Euler(
-          STAGE.rotationEuler[0],
-          STAGE.rotationEuler[1],
-          STAGE.rotationEuler[2]
-        )
+function writeSettleEuler(q) {
+  if (!DEV.setLeva) return;
+  const e = new THREE.Euler().setFromQuaternion(q, "XYZ");
+  DEV.setLeva({
+    settleX: wrapDeg(e.x),
+    settleY: wrapDeg(e.y),
+    settleZ: wrapDeg(e.z),
+  });
+}
+
+function squareUpPhone() {
+  if (!DEV.setLeva) return;
+  const stageQ = stageQuat();
+
+  if (atEndpoint()) {
+    // Endpoint: square the phone's FINAL pose so its WORLD orientation
+    // is axis-aligned (accounts for any stage rotation).
+    const fromLocal = new THREE.Quaternion().setFromEuler(
+      new THREE.Euler(
+        SETTLE.targetEuler[0],
+        SETTLE.targetEuler[1],
+        SETTLE.targetEuler[2]
       )
-    : new THREE.Quaternion().setFromEuler(
-        new THREE.Euler(
-          SETTLE.targetEuler[0],
-          SETTLE.targetEuler[1],
-          SETTLE.targetEuler[2]
-        )
-      );
-
-  const snapped = snapQuatTo90(cur);
-  const e = new THREE.Euler().setFromQuaternion(snapped, "XYZ");
-
-  if (isStage) {
-    DEV.setLeva({ srotX: wrapDeg(e.x), srotY: wrapDeg(e.y), srotZ: wrapDeg(e.z) });
+    );
+    const worldPhone = stageQ.clone().multiply(fromLocal);
+    const snappedWorld = snapQuatTo90(worldPhone);
+    const toLocal = stageQ.clone().invert().multiply(snappedWorld);
+    animateQuat(fromLocal, toLocal, writeSettleEuler);
   } else {
-    DEV.setLeva({
-      settleX: wrapDeg(e.x),
-      settleY: wrapDeg(e.y),
-      settleZ: wrapDeg(e.z),
-    });
+    // Mid-timeline: rotate the STAGE so the visible phone squares.
+    // Playhead untouched — the exploded layers stay exactly where
+    // they are. modelGroup's live quaternion is the ground-truth
+    // "what you see" orientation inside the stage.
+    const modelQ = DEV.modelGroup
+      ? DEV.modelGroup.quaternion.clone()
+      : new THREE.Quaternion();
+    const worldPhone = stageQ.clone().multiply(modelQ);
+    const snappedWorld = snapQuatTo90(worldPhone);
+    const toStage = snappedWorld.clone().multiply(modelQ.clone().invert());
+    animateQuat(stageQ.clone(), toStage, writeStageEuler);
   }
 }
 
+function squareUpStage() {
+  if (!DEV.setLeva) return;
+  const from = stageQuat();
+  const to = snapQuatTo90(from);
+  animateQuat(from, to, writeStageEuler);
+}
+
 function driveLabel() {
-  return `${MODE_LABELS[DEV.driveMode]} · ${GRAIN_LABELS[DEV.driveGrain]} (${DEV.gizmoTarget})`;
+  const eff = effectiveTarget();
+  const routed = eff !== DEV.gizmoTarget;
+  return `${MODE_LABELS[DEV.driveMode]} · ${GRAIN_LABELS[DEV.driveGrain]} (${eff}${routed ? " ·auto" : ""})`;
 }
 
 function stageQuat() {
@@ -532,13 +599,12 @@ function stageQuat() {
 }
 
 // ---------------------------------------------------------
-// MOVE (settle) — screen-space slide.
+// MOVE (settle) — screen-space slide. Endpoint-only path (routing sends
+// mid-timeline moves to the stage instead).
 // shift/vshift live in STAGE-LOCAL space; a rotated stage turns a plain
 // channel nudge into a diagonal. Compensation: express the step as a
 // world (screen) delta, rotate it through the INVERSE stage frame,
 // divide by stage scale, land it back in viewport fractions.
-// local.z is dropped — the channels can't express stage-local depth
-// (at extreme stage rotations the slide weakens accordingly).
 // ---------------------------------------------------------
 function nudgeSettleMoveScreen(set, axis, dir) {
   const step = GRAIN_STEPS.frac[DEV.driveGrain] * dir;
@@ -575,8 +641,8 @@ function nudgeSettleMoveScreen(set, axis, dir) {
 // ROTATE / ROLL — screen-space rotation.
 // World-axis quaternion PREMULTIPLIED onto the pose, then extracted back
 // to euler channels through the sliders (the gizmo's capture pattern).
-// Settle pose lives INSIDE the stage frame: world rotation W maps to the
-// stage-local rotation Rs⁻¹·W·Rs before premultiplying.
+// v3.6: routes by EFFECTIVE target — mid-timeline rotations drive the
+// stage (rotating the whole visible phone) with no playhead movement.
 // ---------------------------------------------------------
 function nudgeRotateScreen(set, axis, dir, isRoll) {
   const stepRad = (GRAIN_STEPS.deg[DEV.driveGrain] * Math.PI) / 180;
@@ -596,7 +662,7 @@ function nudgeRotateScreen(set, axis, dir, isRoll) {
     stepRad * dir * sign
   );
 
-  if (DEV.gizmoTarget === "stage") {
+  if (effectiveTarget() === "stage") {
     const q = stageQuat().premultiply(W);
     const e = new THREE.Euler().setFromQuaternion(q, "XYZ");
     set({ srotX: wrapDeg(e.x), srotY: wrapDeg(e.y), srotZ: wrapDeg(e.z) });
@@ -618,7 +684,7 @@ function nudgeRotateScreen(set, axis, dir, isRoll) {
 }
 
 // ---------------------------------------------------------
-// applyRotationFromBase (v3.4) — the SAME premultiply maths as
+// applyRotationFromBase — the SAME premultiply maths as
 // nudgeRotateScreen, but composing a world rotation W onto a CAPTURED
 // base quaternion instead of re-reading the config. The steering ring
 // accumulates its total drag rotation from the pose at pointer-down, so
@@ -639,19 +705,21 @@ function applyRotationFromBase(set, baseQuat, Rs, W, isStage) {
 }
 
 function driveNudge(set, axis, dir) {
-  // Settle params are inert below the endpoint — snap there first
-  // (same rule as the gizmo)
-  if (DEV.gizmoTarget === "settle" && DEV.lastP !== 1) jumpToP(1);
+  // v3.6: NO playhead side-effects. The nudge routes to the effective
+  // target — below the endpoint that is the stage, which is valid at
+  // every p. Nothing collapses.
+  cancelSquareAnim();
+  const eff = effectiveTarget();
   const mode = DEV.driveMode;
 
-  // Screen-space paths (v2.9)
-  if (mode === 0 && DEV.gizmoTarget === "settle")
+  // Screen-space paths
+  if (mode === 0 && eff === "settle")
     return nudgeSettleMoveScreen(set, axis, dir);
   if (mode === 1) return nudgeRotateScreen(set, axis, dir, false);
   if (mode === 2 && axis === "x") return nudgeRotateScreen(set, axis, dir, true);
 
   // Plain channels: stage MOVE + the two zooms
-  const [param, cls, sign] = DRIVE_MAP[DEV.gizmoTarget][mode][axis];
+  const [param, cls, sign] = DRIVE_MAP[eff][mode][axis];
   const step = GRAIN_STEPS[cls][DEV.driveGrain] * dir * sign;
   const [lo, hi] = DRIVE_CLAMPS[param];
   const next = Math.min(hi, Math.max(lo, DRIVE_READERS[param]() + step));
@@ -817,7 +885,9 @@ function saveCard() {
 
 // ---------------------------------------------------------
 // BACK-SOLVE (settle target): gizmo pose → SETTLE parameters.
-// Valid at p=1 (t=1) only, where the production maths reduces to:
+// Valid at p=1 (t=1) only — and thanks to auto routing that is the ONLY
+// time it is ever called (mid-timeline drags capture the stage instead).
+// At t=1 the production maths reduces to:
 //   position.x = viewport.width  * xShiftFraction
 //   position.y = viewport.height * yShiftFraction   (lift term is 0: sin(π)=0)
 //   scale      = SETTLE.scale
@@ -894,7 +964,7 @@ function captureStageFromObject() {
 function jumpToP(v) {
   DEV.lastP = v;
   if (DEV.applyProgress) DEV.applyProgress(v);
-  if (DEV.setLeva) DEV.setLeva({ p: v });
+  if (DEV.setLeva) DEV.setLeva({ p: v, drive: driveLabel() });
 }
 
 const LEVA_LIGHT = {
@@ -972,19 +1042,24 @@ function DevControls({ initialP }) {
           onChange: (v) => {
             DEV.lastP = v;
             if (DEV.applyProgress) DEV.applyProgress(v);
+            // Keep the drive readout honest about auto routing when the
+            // playhead crosses the endpoint boundary.
+            if (DEV.setLeva) DEV.setLeva({ drive: driveLabel() });
           },
         },
       },
       { collapsed: false }
     ),
-    "📐 settle endpoint (p=1)": folder(
+    // Plain-English labels (v3.6). Param KEYS unchanged — URLs, slots,
+    // wiring and manifests all still speak settleX/sposY/etc.
+    "📐 phone final pose (end of timeline)": folder(
       {
         tilt: {
           value: (START.tilt * 180) / Math.PI,
           min: -45,
           max: 45,
           step: 0.5,
-          label: "rest tilt °",
+          label: "start tilt °",
           onChange: (v) => {
             START.tilt = (v * Math.PI) / 180;
             DEV.dirtyQuat = true;
@@ -996,7 +1071,7 @@ function DevControls({ initialP }) {
           min: -180,
           max: 180,
           step: 1,
-          label: "euler X °",
+          label: "final pitch °",
           onChange: (v) => {
             SETTLE.targetEuler[0] = (v * Math.PI) / 180;
             DEV.dirtyQuat = true;
@@ -1008,7 +1083,7 @@ function DevControls({ initialP }) {
           min: -180,
           max: 180,
           step: 1,
-          label: "euler Y °",
+          label: "final yaw °",
           onChange: (v) => {
             SETTLE.targetEuler[1] = (v * Math.PI) / 180;
             DEV.dirtyQuat = true;
@@ -1020,7 +1095,7 @@ function DevControls({ initialP }) {
           min: -180,
           max: 180,
           step: 1,
-          label: "euler Z °",
+          label: "final roll °",
           onChange: (v) => {
             SETTLE.targetEuler[2] = (v * Math.PI) / 180;
             DEV.dirtyQuat = true;
@@ -1032,7 +1107,7 @@ function DevControls({ initialP }) {
           min: -0.5,
           max: 0.5,
           step: 0.005,
-          label: "rest slot X (vw)",
+          label: "final pos ← → (vw)",
           onChange: (v) => {
             SETTLE.xShiftFraction = v;
             wireTap("shift", v);
@@ -1043,7 +1118,7 @@ function DevControls({ initialP }) {
           min: -1,
           max: 1,
           step: 0.005,
-          label: "rest slot Y (vh)",
+          label: "final pos ↑ ↓ (vh)",
           onChange: (v) => {
             SETTLE.yShiftFraction = v;
             wireTap("vshift", v);
@@ -1054,7 +1129,7 @@ function DevControls({ initialP }) {
           min: -0.5,
           max: 0.5,
           step: 0.005,
-          label: "arc lift (vh)",
+          label: "travel arc lift",
           onChange: (v) => {
             SETTLE.arcLift = v;
             wireTap("lift", v);
@@ -1065,7 +1140,7 @@ function DevControls({ initialP }) {
           min: 0.2,
           max: 1.5,
           step: 0.01,
-          label: "settle scale",
+          label: "final size",
           onChange: (v) => {
             SETTLE.scale = v;
             wireTap("pscale", v);
@@ -1074,14 +1149,14 @@ function DevControls({ initialP }) {
       },
       { collapsed: false }
     ),
-    "🎬 stage (world frame)": folder(
+    "🎬 stage (whole scene, works at any time)": folder(
       {
         sposX: {
           value: STAGE.position[0],
           min: -3,
           max: 3,
           step: 0.01,
-          label: "pos X (wu)",
+          label: "stage ← → (X)",
           onChange: (v) => {
             STAGE.position[0] = v;
             DEV.dirtyStage = true;
@@ -1093,7 +1168,7 @@ function DevControls({ initialP }) {
           min: -3,
           max: 3,
           step: 0.01,
-          label: "pos Y (wu)",
+          label: "stage ↑ ↓ (Y)",
           onChange: (v) => {
             STAGE.position[1] = v;
             DEV.dirtyStage = true;
@@ -1105,7 +1180,7 @@ function DevControls({ initialP }) {
           min: -3,
           max: 3,
           step: 0.01,
-          label: "pos Z / depth (wu)",
+          label: "stage depth (Z)",
           onChange: (v) => {
             STAGE.position[2] = v;
             DEV.dirtyStage = true;
@@ -1117,7 +1192,7 @@ function DevControls({ initialP }) {
           min: -180,
           max: 180,
           step: 1,
-          label: "euler X °",
+          label: "stage pitch °",
           onChange: (v) => {
             STAGE.rotationEuler[0] = (v * Math.PI) / 180;
             DEV.dirtyStage = true;
@@ -1129,7 +1204,7 @@ function DevControls({ initialP }) {
           min: -180,
           max: 180,
           step: 1,
-          label: "euler Y °",
+          label: "stage yaw °",
           onChange: (v) => {
             STAGE.rotationEuler[1] = (v * Math.PI) / 180;
             DEV.dirtyStage = true;
@@ -1141,7 +1216,7 @@ function DevControls({ initialP }) {
           min: -180,
           max: 180,
           step: 1,
-          label: "euler Z °",
+          label: "stage roll °",
           onChange: (v) => {
             STAGE.rotationEuler[2] = (v * Math.PI) / 180;
             DEV.dirtyStage = true;
@@ -1153,7 +1228,7 @@ function DevControls({ initialP }) {
           min: 0.2,
           max: 3,
           step: 0.01,
-          label: "scale",
+          label: "stage zoom",
           onChange: (v) => {
             STAGE.scale = v;
             DEV.dirtyStage = true;
@@ -1170,7 +1245,7 @@ function DevControls({ initialP }) {
           min: 0.5,
           max: 6,
           step: 0.05,
-          label: "fit size (wu)",
+          label: "phone fit size",
           onChange: (v) => {
             MODEL.targetSize = v;
             DEV.dirtyFit = true;
@@ -1236,7 +1311,7 @@ function DevControls({ initialP }) {
 
   // Keyboard surface:
   //   W/E/R  gizmo translate/rotate/scale     Q  gizmo off
-  //   T      target toggle (settle | stage) — space auto-binds
+  //   T      target toggle (phone | stage)
   //   Tab    arrow mode cycle                 G  granularity cycle
   //   Arrows nudge (hold = glide)             [ ] timeline p nudge
   useEffect(() => {
@@ -1290,13 +1365,14 @@ function DevControls({ initialP }) {
 }
 
 // ---------------------------------------------------------
-// DEV DASHBOARD (v3.4) — the primary visual surface, left side.
-// Primitives + numeric rows removed; Leva is mounted-but-hidden as the
-// write bus. Collapsible header raises the panel out of the way (like
-// the right bar) and, crucially, recomputes DEV.leftClampNDC so the
-// gizmo parks to the RIGHT of the panel instead of behind it. All
-// writes route through DEV.setLeva → the sliders' own onChange writers,
-// so URL / manifest / wiring machinery is untouched.
+// DEV DASHBOARD — the primary visual surface, left side.
+// Leva is mounted top-right (collapsed) as the numeric write bus.
+// Collapsible header raises the panel out of the way and recomputes
+// DEV.leftClampNDC so the gizmo parks to the RIGHT of the panel instead
+// of behind it. All writes route through DEV.setLeva → the sliders' own
+// onChange writers, so URL / manifest / wiring machinery is untouched.
+// v3.6: ORIENT mini-proxy removed (no function, covered the glass
+// registration sliders). Square-up split into two SMOOTH buttons.
 // ---------------------------------------------------------
 const UI = {
   panel: {
@@ -1397,6 +1473,7 @@ function DevDashboard() {
   const [slots, setSlots] = useState(loadSlots);
 
   const isStage = DEV.gizmoTarget === "stage";
+  const routed = effectiveTarget() !== DEV.gizmoTarget;
 
   // ---- panel-aware gizmo left clamp (the recurring "behind the panel"
   // fix, made structural). Recomputed every tick from the live panel
@@ -1495,27 +1572,41 @@ function DevDashboard() {
       <div style={UI.row}>
         <span
           style={chipStyle(!isStage, true)}
+          title="the phone's FINAL docked pose — editable at the end of the timeline; below that, controls act on the stage automatically (nothing ever collapses)"
           onClick={() => changeGizmoContext("settle")}
         >
-          📱 phone (settle)
+          📱 phone
         </span>
         <span
           style={chipStyle(isStage, true)}
+          title="the whole scene's framing — works at any point on the timeline"
           onClick={() => changeGizmoContext("stage")}
         >
           🎬 stage
         </span>
       </div>
+      {routed && (
+        <div style={{ ...UI.hint, marginTop: 2, color: "#2e7d52" }}>
+          mid-timeline → controls drive the stage · playhead stays put
+        </div>
+      )}
 
-      {/* ---- SQUARE UP (moved high; true orientation snap) ---- */}
-      <div style={UI.head}>⊞ square up</div>
+      {/* ---- SQUARE UP — smooth, world-space ---- */}
+      <div style={UI.head}>⊞ square up (smooth)</div>
       <div style={UI.row}>
         <span
           style={chipStyle(false, true)}
-          title="snap the active target to the nearest clean 90° orientation — same result at every position"
-          onClick={() => snapLevel()}
+          title="rotate the phone AS SEEN ON SCREEN to the nearest clean 90° — smooth, works at any timeline position, never touches the playhead"
+          onClick={squareUpPhone}
         >
-          ⊞ square up {isStage ? "stage" : "phone"}
+          ⊞ phone
+        </span>
+        <span
+          style={chipStyle(false, true)}
+          title="rotate the stage frame to the nearest clean 90° — smooth"
+          onClick={squareUpStage}
+        >
+          ⊞ stage
         </span>
       </div>
 
@@ -1570,11 +1661,9 @@ function DevDashboard() {
         ))}
       </div>
 
-      {/* ---- compound motion (v3.5) — visual surface for the WIRE
-           driven-key engine. Master moves → driven follows at ratio.
-           Same engine, same anchors, zero new maths: every gesture that
-           routes through Leva onChange (ring, canvas drag, arrows,
-           gizmo release) drives the coupling automatically. ---- */}
+      {/* ---- compound motion — visual surface for the WIRE driven-key
+           engine. Master moves → driven follows at ratio. Same engine,
+           same anchors, zero new maths. ---- */}
       <div style={UI.head}>🔗 compound motion</div>
       <div style={UI.row}>
         <span
@@ -1711,11 +1800,16 @@ function DevDashboard() {
       </div>
 
       <div style={UI.hint}>
+        the playhead NEVER moves unless you move it
+        <br />
+        below the timeline end, phone controls drive the stage — layers
+        stay raised
+        <br />
         move mode: drag canvas = slide · scroll = zoom
         <br />
-        rotate mode: drag ring = roll · drag inside ring = yaw/pitch
+        rotate mode: drag ring = roll · inside ring = yaw/pitch
         <br />
-        gizmo (W/E/R/Q) is precision-only — it overrides the sat-nav
+        gizmo (W/E/R/Q) overrides the sat-nav
         <br />
         click phone = phone target · click background = stage
       </div>
@@ -1724,16 +1818,15 @@ function DevDashboard() {
 }
 
 // ---------------------------------------------------------
-// SAT-NAV STEERING RING (v3.4) — SVG overlay, canvas-centred.
+// SAT-NAV STEERING RING — SVG overlay, canvas-centred.
 // Interactive ONLY when hudMode==="rotate" AND the gizmo is off (the
 // gizmo takes precedence). Drag on the band = roll; drag inside the disc
 // = yaw/pitch. Both accumulate their total rotation from the pose
 // captured at pointer-down and feed applyRotationFromBase — the exact
-// premultiply maths the keyboard drive already uses. No new transform
-// path, so no new way to reintroduce the pendulum/snatch.
-// The container is pointer-events:none except the hit circle, so when
-// the ring is inactive every click falls straight through to the canvas
-// (gizmo, click-to-target, move-drag).
+// premultiply maths the keyboard drive already uses.
+// v3.6: NO playhead side-effects — mid-timeline drags rotate the stage
+// (effective-target routing); HUD_ROT_SIGNS flipped to +1 across the
+// board per inversion report.
 // ---------------------------------------------------------
 function SatNavHUD() {
   const [, force] = useState(0);
@@ -1762,9 +1855,12 @@ function SatNavHUD() {
     const dist = Math.hypot(dx, dy);
     if (dist > R * 1.15) return;
 
-    if (DEV.gizmoTarget === "settle" && DEV.lastP !== 1) jumpToP(1);
+    cancelSquareAnim();
 
-    const isStage = DEV.gizmoTarget === "stage";
+    // v3.6: routed target, NO playhead jump — mid-timeline the ring
+    // rotates the stage; the exploded layers stay exactly where they are.
+    const eff = effectiveTarget();
+    const isStage = eff === "stage";
     const baseQuat = isStage
       ? new THREE.Quaternion().setFromEuler(
           new THREE.Euler(
@@ -1940,101 +2036,21 @@ function SatNavHUD() {
 }
 
 // ---------------------------------------------------------
-// MINI-PROXY ORIENTATION MIRROR (v3.4) — bottom-right PiP.
-// A second lightweight canvas rendering a phone-proportioned box that
-// copies DEV.modelGroup's live world quaternion each frame. Green front
-// face = the screen; green camera bump marks the back; the notch marks
-// "up" — so front/back/roll are unambiguous at a glance, even when the
-// main phone is exploded or off to the side.
-// ---------------------------------------------------------
-function ProxyPhone() {
-  const ref = useRef();
-  useFrame(() => {
-    const src = DEV.modelGroup;
-    if (src && ref.current) {
-      src.getWorldQuaternion(ref.current.quaternion);
-    }
-  });
-  return (
-    <group ref={ref}>
-      {/* chassis */}
-      <mesh>
-        <boxGeometry args={[0.62, 1.3, 0.08]} />
-        <meshStandardMaterial color="#1a2620" metalness={0.3} roughness={0.55} />
-      </mesh>
-      {/* front screen face (+Z) */}
-      <mesh position={[0, 0, 0.042]}>
-        <planeGeometry args={[0.52, 1.18]} />
-        <meshBasicMaterial color="#2e7d52" />
-      </mesh>
-      {/* notch — marks "up" */}
-      <mesh position={[0, 0.5, 0.05]}>
-        <boxGeometry args={[0.2, 0.05, 0.02]} />
-        <meshBasicMaterial color="#0d1512" />
-      </mesh>
-      {/* camera bump on the back (−Z) */}
-      <mesh position={[-0.15, 0.42, -0.06]}>
-        <boxGeometry args={[0.2, 0.2, 0.04]} />
-        <meshStandardMaterial color="#3c9a68" metalness={0.2} roughness={0.6} />
-      </mesh>
-    </group>
-  );
-}
-
-function DevProxyMirror() {
-  return (
-    <div
-      style={{
-        position: "fixed",
-        right: 12,
-        bottom: 12,
-        width: 120,
-        height: 150,
-        background: "rgba(255,255,255,0.95)",
-        border: "1px solid #dde8e0",
-        borderRadius: 12,
-        boxShadow: "0 6px 24px rgba(20,60,40,0.14)",
-        zIndex: 1000,
-        overflow: "hidden",
-      }}
-    >
-      <div
-        style={{
-          position: "absolute",
-          top: 5,
-          left: 8,
-          fontSize: 9,
-          fontFamily: "ui-monospace, Menlo, Consolas, monospace",
-          color: "#2e7d52",
-          letterSpacing: 1,
-          zIndex: 2,
-          pointerEvents: "none",
-        }}
-      >
-        ORIENT
-      </div>
-      <Canvas camera={{ position: [0, 0, 3.2], fov: 35 }} dpr={[1, 2]} gl={{ alpha: true }}>
-        <ambientLight intensity={0.9} />
-        <directionalLight position={[3, 4, 5]} intensity={1.2} />
-        <directionalLight position={[-3, -2, -4]} intensity={0.5} />
-        <ProxyPhone />
-      </Canvas>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------
-// DevGizmo (v3.1 → v3.4) — PROXY-ANCHORED TransformControls.
+// DevGizmo — PROXY-ANCHORED TransformControls.
 //
 // The controls attach to an invisible proxy Object3D, never to the
 // phone. Every frame (when not dragging) the proxy is placed at the
 // target's world position CLAMPED to the visible frame (NDC left bound
-// now DEV.leftClampNDC so the panel can't hide it; ±0.85 right, ±0.78 y,
+// DEV.leftClampNDC so the panel can't hide it; ±0.85 right, ±0.78 y,
 // behind-camera rescue), and copies the target's world quaternion +
 // scale so local-space handles align with the phone. During a drag, the
 // proxy's transform deltas are relayed to the real target (world →
 // stage-local conversion for the settle target). On release, the
 // existing capture functions read the real target — contract unchanged.
+//
+// v3.6: the gizmo binds to the EFFECTIVE target — mid-timeline it
+// operates on the stage, so grabbing the exploded phone and moving it
+// Just Works with the playhead untouched. Zero p side-effects.
 //
 // Hold Shift while dragging to snap (0.1 units / 15° / 0.05 scale).
 // Also stashes the world-unit viewport for the screen-space MOVE maths.
@@ -2044,7 +2060,7 @@ function DevGizmo() {
   const ctrlRef = useRef();
   const dragRef = useRef(null);
   const [mode, setMode] = useState("off");
-  const [target, setTarget] = useState(DEV.gizmoTarget);
+  const [target, setTarget] = useState(effectiveTarget());
   const [space, setSpace] = useState(DEV.gizmoSpace);
   const [ready, setReady] = useState(false);
   const [snap, setSnap] = useState(false);
@@ -2062,10 +2078,18 @@ function DevGizmo() {
 
   useFrame(() => {
     DEV.viewport = { width: viewport.width, height: viewport.height };
+
+    // Effective-target routing: below the endpoint the "phone" choice
+    // operates on the stage. Space auto-binds to the effective target.
+    const eff = DEV.gizmoDragging && dragRef.current
+      ? dragRef.current.eff // never retarget mid-drag
+      : effectiveTarget();
+    DEV.gizmoSpace = eff === "stage" ? "world" : "local";
+
     if (DEV.gizmo !== mode) setMode(DEV.gizmo);
-    if (DEV.gizmoTarget !== target) setTarget(DEV.gizmoTarget);
+    if (eff !== target) setTarget(eff);
     if (DEV.gizmoSpace !== space) setSpace(DEV.gizmoSpace);
-    const obj = DEV.gizmoTarget === "stage" ? DEV.stageGroup : DEV.modelGroup;
+    const obj = eff === "stage" ? DEV.stageGroup : DEV.modelGroup;
     const has = !!obj;
     if (has !== ready) setReady(has);
 
@@ -2082,8 +2106,8 @@ function DevGizmo() {
       }
 
       const ndc = tmp.c.copy(tmp.v).project(camera);
-      // v3.4: left bound is panel-aware — the gizmo parks to the RIGHT
-      // of the left dashboard instead of vanishing behind it.
+      // Left bound is panel-aware — the gizmo parks to the RIGHT of the
+      // left dashboard instead of vanishing behind it.
       const cx = Math.max(DEV.leftClampNDC, Math.min(0.85, ndc.x));
       const cy = Math.max(-0.78, Math.min(0.78, ndc.y));
       if (cx !== ndc.x || cy !== ndc.y) {
@@ -2152,14 +2176,16 @@ function DevGizmo() {
   }, [mode, target, ready]);
 
   // Relay proxy deltas to the real target, live during the drag.
+  // Uses the drag-locked effective target — never the live one.
   const applyDrag = () => {
     const d = dragRef.current;
-    const obj = DEV.gizmoTarget === "stage" ? DEV.stageGroup : DEV.modelGroup;
-    if (!d || !obj) return;
+    if (!d) return;
+    const obj = d.eff === "stage" ? DEV.stageGroup : DEV.modelGroup;
+    if (!obj) return;
 
     if (DEV.gizmo === "translate") {
       const delta = proxy.position.clone().sub(d.proxyPos);
-      if (DEV.gizmoTarget === "settle") {
+      if (d.eff === "settle") {
         // World delta → stage-local (model group lives inside the stage)
         delta
           .applyQuaternion(d.stageQuatInv)
@@ -2170,7 +2196,7 @@ function DevGizmo() {
       // World-frame rotation delta of the proxy
       const dq = proxy.quaternion.clone().multiply(d.proxyQuatInv);
       let localDelta = dq;
-      if (DEV.gizmoTarget === "settle") {
+      if (d.eff === "settle") {
         localDelta = d.stageQuatInv.clone().multiply(dq).multiply(d.stageQuat);
       }
       obj.quaternion.copy(localDelta.multiply(d.targetQuat));
@@ -2183,19 +2209,19 @@ function DevGizmo() {
   };
 
   const onDown = () => {
+    cancelSquareAnim();
     DEV.gizmoDragging = true;
-    // Guard: settle capture maths is only valid at the endpoint
-    if (DEV.gizmoTarget === "settle" && DEV.lastP !== 1) {
-      DEV.lastP = 1;
-      if (DEV.applyProgress) DEV.applyProgress(1);
-      if (DEV.setLeva) DEV.setLeva({ p: 1 });
-    }
-    const obj = DEV.gizmoTarget === "stage" ? DEV.stageGroup : DEV.modelGroup;
+    // v3.6: NO playhead jump. The effective target is locked for the
+    // duration of the drag — mid-timeline that is the stage, which is
+    // valid at every p. Layers stay raised.
+    const eff = effectiveTarget();
+    const obj = eff === "stage" ? DEV.stageGroup : DEV.modelGroup;
     if (!obj) return;
     const rs = DEV.stageGroup
       ? DEV.stageGroup.quaternion.clone()
       : new THREE.Quaternion();
     dragRef.current = {
+      eff,
       proxyPos: proxy.position.clone(),
       proxyQuatInv: proxy.quaternion.clone().invert(),
       proxyScale: proxy.scale.x || 1,
@@ -2211,10 +2237,14 @@ function DevGizmo() {
   const onUp = () => {
     DEV.gizmoDragging = false;
     DEV.lastDragEnd = performance.now();
+    const d = dragRef.current;
     dragRef.current = null;
     // Capture BEFORE the next frame's lerp runs — the lerp target then
-    // equals the pose just set, so there is no snap-back.
-    if (DEV.gizmoTarget === "stage") captureStageFromObject();
+    // equals the pose just set, so there is no snap-back. Routed by the
+    // drag-locked effective target: stage captures work at any p; the
+    // settle back-solve is only ever reached at the endpoint.
+    if (!d) return;
+    if (d.eff === "stage") captureStageFromObject();
     else captureSettleFromObject(viewport);
   };
 
@@ -2339,10 +2369,10 @@ function resolveRuntimeConfig() {
 
   const dev = params.get("dev") === "1" || params.get("dev") === "true";
   DEV.enabled = dev;
-  // Predictive space binding boot state: default target is settle → local
-  DEV.gizmoSpace = DEV.gizmoTarget === "stage" ? "world" : "local";
+  // Predictive space binding boot state — follows the effective target
+  DEV.gizmoSpace = effectiveTarget() === "stage" ? "world" : "local";
 
-  // Deterministic capture flag (Playwright frame-baking). damp→1 in the
+  // Deterministic capture flag (Playwright frame-baking). damp=1 in the
   // useFrame + window.__iglassCaptureReady signal once settled.
   CAPTURE_SNAP = params.get("snap") === "1" || params.get("snap") === "true";
 
@@ -2784,7 +2814,10 @@ function IPhoneExploded({
     if (
       DEV.dirtyStage &&
       stageGroupRef.current &&
-      !(DEV.gizmoDragging && DEV.gizmoTarget === "stage")
+      !(
+        DEV.gizmoDragging &&
+        (DEV.gizmoTarget === "stage" || !atEndpoint())
+      )
     ) {
       const g = stageGroupRef.current;
       g.position.set(STAGE.position[0], STAGE.position[1], STAGE.position[2]);
@@ -2824,11 +2857,13 @@ function IPhoneExploded({
       bodyGroupRef.current.position.z = 0;
     }
 
-    // Whole-model writes are suppressed while the SETTLE-target gizmo is
-    // being dragged. On release, capture has already made the params
-    // equal the pose, so the lerp target matches — no snap-back.
-    // Stage-target drags don't touch this group — no suppression needed.
-    const settleDrag = DEV.gizmoDragging && DEV.gizmoTarget === "settle";
+    // Whole-model writes are suppressed while the gizmo is dragging the
+    // SETTLE target (endpoint-only, thanks to routing). On release,
+    // capture has already made the params equal the pose, so the lerp
+    // target matches — no snap-back. Stage-target drags (including all
+    // routed mid-timeline drags) don't touch this group at all.
+    const settleDrag =
+      DEV.gizmoDragging && DEV.gizmoTarget === "settle" && atEndpoint();
     if (modelGroupRef.current && !settleDrag) {
       const t = scrollState.rotate;
 
@@ -2879,9 +2914,9 @@ function IPhoneExploded({
     <group ref={stageGroupRef}>
       <group
         ref={modelGroupRef}
-        // Click-to-target (v3.1): tapping any part of the phone selects
-        // the settle target (+ local space). event.delta filters out
-        // gizmo drags and camera gestures — only clean clicks retarget.
+        // Click-to-target: tapping any part of the phone selects the
+        // phone target. event.delta filters out gizmo drags and camera
+        // gestures — only clean clicks retarget. NO playhead effect.
         onClick={(e) => {
           if (!DEV.enabled) return;
           if (e.delta > 4) return;
@@ -3106,20 +3141,24 @@ export default function CrossSection3DScrollGLB(props) {
   }, [mode, freezeP, scrollDistance, glassStagger, oledStagger, phoneStagger]);
 
   // ============================================
-  // SAT-NAV canvas handlers (v3.4) — drag-to-move + scroll-to-zoom.
+  // SAT-NAV canvas handlers — drag-to-move + scroll-to-zoom.
   // Attached to the sticky wrapper. Only act in move mode with the gizmo
   // off; both route through DEV.setLeva → the existing onChange writers,
   // so the URL / capture machinery is untouched. Drag translation
   // accumulates from the pose at pointer-down (race-free vs Leva's async
   // set/onChange). Zoom drives the stage scale (always-visible global
   // zoom, independent of target or timeline position).
+  // v3.6: NO playhead side-effects — mid-timeline drags move the STAGE
+  // (effective-target routing), so the exploded phone slides freely.
   // ============================================
   const onWrapPointerDown = (e) => {
     if (!dev || !DEV.setLeva) return;
     if (DEV.hudMode !== "move" || DEV.gizmo !== "off" || DEV.gizmoDragging) return;
-    if (DEV.gizmoTarget === "settle" && DEV.lastP !== 1) jumpToP(1);
 
-    const isStage = DEV.gizmoTarget === "stage";
+    cancelSquareAnim();
+
+    const eff = effectiveTarget();
+    const isStage = eff === "stage";
     const base = isStage
       ? { a: STAGE.position[0], b: STAGE.position[1] }
       : { a: SETTLE.xShiftFraction, b: SETTLE.yShiftFraction };
@@ -3191,11 +3230,8 @@ export default function CrossSection3DScrollGLB(props) {
         background: bg,
       }}
     >
-      {/* Leva REINSTATED (v3.5) — collapsed top-right. Hiding it in v3.4
-          also removed the timeline playhead (the explode/raise lever) and
-          the glass-registration dials. It stays the central write bus AND
-          the numeric-lever surface: dashboard for visual driving, Leva
-          for playhead p, glass reg, tilt/lift, and wiring numerics. */}
+      {/* Leva collapsed top-right — the numeric write bus + numeric-lever
+          surface: playhead p, glass reg, tilt/lift, wiring numerics. */}
       {dev && (
         <Leva
           collapsed={true}
@@ -3206,7 +3242,6 @@ export default function CrossSection3DScrollGLB(props) {
       {dev && <DevControls initialP={freezeP ?? 0} />}
       {dev && <DevDashboard />}
       {dev && <SatNavHUD />}
-      {dev && <DevProxyMirror />}
       <div
         ref={stickyRef}
         style={{
@@ -3233,10 +3268,10 @@ export default function CrossSection3DScrollGLB(props) {
             gl.setClearColor(0x000000, 0); // fully transparent clear
             DEV.canvasEl = gl.domElement; // save-card frame source
           }}
-          // Click-to-target (v3.1): a click that hits nothing = the
-          // background = the stage. Guards: never mid-drag, never within
-          // 250ms of a drag release (a drag that ends over empty space
-          // must not retarget).
+          // Click-to-target: a click that hits nothing = the background =
+          // the stage. Guards: never mid-drag, never within 250ms of a
+          // drag release (a drag that ends over empty space must not
+          // retarget). NO playhead effect.
           onPointerMissed={() => {
             if (!DEV.enabled) return;
             if (
