@@ -17,6 +17,38 @@ import { Leva, useControls, button, folder } from "leva";
 gsap.registerPlugin(ScrollTrigger);
 
 // ============================================
+// v3.7 — TRACKBALL RING (orientation-independent) + 100 SLOTS + LABELS
+//
+//   RING REWRITE       The sat-nav inner-disc yaw/pitch and the roll band
+//                      are rebuilt as an INCREMENTAL, CLEAN-QUATERNION
+//                      trackball. Root cause of the "inverts when tilted /
+//                      violently reverses" bug: the drag wrote euler every
+//                      frame and the euler round-trip (Leva → useFrame →
+//                      node) flipped channels near gimbal poses, so no set
+//                      of signs could ever be consistent. Fix: the drag now
+//                      keeps its OWN clean quaternion (workQ) as the single
+//                      source of truth, applies each frame's screen-axis
+//                      delta to it, and only ever WRITES euler out — it
+//                      never reads euler back. The rotation axes are always
+//                      the screen axes, so direction is identical in every
+//                      pose. Deltas are per-frame differential (not
+//                      absolute-from-a-stale-base), killing the mid-drag
+//                      snatch. (Concurs with Gemini's direction — view-space
+//                      differential — but does NOT re-read the live node
+//                      each frame, which would re-contaminate via euler;
+//                      and does not reference in-Canvas refs the HUD can't
+//                      see. HUD_ROT_SIGNS derived to match the arrow keys.)
+//
+//   100 POSE SLOTS     60 → 100 (a full 10×10 grid). loadSlots now MIGRATES
+//                      an existing shorter store instead of discarding it —
+//                      your saved poses are preserved, not wiped.
+//
+//   PLAIN DROPDOWNS    The compound-motion master/driven menus now show
+//                      plain-English names (HUMAN_LABELS) instead of raw
+//                      sposX/vshift keys. Param KEYS unchanged everywhere —
+//                      URLs, slots, wiring and manifests are untouched.
+//
+// ============================================
 // v3.6 — TIMELINE LOCKS ABOLISHED + AUTO TARGET ROUTING + SMOOTH SQUARE-UP
 //
 //   LOCKS ABOLISHED    Every implicit jumpToP(1) is DELETED — the gizmo,
@@ -293,10 +325,14 @@ const GRAIN_STEPS = {
 const SCREEN_ROT_SIGNS = { yaw: 1, pitch: -1, roll: -1 };
 
 // Sat-Nav ring's OWN sign surface, multiplied on top of SCREEN_ROT_SIGNS.
-// v3.6: ALL FLIPPED to +1 (opposite of v3.5's -1s) — the ring was still
-// reported inverted. If any single axis feels backwards after this,
-// change ONLY that one value here; nothing else needs touching.
-const HUD_ROT_SIGNS = { yaw: 1, pitch: 1, roll: 1 };
+// v3.7: DERIVED to match the (correct) arrow keys. The ring now uses the
+// exact same world/screen-axis premultiply pattern as nudgeRotateScreen,
+// so these signs make the ring agree with the arrow drive that Matthew
+// confirmed is correct. Because the ring is now orientation-INDEPENDENT
+// (clean-quaternion trackball), flipping a single value here changes that
+// axis uniformly in EVERY pose — unlike pre-v3.7, where the euler
+// round-trip made sign behaviour inconsistent and un-fixable by signs.
+const HUD_ROT_SIGNS = { yaw: 1, pitch: -1, roll: 1 };
 
 // Plain-channel map — consulted ONLY for the paths that are already
 // screen-pure: stage MOVE (world position = screen axes) and the two
@@ -441,13 +477,22 @@ function wireResetRun() {
 const SNAPSHOTS = { origin: null };
 
 const SLOT_KEY = "iglass_pose_slots_v1";
-const SLOT_COUNT = 60;
+const SLOT_COUNT = 100; // v3.7: full 10×10 grid
 
+// v3.7: MIGRATE rather than discard. Older stores held 60 slots; loading
+// them under the new count must PRESERVE the saved poses (they were being
+// wiped by the old strict-length check). Pad up / truncate down into a
+// fresh SLOT_COUNT-length array, keeping every existing entry in place.
 function loadSlots() {
   try {
     const raw = window.localStorage.getItem(SLOT_KEY);
     const arr = raw ? JSON.parse(raw) : null;
-    if (Array.isArray(arr) && arr.length === SLOT_COUNT) return arr;
+    if (Array.isArray(arr)) {
+      const out = Array(SLOT_COUNT).fill(null);
+      const n = Math.min(arr.length, SLOT_COUNT);
+      for (let i = 0; i < n; i++) out[i] = arr[i];
+      return out;
+    }
   } catch (e) {
     /* corrupted store → fresh grid */
   }
@@ -678,27 +723,6 @@ function nudgeRotateScreen(set, axis, dir, isRoll) {
         )
       )
       .premultiply(localW);
-    const e = new THREE.Euler().setFromQuaternion(q, "XYZ");
-    set({ settleX: wrapDeg(e.x), settleY: wrapDeg(e.y), settleZ: wrapDeg(e.z) });
-  }
-}
-
-// ---------------------------------------------------------
-// applyRotationFromBase — the SAME premultiply maths as
-// nudgeRotateScreen, but composing a world rotation W onto a CAPTURED
-// base quaternion instead of re-reading the config. The steering ring
-// accumulates its total drag rotation from the pose at pointer-down, so
-// it is immune to Leva's async set()/onChange write-back race that would
-// otherwise drop intermediate frames of a continuous drag.
-// ---------------------------------------------------------
-function applyRotationFromBase(set, baseQuat, Rs, W, isStage) {
-  if (isStage) {
-    const q = baseQuat.clone().premultiply(W);
-    const e = new THREE.Euler().setFromQuaternion(q, "XYZ");
-    set({ srotX: wrapDeg(e.x), srotY: wrapDeg(e.y), srotZ: wrapDeg(e.z) });
-  } else {
-    const localW = Rs.clone().invert().multiply(W).multiply(Rs);
-    const q = baseQuat.clone().premultiply(localW);
     const e = new THREE.Euler().setFromQuaternion(q, "XYZ");
     set({ settleX: wrapDeg(e.x), settleY: wrapDeg(e.y), settleZ: wrapDeg(e.z) });
   }
@@ -1420,6 +1444,27 @@ const UI = {
   hint: { fontSize: 9, color: "#8aa094", lineHeight: 1.5, marginTop: 8 },
 };
 
+// v3.7: plain-English display names for the compound-motion dropdowns.
+// KEYS are the real param names (unchanged); this is display-only.
+const HUMAN_LABELS = {
+  sposX: "Stage ← →",
+  sposY: "Stage ↑ ↓",
+  sposZ: "Stage depth",
+  srotX: "Stage pitch °",
+  srotY: "Stage yaw °",
+  srotZ: "Stage roll °",
+  sscale: "Stage zoom",
+  shift: "Phone final ← →",
+  vshift: "Phone final ↑ ↓",
+  lift: "Travel arc lift",
+  pscale: "Final size",
+  size: "Phone fit size",
+  settleX: "Phone pitch °",
+  settleY: "Phone yaw °",
+  settleZ: "Phone roll °",
+  tilt: "Start tilt °",
+};
+
 const chipStyle = (active, wide) => ({
   padding: wide ? "4px 9px" : "3px 6px",
   margin: 2,
@@ -1696,7 +1741,7 @@ function DevDashboard() {
         >
           {WIREABLE.map((k) => (
             <option key={k} value={k}>
-              {k}
+              {HUMAN_LABELS[k] || k}
             </option>
           ))}
         </select>
@@ -1712,7 +1757,7 @@ function DevDashboard() {
         >
           {WIREABLE.map((k) => (
             <option key={k} value={k}>
-              {k}
+              {HUMAN_LABELS[k] || k}
             </option>
           ))}
         </select>
@@ -1821,12 +1866,18 @@ function DevDashboard() {
 // SAT-NAV STEERING RING — SVG overlay, canvas-centred.
 // Interactive ONLY when hudMode==="rotate" AND the gizmo is off (the
 // gizmo takes precedence). Drag on the band = roll; drag inside the disc
-// = yaw/pitch. Both accumulate their total rotation from the pose
-// captured at pointer-down and feed applyRotationFromBase — the exact
-// premultiply maths the keyboard drive already uses.
-// v3.6: NO playhead side-effects — mid-timeline drags rotate the stage
-// (effective-target routing); HUD_ROT_SIGNS flipped to +1 across the
-// board per inversion report.
+// = yaw/pitch.
+//
+// v3.7 TRACKBALL: the drag holds a CLEAN working quaternion (workQ) as its
+// only source of truth. Each pointer move applies that frame's incremental
+// screen-axis rotation to workQ and WRITES the resulting euler out — it
+// NEVER reads euler back. That breaks the euler round-trip (Leva →
+// useFrame → node) that used to flip channels near gimbal poses and made
+// the direction invert when the phone was tilted. Now the rotation axes
+// are always the screen axes and the feel is identical in every pose.
+// Deltas are per-frame differential (mx−lastX), so swapping drag direction
+// mid-gesture can never snatch. Mid-timeline the target routes to the
+// stage (effective target), so the exploded layers never move.
 // ---------------------------------------------------------
 function SatNavHUD() {
   const [, force] = useState(0);
@@ -1857,11 +1908,16 @@ function SatNavHUD() {
 
     cancelSquareAnim();
 
-    // v3.6: routed target, NO playhead jump — mid-timeline the ring
-    // rotates the stage; the exploded layers stay exactly where they are.
+    // Routed target, NO playhead jump — mid-timeline the ring rotates the
+    // stage; the exploded layers stay exactly where they are.
     const eff = effectiveTarget();
     const isStage = eff === "stage";
-    const baseQuat = isStage
+
+    // CLEAN working quaternion — the drag's single source of truth. Seeded
+    // once from the current pose, then only ever accumulated onto and
+    // written OUT (never read back). This is what makes the direction
+    // consistent in every orientation.
+    const workQ = isStage
       ? new THREE.Quaternion().setFromEuler(
           new THREE.Euler(
             STAGE.rotationEuler[0],
@@ -1882,32 +1938,57 @@ function SatNavHUD() {
     const state = {
       mode,
       isStage,
-      baseQuat,
+      workQ,
       Rs,
-      startX: px,
-      startY: py,
-      startAng: Math.atan2(dy, dx),
+      lastX: px,
+      lastY: py,
+      lastAng: Math.atan2(dy, dx),
+    };
+
+    const writeOut = () => {
+      const e2 = new THREE.Euler().setFromQuaternion(state.workQ, "XYZ");
+      if (state.isStage) {
+        DEV.setLeva({
+          srotX: wrapDeg(e2.x),
+          srotY: wrapDeg(e2.y),
+          srotZ: wrapDeg(e2.z),
+        });
+      } else {
+        DEV.setLeva({
+          settleX: wrapDeg(e2.x),
+          settleY: wrapDeg(e2.y),
+          settleZ: wrapDeg(e2.z),
+        });
+      }
     };
 
     const move = (ev) => {
       const r2 = DEV.canvasEl.getBoundingClientRect();
       const mx = ev.clientX - r2.left;
       const my = ev.clientY - r2.top;
-      const W = new THREE.Quaternion();
+
+      // dW = this frame's INCREMENTAL rotation, expressed about the screen
+      // (world) axes. The camera is fixed and axis-aligned, so world-Y is
+      // screen-up and world-X is screen-right exactly.
+      const dW = new THREE.Quaternion();
+
       if (state.mode === "roll") {
         const ang = Math.atan2(my - cy, mx - cx);
-        const delta =
-          (ang - state.startAng) * SCREEN_ROT_SIGNS.roll * HUD_ROT_SIGNS.roll;
-        W.setFromAxisAngle(new THREE.Vector3(0, 0, 1), delta);
+        let dAng = ang - state.lastAng;
+        // unwrap the ±π seam so dragging past the top can't jump
+        if (dAng > Math.PI) dAng -= 2 * Math.PI;
+        else if (dAng < -Math.PI) dAng += 2 * Math.PI;
+        state.lastAng = ang;
+        const delta = dAng * SCREEN_ROT_SIGNS.roll * HUD_ROT_SIGNS.roll;
+        dW.setFromAxisAngle(new THREE.Vector3(0, 0, 1), delta);
       } else {
-        const gain = 0.006; // radians per pixel — tune to taste
-        const yaw =
-          (mx - state.startX) * gain * SCREEN_ROT_SIGNS.yaw * HUD_ROT_SIGNS.yaw;
-        const pitch =
-          (my - state.startY) *
-          gain *
-          SCREEN_ROT_SIGNS.pitch *
-          HUD_ROT_SIGNS.pitch;
+        const gain = 0.006; // radians per pixel of movement
+        const dxp = mx - state.lastX;
+        const dyp = my - state.lastY;
+        state.lastX = mx;
+        state.lastY = my;
+        const yaw = dxp * gain * SCREEN_ROT_SIGNS.yaw * HUD_ROT_SIGNS.yaw;
+        const pitch = dyp * gain * SCREEN_ROT_SIGNS.pitch * HUD_ROT_SIGNS.pitch;
         const Qyaw = new THREE.Quaternion().setFromAxisAngle(
           new THREE.Vector3(0, 1, 0),
           yaw
@@ -1916,9 +1997,20 @@ function SatNavHUD() {
           new THREE.Vector3(1, 0, 0),
           pitch
         );
-        W.multiplyQuaternions(Qyaw, Qpitch);
+        dW.multiplyQuaternions(Qyaw, Qpitch);
       }
-      applyRotationFromBase(DEV.setLeva, state.baseQuat, state.Rs, W, state.isStage);
+
+      // Accumulate the screen-axis delta onto the clean working quaternion.
+      // Stage IS the world frame → premultiply directly. Settle pose lives
+      // inside the stage frame → remap the world delta to stage-local first
+      // (Rs⁻¹·dW·Rs), same as the arrow drive.
+      if (state.isStage) {
+        state.workQ.premultiply(dW);
+      } else {
+        const localdW = state.Rs.clone().invert().multiply(dW).multiply(state.Rs);
+        state.workQ.premultiply(localdW);
+      }
+      writeOut();
     };
 
     const up = () => {
