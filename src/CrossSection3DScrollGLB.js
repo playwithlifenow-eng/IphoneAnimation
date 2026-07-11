@@ -2505,7 +2505,7 @@ const defaultProps = {
   glassStagger: [0, 0.6],
   oledStagger: [0.15, 0.75],
   phoneStagger: [0.3, 0.9],
-  modelPath: "/Claude Bezel attempt.glb",
+  modelPath: "/14_Pro_Model.glb",
   screenTexture: screenImg,
   internalsTexture: internalsImg,
 };
