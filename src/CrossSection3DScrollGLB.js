@@ -1,4 +1,4 @@
-import screenImg from "./Screen.png";
+vimport screenImg from "./Screen.png";
 import internalsImg from "./internals.jpg";
 import { useRef, useMemo, useEffect, useLayoutEffect, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
@@ -17,89 +17,78 @@ import { Leva, useControls, button, folder } from "leva";
 gsap.registerPlugin(ScrollTrigger);
 
 // ============================================
-// v3.7 — TRACKBALL RING (orientation-independent) + 100 SLOTS + LABELS
+// v3.8 — LIGHTING RIG + BEZEL DEPTH + OLED BACK-FACE + PILL ROUTING
 //
-//   RING REWRITE       The sat-nav inner-disc yaw/pitch and the roll band
-//                      are rebuilt as an INCREMENTAL, CLEAN-QUATERNION
-//                      trackball. Root cause of the "inverts when tilted /
-//                      violently reverses" bug: the drag wrote euler every
-//                      frame and the euler round-trip (Leva → useFrame →
-//                      node) flipped channels near gimbal poses, so no set
-//                      of signs could ever be consistent. Fix: the drag now
-//                      keeps its OWN clean quaternion (workQ) as the single
-//                      source of truth, applies each frame's screen-axis
-//                      delta to it, and only ever WRITES euler out — it
-//                      never reads euler back. The rotation axes are always
-//                      the screen axes, so direction is identical in every
-//                      pose. Deltas are per-frame differential (not
-//                      absolute-from-a-stale-base), killing the mid-drag
-//                      snatch. (Concurs with Gemini's direction — view-space
-//                      differential — but does NOT re-read the live node
-//                      each frame, which would re-contaminate via euler;
-//                      and does not reference in-Canvas refs the HUD can't
-//                      see. HUD_ROT_SIGNS derived to match the arrow keys.)
+//   LIGHTING RIG       The blown-white "shiny" look was never the model.
+//                      It was FIVE light sources stacked (ambient 0.8 +
+//                      two directionals + a point light + a studio IBL,
+//                      which is itself an ambient source), rendered with
+//                      NoToneMapping so every value over 1.0 CLIPPED FLAT
+//                      to white instead of rolling off. All of it is now
+//                      a live LIGHT config with a Leva folder and URL
+//                      serialisation (?light=amb,key,fill,env,exp) —
+//                      exactly the GLASS_REG pattern. Dial it against the
+//                      Blender reference; the values bake as defaults.
+//                      Tone mapping is ACES Filmic with an exposure dial.
 //
-//   100 POSE SLOTS     60 → 100 (a full 10×10 grid). loadSlots now MIGRATES
-//                      an existing shorter store instead of discarding it —
-//                      your saved poses are preserved, not wiped.
+//   BEZEL DEPTH        depthTest:false made the bezel ignore the depth
+//                      buffer entirely, so it drew THROUGH the body from
+//                      behind. The v3.2 comment predicted this exactly:
+//                      "SAFE for this timeline only: front face never
+//                      leaves the camera." The choreography now shows the
+//                      back, so the precondition is void. Restored to
+//                      depthTest:true and the anti-flicker job is handed
+//                      to polygonOffset (-4/-4, more aggressive than
+//                      Glass_Front's -2) — same no-z-fight guarantee, no
+//                      bleed-through. envMapIntensity:0 unhooks it from
+//                      the IBL so the black base reads black.
 //
-//   PLAIN DROPDOWNS    The compound-motion master/driven menus now show
-//                      plain-English names (HUMAN_LABELS) instead of raw
-//                      sposX/vshift keys. Param KEYS unchanged everywhere —
-//                      URLs, slots, wiring and manifests are untouched.
+//   OLED BACK FACE     Display_OLED is a SOLID SLAB, not a plane — the
+//                      GLB carries 118.62 units of area facing the front
+//                      and 118.63 facing the back. Both caps are
+//                      front-facing from their own side, so FrontSide
+//                      renders both and the single screen material was
+//                      painting the UI on the phone's back. Fixed by
+//                      splitting the index by face-normal Z into two
+//                      geometry groups and handing the mesh a MATERIAL
+//                      ARRAY: [screen, black]. Front is -Z (verified:
+//                      Glass_Front sits at z -0.0051, Back Glass at
+//                      +0.005), so faces with nz < 0 get the screen and
+//                      everything else — back cap and rim — goes black.
 //
-// ============================================
-// v3.6 — TIMELINE LOCKS ABOLISHED + AUTO TARGET ROUTING + SMOOTH SQUARE-UP
+//   PILL ROUTING       Display Dynamic Island lived in the BODY group
+//                      while its cutout lived in the GLASS group, so the
+//                      glass carried GLASS_REG (~0.9 mm) and the pill did
+//                      not. That offset IS the misregistration. The pill
+//                      now mounts in the glass group: it inherits the
+//                      identical group transform — same GLASS_REG, same
+//                      2.0x explode, same lerp, same frame. There is no
+//                      relative transform, therefore no drift term to
+//                      tune. It cannot separate.
+//                      Verified in the GLB: 0 Glass_Front faces cover the
+//                      pill centre (the cutout is real), 2 cover the glass
+//                      centre (control).
 //
-//   LOCKS ABOLISHED    Every implicit jumpToP(1) is DELETED — the gizmo,
-//                      sat-nav ring, canvas drag, arrow keys and square-up
-//                      NEVER move the playhead. The exploded phone can no
-//                      longer collapse because a control was touched.
-//                      The playhead moves only when YOU move it (slider,
-//                      [ ] keys, or a pose-slot warp that stored a p).
+//   STRAY CAMERA       Front Camera (Center + Outer Ring) and Display
+//                      Camera Hole (Outer Bright) are the flat circle
+//                      perched on the internals PNG. Hidden.
+//                      NOT touched: Display Camera Hole (Center Faint) and
+//                      (Center Bright) — despite the names, their world Z
+//                      runs to +0.0072, i.e. they are REAR camera module
+//                      geometry. Hiding them would hole the camera island.
 //
-//   AUTO ROUTING       The reason the old locks existed: the phone's FINAL
-//                      pose (settle) is mathematically defined only at the
-//                      end of the timeline. Instead of forcing the timeline
-//                      there, whole-phone controls now route automatically:
-//                        p < 1  → controls drive the STAGE (valid at any p,
-//                                 never written by the animation loop — so
-//                                 no clobber, no snap-back, no jump)
-//                        p = 1  → "phone" target edits the final docked pose
-//                      The drive readout shows "·auto" when routing is
-//                      active. One rule, zero exceptions.
-//
-//   SMOOTH SQUARE-UP   Square-up is now a 450ms eased quaternion tween, not
-//                      an instant jump. It is also WORLD-space: "square up
-//                      phone" squares what you SEE on screen (at any p, any
-//                      stage rotation), fixing the "works in some conditions"
-//                      bug — the old version snapped euler channels in the
-//                      stage-local frame, so a rotated stage made it land
-//                      somewhere unexpected. Two buttons: phone / stage.
-//
-//   HUD SIGNS FLIPPED  Sat-Nav ring directions inverted again per report —
-//                      HUD_ROT_SIGNS all flipped to +1 (opposite of v3.5).
-//                      If any single axis still feels backwards it is a
-//                      ONE-NUMBER change in HUD_ROT_SIGNS.
-//
-//   ORIENT REMOVED     The bottom-right mini-proxy PiP is deleted — it had
-//                      no control function and covered the glass
-//                      registration sliders.
-//
-//   PLAIN LABELS       sposX/vshift/settleZ-style jargon replaced with
-//                      plain-English slider labels (stage ←→, final yaw °,
-//                      stage zoom, …). Param KEYS are unchanged — URLs,
-//                      pose slots, wiring and manifests are untouched.
+//   DEAD CODE REMOVED  inDuplicateBodyTree matched "Body Frame.001", which
+//                      no longer exists in the GLB. It filtered nothing.
 //
 // ============================================
-// v3.5 — glass-reg baked (x −0.03, y 0.09, z 0.07), Leva reinstated,
-// compound-motion dashboard surface.
+// v3.7 — trackball ring (orientation-independent), 100 pose slots, labels.
+// v3.6 — timeline locks abolished, auto target routing, smooth square-up.
+// v3.5 — glass-reg baked (x -0.03, y 0.09, z 0.07), Leva reinstated.
 // v3.4 — sat-nav HUD, true square-up (quaternion), panel-aware gizmo.
 // v3.3 — glass registration folder, body emission kill.
-// v3.2 — hierarchy bake (anchored rebase, duplicate-body filter).
-// v3.1 — proxy-anchored gizmo, fat handles, click-to-target, 60 slots.
+// v3.2 — hierarchy bake (anchored rebase).
+// v3.1 — proxy-anchored gizmo, fat handles, click-to-target.
 // v3.0 — world/local, wiring, snapshots. v2.9 — screen-space arrow drive.
-// v2.8 — ?snap=1 capture.
 // ============================================
 let CAPTURE_SNAP = false;
 let SNAP_FRAMES = 0;
@@ -117,12 +106,6 @@ function smoothstep(t) {
   return t * t * (3 - 2 * t);
 }
 
-// Radians → degrees wrapped to (-180, 180], 0.01° precision.
-// EVERY rotation value that goes back into a Leva slider passes through
-// this. An extracted euler that lands outside the slider range gets
-// CLAMPED by Leva, the clamp fires onChange, onChange marks the rig
-// dirty, and the next frame warps the phone to the corrupted value —
-// that was the release "snatch". Wrapped values can never clamp.
 function wrapDeg(rad) {
   let d = (rad * 180) / Math.PI;
   d = ((((d + 180) % 360) + 360) % 360) - 180;
@@ -131,13 +114,7 @@ function wrapDeg(rad) {
 }
 
 // ---------------------------------------------------------
-// TRUE SQUARE-UP maths (v3.4) — nearest axis-aligned ORIENTATION.
-// Snaps the rotation to the closest element of the cube's rotation
-// group by snapping each basis vector to its nearest signed cardinal,
-// then re-orthonormalising to guarantee a valid right-handed rotation.
-// Orientation-space, not channel-space — same clean pose everywhere.
-// (v3.6: this maths is unchanged; the CALLERS now tween smoothly and
-// operate in WORLD space — see squareUpPhone / squareUpStage.)
+// TRUE SQUARE-UP maths — nearest axis-aligned ORIENTATION.
 // ---------------------------------------------------------
 function nearestCardinal(v) {
   const ax = Math.abs(v.x),
@@ -151,40 +128,32 @@ function nearestCardinal(v) {
 
 function snapQuatTo90(q) {
   const m = new THREE.Matrix4().makeRotationFromQuaternion(q);
-  const e = m.elements; // column-major: cols are the basis vectors
+  const e = m.elements;
   const xCol = new THREE.Vector3(e[0], e[1], e[2]);
   const yCol = new THREE.Vector3(e[4], e[5], e[6]);
 
   const sx = nearestCardinal(xCol);
 
-  // Strip any sx component from yCol so its snap cannot collide with sx
   const yAdj = yCol.clone().sub(sx.clone().multiplyScalar(yCol.dot(sx)));
   if (yAdj.lengthSq() < 1e-6) {
     yAdj.set(sx.x ? 0 : 1, sx.x ? 1 : 0, 0);
   }
   let sy = nearestCardinal(yAdj);
   if (Math.abs(sx.dot(sy)) > 0.5) {
-    // still collinear → force an orthogonal axis
     sy = new THREE.Vector3(1, 0, 0).cross(sx);
     if (sy.lengthSq() < 1e-6) sy = new THREE.Vector3(0, 1, 0).cross(sx);
     sy.normalize();
   }
 
   const sz = new THREE.Vector3().crossVectors(sx, sy).normalize();
-  sy.crossVectors(sz, sx).normalize(); // re-derive to guarantee orthonormal
+  sy.crossVectors(sz, sx).normalize();
 
   const snapped = new THREE.Matrix4().makeBasis(sx, sy, sz);
   return new THREE.Quaternion().setFromRotationMatrix(snapped);
 }
 
 // ============================================
-// Timeline phases (fractions of total scroll progress)
-//
-//   0.00 – 0.35  EXPLODE      staggered glass → OLED separation
-//   0.35 – 0.45  HOLD         fully exploded beat (headline lands here)
-//   0.45 – 0.70  REASSEMBLE   mirror of explode
-//   0.70 – 1.00  SETTLE       rotation to upright face-on,
-//                             desktop drifts right to the rest slot
+// Timeline phases
 // ============================================
 const TIMELINE = {
   explodeEnd: 0.35,
@@ -193,102 +162,114 @@ const TIMELINE = {
 };
 
 const START = {
-  // Rest-pose tilt toward the viewer, radians. Overridable: ?tilt=deg
   tilt: Math.PI / 10, // 18°
 };
 
 const SETTLE = {
-  // Final pose. [0, PI, 0] = upright portrait, front face to camera.
-  // Overridable: ?settle=x,y,z (degrees)
   targetEuler: [0, Math.PI, 0],
-  scale: 0.8, // upright phone scales down to stay inside the frame
-  xShiftFraction: 0.22, // desktop rest slot: fraction of viewport width
+  scale: 0.8,
+  xShiftFraction: 0.22,
   yShiftFraction: 0,
-  arcLift: 0.08, // fraction of viewport height — subtle swoop on the path
-  desktopMinWidth: 810, // px — below this, no drift (mobile stays centred)
+  arcLift: 0.08,
+  desktopMinWidth: 810,
 };
 
-// STAGE — constant world transform on the OUTERMOST group. Identity by
-// default. NOT gated by the timeline: applies at every p, so the exploded
-// phone can be posed anywhere in frame. useFrame never writes this group —
-// the gizmo, the Leva stage folder, the sat-nav and the arrow drive are
-// its only writers. Overridable: ?spos=x,y,z ?srot=x,y,z (deg) ?sscale=s
-// v3.6: this is the transform ALL whole-phone controls route to whenever
-// the playhead is below the endpoint — it is the "move the exploded phone
-// anywhere, any time" channel.
 const STAGE = {
   position: [0, 0, 0],
-  rotationEuler: [0, 0, 0], // radians, XYZ order
+  rotationEuler: [0, 0, 0],
   scale: 1,
 };
 
 const MODEL = {
-  targetSize: 1.6, // world units — largest model dimension after fit
+  targetSize: 1.6,
 };
 
-// GLASS_REG (v3.3) — static registration offset for the WHOLE glass unit
-// (Glass_Front + Glass_Bezel together), in the model's raw local units
-// (1 unit ≈ 10 mm). The v3.2 anchored rebase fixed glass↔bezel and
-// glass↔body RELATIVE seating; this handles the residual where the intact
-// unit sits slightly low on the screen's long axis (top gap + low bottom
-// bezel) because the source glass geometry is modelled low / undersized.
-//   y = up/down the screen (long axis)   x = across   z = depth (added to
-//   the explode target, so the explode animation is unaffected)
-// v3.5: TUNED VALUES BAKED IN as the compiled defaults (measured
-// 2026-07-07, Matthew's live dial-in). URL still overrides if present.
 const GLASS_REG = { x: -0.03, y: 0.09, z: 0.07 };
 
 // ============================================
-// DEV RIG — additive instrumentation only.
-// Writes to the SAME config objects the animation already reads.
-// Active only with ?dev=1.
+// LIGHT (v3.8) — the whole lighting rig as one tunable config.
+//
+// WHY THIS EXISTS: the old rig hard-coded ambient 0.8 + directional 1.5 +
+// directional 0.8 + point 0.5 + a studio IBL, then rendered with
+// NoToneMapping. That is five sources with no highlight rolloff — every
+// metal surface (chassis and buttons are metalness 1.0, i.e. mirrors)
+// clipped flat to white. The fix is not a magic number, it is a DIAL, so
+// the reference render can be matched by eye rather than by guess.
+//
+//   amb   ambient fill. The form-killer if pushed. Start LOW.
+//   key   main directional — this is what creates the gradient.
+//   fill  cool rim/fill directional from the opposite side.
+//   env   studio IBL contribution (scene.environmentIntensity).
+//         The IBL is *also* an ambient source — amb + env stack.
+//   exp   ACES tone-mapping exposure. Rolls highlights off instead of
+//         clipping them. This is what stops the blowout.
+//
+// Overridable: ?light=amb,key,fill,env,exp
+// Tune in the Leva "lighting" folder, read the values off the pose card
+// or the copied URL, then bake them here as compiled defaults (the same
+// lifecycle GLASS_REG went through).
+// ============================================
+const LIGHT = {
+  amb: 0.1,
+  key: 1.2,
+  fill: 0.35,
+  env: 0.4,
+  exp: 1.0,
+};
+
+// ============================================
+// MATERIAL ROUTING TABLE (v3.8)
+//
+// The GLB's mesh names are hashes (faSjZVwGMQJEFBf_N) — useless for
+// selection. But MATERIAL names survive the glTF round-trip intact, and
+// they have been hand-named in Blender. GLTFLoader preserves them, so
+// child.material.name is the reliable selector. This table is the single
+// source of truth for which primitive goes where.
+//
+// Every string below is copied verbatim from the deployed GLB, INCLUDING
+// its irregular spacing. Do not tidy them — an edit here silently stops
+// matching and the part reverts to the body group with no error.
+// ============================================
+
+// Mounts in the GLASS group so it shares the cutout's exact transform.
+const GLASS_GROUP_MATERIALS = new Set([
+  "Display Dynamic Island",
+]);
+
+// The flat circle sitting on top of the internals PNG. Both are at
+// z = -0.0039 (front face), immediately left of the pill.
+const HIDDEN_MATERIALS = new Set([
+  "Front Camera  (Center + Outer Ring)", // note: DOUBLE space, verbatim
+  "Display Camera Hole (Outer Bright)",
+]);
+
+// ============================================
+// DEV RIG
 // ============================================
 const DEV = {
   enabled: false,
-  dirtyQuat: false, // tilt / settle changed → recompute qStart/qEnd
-  dirtyFit: false, // size changed → re-derive pivot scale/offset
-  dirtyStage: true, // STAGE changed → re-apply to stage group (true at
-  //                   boot so URL-parsed stage values apply on frame 1 —
-  //                   this one runs in production too)
-  applyProgress: null, // registered by the driver effect
+  dirtyQuat: false,
+  dirtyFit: false,
+  dirtyStage: true,
+  dirtyLight: true, // LIGHT changed → re-apply exposure + env intensity
+  applyProgress: null,
   lastP: 0,
-  gizmo: "off", // "off" | "translate" | "rotate" | "scale"
-  gizmoTarget: "settle", // USER's chosen target. The EFFECTIVE target is
-  //                        effectiveTarget(): "settle" routes to "stage"
-  //                        whenever the playhead is below the endpoint.
-  gizmoSpace: "local", // "world" | "local" — auto-bound by effective target
-  gizmoDragging: false, // true while dragging — settle-target drags
-  //                       suppress whole-model useFrame writes
-  lastDragEnd: 0, // performance.now() at drag release — guards
-  //                pointerMissed against retargeting after a drag
-  modelGroup: null, // live Object3D — settle gizmo target
-  stageGroup: null, // live Object3D — stage gizmo target
-  canvasEl: null, // WebGL canvas element — save-card frame source
-  setLeva: null, // Leva set() — bi-directional slider sync
-  driveMode: 0, // 0 MOVE · 1 ROTATE · 2 ROLL·ZOOM (Tab cycles)
-  driveGrain: 0, // 0 fine · 1 mid · 2 coarse (G cycles)
-  viewport: null, // { width, height } world units — stashed by DevGizmo,
-  //                 used by the screen-space MOVE compensation
-  hudMode: "move", // Sat-Nav: "move" | "rotate" | "off"
-  leftClampNDC: -0.85, // panel-aware gizmo left bound (dashboard writes)
+  gizmo: "off",
+  gizmoTarget: "settle",
+  gizmoSpace: "local",
+  gizmoDragging: false,
+  lastDragEnd: 0,
+  modelGroup: null,
+  stageGroup: null,
+  canvasEl: null,
+  setLeva: null,
+  driveMode: 0,
+  driveGrain: 0,
+  viewport: null,
+  hudMode: "move",
+  leftClampNDC: -0.85,
 };
 
-// ---------------------------------------------------------
-// AUTO TARGET ROUTING (v3.6) — the single rule that replaced every
-// timeline lock in the rig.
-//
-//   The phone's FINAL pose (settle params) is only defined at the
-//   endpoint of the timeline. The old rig handled that by force-jumping
-//   the playhead to 1 whenever a settle-target control was touched —
-//   which collapsed the exploded layers and made the tool untrustable.
-//
-//   New rule: the playhead is NEVER moved implicitly. Below the
-//   endpoint, whole-phone controls transparently drive the STAGE
-//   transform instead — the stage is valid at every p, is never written
-//   by the animation loop, and moves the whole phone (exploded or not)
-//   exactly as you'd expect. At the endpoint, the "phone" target edits
-//   the final docked pose as before.
-// ---------------------------------------------------------
 function atEndpoint() {
   return DEV.lastP >= 0.999;
 }
@@ -300,59 +281,35 @@ function effectiveTarget() {
 }
 
 // ---------------------------------------------------------
-// KEYBOARD DRIVE — arrow-key nudging.
-// Tab cycles mode, G cycles granularity, T toggles the target.
-// Nudges route through Leva set() → the same onChange writers the
-// sliders use, so config objects, dirty flags, and the panel stay in
-// sync with zero new write paths.
+// KEYBOARD DRIVE
 // ---------------------------------------------------------
 const MODE_LABELS = ["MOVE", "ROTATE", "ROLL·ZOOM"];
 const GRAIN_LABELS = ["fine", "mid", "coarse"];
 
 const GRAIN_STEPS = {
-  frac: [0.002, 0.01, 0.05], // shift / vshift (viewport fractions)
-  deg: [0.5, 2, 10], // all rotation params (degrees)
-  unit: [0.005, 0.02, 0.1], // stage position (world units)
-  size: [0.01, 0.05, 0.25], // size / sscale
-  p: [0.002, 0.01, 0.05], // timeline progress
+  frac: [0.002, 0.01, 0.05],
+  deg: [0.5, 2, 10],
+  unit: [0.005, 0.02, 0.1],
+  size: [0.01, 0.05, 0.25],
+  p: [0.002, 0.01, 0.05],
 };
 
-// Screen-rotation direction conventions for the ARROW KEYS (which feel
-// correct — do not touch these to tune the ring).
-//   yaw   +1 → ArrowRight turns the front face to the viewer's right
-//   pitch -1 → ArrowUp tips the front face upward
-//   roll  -1 → ArrowRight rolls clockwise on screen
 const SCREEN_ROT_SIGNS = { yaw: 1, pitch: -1, roll: -1 };
-
-// Sat-Nav ring's OWN sign surface, multiplied on top of SCREEN_ROT_SIGNS.
-// v3.7: DERIVED to match the (correct) arrow keys. The ring now uses the
-// exact same world/screen-axis premultiply pattern as nudgeRotateScreen,
-// so these signs make the ring agree with the arrow drive that Matthew
-// confirmed is correct. Because the ring is now orientation-INDEPENDENT
-// (clean-quaternion trackball), flipping a single value here changes that
-// axis uniformly in EVERY pose — unlike pre-v3.7, where the euler
-// round-trip made sign behaviour inconsistent and un-fixable by signs.
 const HUD_ROT_SIGNS = { yaw: 1, pitch: -1, roll: 1 };
 
-// Plain-channel map — consulted ONLY for the paths that are already
-// screen-pure: stage MOVE (world position = screen axes) and the two
-// zooms. ROTATE / ROLL and settle MOVE route through the screen-space
-// helpers below instead. x = ←/→, y = ↑/↓
 const DRIVE_MAP = {
   settle: [
-    { x: null, y: null },                                 // MOVE      — screen-space path
-    { x: null, y: null },                                 // ROTATE    — screen-space path
-    { x: null, y: ["size", "size", -1] },                 // ROLL·ZOOM — roll screen-space; ↑ zooms in
+    { x: null, y: null },
+    { x: null, y: null },
+    { x: null, y: ["size", "size", -1] },
   ],
   stage: [
-    { x: ["sposX", "unit", 1], y: ["sposY", "unit", 1] }, // MOVE      — world = screen-pure
-    { x: null, y: null },                                 // ROTATE    — screen-space path
-    { x: null, y: ["sscale", "size", 1] },                // ROLL·ZOOM — roll screen-space
+    { x: ["sposX", "unit", 1], y: ["sposY", "unit", 1] },
+    { x: null, y: null },
+    { x: null, y: ["sscale", "size", 1] },
   ],
 };
 
-// Current values read from the config objects (single source of truth).
-// Snapshots, slots, and wiring read every pose param here.
 const DRIVE_READERS = {
   shift: () => SETTLE.xShiftFraction,
   vshift: () => SETTLE.yShiftFraction,
@@ -372,7 +329,6 @@ const DRIVE_READERS = {
   pscale: () => SETTLE.scale,
 };
 
-// Match the slider ranges — Leva clamps anyway; this keeps maths honest
 const DRIVE_CLAMPS = {
   shift: [-0.5, 0.5],
   vshift: [-1, 1],
@@ -392,34 +348,19 @@ const DRIVE_CLAMPS = {
   pscale: [0.2, 1.5],
 };
 
-// ---------------------------------------------------------
-// GIZMO CONTEXT — click-to-target + predictive space binding.
-// v3.6: NO playhead side-effects. Selecting a target never moves p.
-// Space binding follows the EFFECTIVE target:
-//   effective stage  → world space (framing tracks the screen edges)
-//   effective settle → local space (tracks the phone's own axes)
-// ---------------------------------------------------------
 function changeGizmoContext(targetMode) {
-  if (DEV.gizmoDragging) return; // never retarget mid-drag
+  if (DEV.gizmoDragging) return;
   DEV.gizmoTarget = targetMode;
   DEV.gizmoSpace = effectiveTarget() === "stage" ? "world" : "local";
   if (DEV.setLeva) DEV.setLeva({ drive: driveLabel() });
 }
 
 function setGizmoMode(v) {
-  // v: "off" | "translate" | "rotate" | "scale"
-  // v3.6: no playhead side-effects.
   DEV.gizmo = v;
 }
 
 // ---------------------------------------------------------
-// PARAMETER WIRING — driven-key coupling.
-// One master, one driven, linear ratio, anchored at enable time:
-//   driven = drivenAnchor + (master − masterAnchor) × ratio
-// Fires on every Leva onChange of the master: slider drags, arrow-key
-// nudges, and gizmo-release captures all route through it. Ratio is a
-// raw-unit multiplier (degrees, world units, viewport fractions mix
-// freely). Intended loop: run → reset run → adjust ratio → run again.
+// PARAMETER WIRING
 // ---------------------------------------------------------
 const WIREABLE = [
   "sposX", "sposY", "sposZ", "srotX", "srotY", "srotZ", "sscale",
@@ -434,7 +375,7 @@ const WIRE = {
   ratio: 1.0,
   masterAnchor: 0,
   drivenAnchor: 0,
-  suspended: false, // reentrancy guard (warp + programmatic driven writes)
+  suspended: false,
 };
 
 function wireAnchors() {
@@ -456,8 +397,6 @@ function wireTap(param, value) {
 }
 
 function wireResetRun() {
-  // "Back to where I started": restores BOTH ends of the wire to their
-  // anchors. Adjust ratio, then run the master again — clean re-test.
   if (!DEV.setLeva) return;
   WIRE.suspended = true;
   DEV.setLeva({
@@ -468,21 +407,13 @@ function wireResetRun() {
 }
 
 // ---------------------------------------------------------
-// SNAPSHOT / SLOT ENGINE — a snapshot is a complete pose-parameter
-// record (all readers + p). Warps route through DEV.setLeva → the
-// sliders' own onChange writers — no new write path. Warping to a slot
-// that stored a p DOES move the playhead — that is an explicit,
-// user-initiated warp, not an implicit lock.
+// SNAPSHOT / SLOT ENGINE
 // ---------------------------------------------------------
 const SNAPSHOTS = { origin: null };
 
 const SLOT_KEY = "iglass_pose_slots_v1";
-const SLOT_COUNT = 100; // v3.7: full 10×10 grid
+const SLOT_COUNT = 100;
 
-// v3.7: MIGRATE rather than discard. Older stores held 60 slots; loading
-// them under the new count must PRESERVE the saved poses (they were being
-// wiped by the old strict-length check). Pad up / truncate down into a
-// fresh SLOT_COUNT-length array, keeping every existing entry in place.
 function loadSlots() {
   try {
     const raw = window.localStorage.getItem(SLOT_KEY);
@@ -532,20 +463,7 @@ function warpToSnapshot(slot) {
 }
 
 // ---------------------------------------------------------
-// SMOOTH SQUARE-UP (v3.6) — two changes over the old snapLevel:
-//
-//   1. WORLD-space. "Square up phone" snaps the phone's orientation AS
-//      SEEN ON SCREEN to the nearest 90° frame — at any playhead
-//      position and any stage rotation. (The old version snapped euler
-//      channels in the stage-local frame; with the stage rotated it
-//      landed somewhere unexpected — the "works in some conditions"
-//      bug.) How it writes depends on where the playhead is:
-//        p = 1 → adjusts the phone's final pose (settle eulers)
-//        p < 1 → adjusts the STAGE so the visible phone squares —
-//                the playhead is NEVER touched, layers stay raised.
-//   2. SMOOTH. 450ms eased quaternion slerp, written frame-by-frame
-//      through the same Leva write bus — no jump, and the motion takes
-//      the shortest rotational path.
+// SMOOTH SQUARE-UP
 // ---------------------------------------------------------
 const SQUARE_ANIM = { raf: 0 };
 
@@ -592,8 +510,6 @@ function squareUpPhone() {
   const stageQ = stageQuat();
 
   if (atEndpoint()) {
-    // Endpoint: square the phone's FINAL pose so its WORLD orientation
-    // is axis-aligned (accounts for any stage rotation).
     const fromLocal = new THREE.Quaternion().setFromEuler(
       new THREE.Euler(
         SETTLE.targetEuler[0],
@@ -606,10 +522,6 @@ function squareUpPhone() {
     const toLocal = stageQ.clone().invert().multiply(snappedWorld);
     animateQuat(fromLocal, toLocal, writeSettleEuler);
   } else {
-    // Mid-timeline: rotate the STAGE so the visible phone squares.
-    // Playhead untouched — the exploded layers stay exactly where
-    // they are. modelGroup's live quaternion is the ground-truth
-    // "what you see" orientation inside the stage.
     const modelQ = DEV.modelGroup
       ? DEV.modelGroup.quaternion.clone()
       : new THREE.Quaternion();
@@ -643,21 +555,12 @@ function stageQuat() {
   );
 }
 
-// ---------------------------------------------------------
-// MOVE (settle) — screen-space slide. Endpoint-only path (routing sends
-// mid-timeline moves to the stage instead).
-// shift/vshift live in STAGE-LOCAL space; a rotated stage turns a plain
-// channel nudge into a diagonal. Compensation: express the step as a
-// world (screen) delta, rotate it through the INVERSE stage frame,
-// divide by stage scale, land it back in viewport fractions.
-// ---------------------------------------------------------
 function nudgeSettleMoveScreen(set, axis, dir) {
   const step = GRAIN_STEPS.frac[DEV.driveGrain] * dir;
   const aspect = DEV.viewport
     ? DEV.viewport.width / DEV.viewport.height
     : window.innerWidth / window.innerHeight;
 
-  // World delta in vh units (x steps are vw fractions → ×aspect)
   const world =
     axis === "x"
       ? new THREE.Vector3(step * aspect, 0, 0)
@@ -667,7 +570,7 @@ function nudgeSettleMoveScreen(set, axis, dir) {
     .applyQuaternion(stageQuat().invert())
     .divideScalar(STAGE.scale || 1);
 
-  const dShift = local.x / aspect; // vh units → vw fraction
+  const dShift = local.x / aspect;
   const dVshift = local.y;
 
   const [sLo, sHi] = DRIVE_CLAMPS.shift;
@@ -682,13 +585,6 @@ function nudgeSettleMoveScreen(set, axis, dir) {
   });
 }
 
-// ---------------------------------------------------------
-// ROTATE / ROLL — screen-space rotation.
-// World-axis quaternion PREMULTIPLIED onto the pose, then extracted back
-// to euler channels through the sliders (the gizmo's capture pattern).
-// v3.6: routes by EFFECTIVE target — mid-timeline rotations drive the
-// stage (rotating the whole visible phone) with no playhead movement.
-// ---------------------------------------------------------
 function nudgeRotateScreen(set, axis, dir, isRoll) {
   const stepRad = (GRAIN_STEPS.deg[DEV.driveGrain] * Math.PI) / 180;
   let axisVec, sign;
@@ -696,10 +592,10 @@ function nudgeRotateScreen(set, axis, dir, isRoll) {
     axisVec = new THREE.Vector3(0, 0, 1);
     sign = SCREEN_ROT_SIGNS.roll;
   } else if (axis === "x") {
-    axisVec = new THREE.Vector3(0, 1, 0); // ←/→ = yaw about screen-vertical
+    axisVec = new THREE.Vector3(0, 1, 0);
     sign = SCREEN_ROT_SIGNS.yaw;
   } else {
-    axisVec = new THREE.Vector3(1, 0, 0); // ↑/↓ = pitch about screen-horizontal
+    axisVec = new THREE.Vector3(1, 0, 0);
     sign = SCREEN_ROT_SIGNS.pitch;
   }
   const W = new THREE.Quaternion().setFromAxisAngle(
@@ -729,20 +625,15 @@ function nudgeRotateScreen(set, axis, dir, isRoll) {
 }
 
 function driveNudge(set, axis, dir) {
-  // v3.6: NO playhead side-effects. The nudge routes to the effective
-  // target — below the endpoint that is the stage, which is valid at
-  // every p. Nothing collapses.
   cancelSquareAnim();
   const eff = effectiveTarget();
   const mode = DEV.driveMode;
 
-  // Screen-space paths
   if (mode === 0 && eff === "settle")
     return nudgeSettleMoveScreen(set, axis, dir);
   if (mode === 1) return nudgeRotateScreen(set, axis, dir, false);
   if (mode === 2 && axis === "x") return nudgeRotateScreen(set, axis, dir, true);
 
-  // Plain channels: stage MOVE + the two zooms
   const [param, cls, sign] = DRIVE_MAP[eff][mode][axis];
   const step = GRAIN_STEPS[cls][DEV.driveGrain] * dir * sign;
   const [lo, hi] = DRIVE_CLAMPS[param];
@@ -751,8 +642,7 @@ function driveNudge(set, axis, dir) {
 }
 
 // ---------------------------------------------------------
-// URL / manifest serialisation — single source of truth for the
-// parameter → querystring mapping (copy URL, save card, manifest).
+// URL / manifest serialisation
 // ---------------------------------------------------------
 function serialiseParams(params) {
   const deg = (r) => Math.round((r * 180) / Math.PI);
@@ -770,6 +660,14 @@ function serialiseParams(params) {
     "glassreg",
     [GLASS_REG.x, GLASS_REG.y, GLASS_REG.z].map((v) => v.toFixed(3)).join(",")
   );
+  // v3.8 — lighting rides the URL so a dialled-in look is reproducible
+  // in the Playwright capture exactly like the pose is.
+  params.set(
+    "light",
+    [LIGHT.amb, LIGHT.key, LIGHT.fill, LIGHT.env, LIGHT.exp]
+      .map((v) => v.toFixed(3))
+      .join(",")
+  );
 }
 
 function buildTuningURL() {
@@ -780,8 +678,6 @@ function buildTuningURL() {
   return `${window.location.origin}${window.location.pathname}?${params.toString()}`;
 }
 
-// Capture base URL: constants only — no dev (no panel/gizmo in frames),
-// no p (the Playwright script appends &p=<value> per frame).
 function buildCaptureBaseURL() {
   const params = new URLSearchParams();
   serialiseParams(params);
@@ -793,22 +689,19 @@ function copyManifest() {
     type: "iglass-capture-manifest",
     version: 1,
     baseURL: buildCaptureBaseURL(),
-    sweepParam: "p", // script visits `${baseURL}&p=${value}` per frame
-    startValue: 0.0, // edit to target a sub-range (e.g. explode = 0→0.35)
+    sweepParam: "p",
+    startValue: 0.0,
     endValue: 1.0,
-    totalFrames: 90, // 60–120 = mobile image-sequence budget
+    totalFrames: 90,
     viewport: { width: 1600, height: 900, deviceScaleFactor: 2 },
-    captureSelector: "canvas", // screenshot the WebGL canvas only
+    captureSelector: "canvas",
   };
   const json = JSON.stringify(manifest, null, 2);
   if (navigator.clipboard) navigator.clipboard.writeText(json);
 }
 
 // ---------------------------------------------------------
-// SAVE CARD — rendered frame + decoded parameter table + URL in one
-// downloaded PNG. The decoded table is the authoritative machine-read
-// channel when a card is pasted back to an AI. Requires
-// preserveDrawingBuffer (enabled in dev mode only).
+// SAVE CARD
 // ---------------------------------------------------------
 function saveCard() {
   const src = DEV.canvasEl;
@@ -816,7 +709,7 @@ function saveCard() {
 
   const fw = src.width;
   const fh = src.height;
-  const k = Math.max(1, fw / 1200); // text scale relative to frame width
+  const k = Math.max(1, fw / 1200);
 
   const deg = (r) => Math.round((r * 180) / Math.PI);
   const lines = [
@@ -825,6 +718,7 @@ function saveCard() {
     `shift ${SETTLE.xShiftFraction.toFixed(3)}    vshift ${SETTLE.yShiftFraction.toFixed(3)}    lift ${SETTLE.arcLift.toFixed(3)}`,
     `stage pos ${STAGE.position.map((v) => v.toFixed(2)).join(", ")}    rot ${STAGE.rotationEuler.map(deg).join(", ")}    scl ${STAGE.scale.toFixed(2)}`,
     `glassreg ${[GLASS_REG.x, GLASS_REG.y, GLASS_REG.z].map((v) => v.toFixed(3)).join(", ")}`,
+    `light amb ${LIGHT.amb.toFixed(2)}  key ${LIGHT.key.toFixed(2)}  fill ${LIGHT.fill.toFixed(2)}  env ${LIGHT.env.toFixed(2)}  exp ${LIGHT.exp.toFixed(2)}`,
   ];
   const url = buildTuningURL();
 
@@ -838,8 +732,6 @@ function saveCard() {
   const card = document.createElement("canvas");
   const ctx = card.getContext("2d");
 
-  // Measuring pass: wrap the URL to the card width (font metrics are
-  // valid before the resize; resizing resets ctx state — refont below)
   ctx.font = `${fsSmall}px monospace`;
   const maxW = fw - pad * 2;
   const urlLines = [];
@@ -866,7 +758,6 @@ function saveCard() {
   card.width = fw;
   card.height = fh + footerH;
 
-  // Light card — white behind the transparent WebGL clear
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, card.width, card.height);
   ctx.drawImage(src, 0, 0);
@@ -908,16 +799,7 @@ function saveCard() {
 }
 
 // ---------------------------------------------------------
-// BACK-SOLVE (settle target): gizmo pose → SETTLE parameters.
-// Valid at p=1 (t=1) only — and thanks to auto routing that is the ONLY
-// time it is ever called (mid-timeline drags capture the stage instead).
-// At t=1 the production maths reduces to:
-//   position.x = viewport.width  * xShiftFraction
-//   position.y = viewport.height * yShiftFraction   (lift term is 0: sin(π)=0)
-//   scale      = SETTLE.scale
-//   quaternion = qEnd  →  Euler(XYZ) = targetEuler
-// z is zeroed and scale forced uniform — production settle has no z term
-// and only uniform scale, so the gizmo can't record an unreproducible pose.
+// BACK-SOLVE / CAPTURE
 // ---------------------------------------------------------
 function captureSettleFromObject(viewport) {
   const obj = DEV.modelGroup;
@@ -938,13 +820,6 @@ function captureSettleFromObject(viewport) {
   SETTLE.targetEuler = [e.x, e.y, e.z];
   DEV.dirtyQuat = true;
 
-  // Sync the Leva sliders (their onChange re-writes the same values —
-  // idempotent). Angles wrapped to (-180,180] at 0.01° — outside-range
-  // values would be CLAMPED by Leva and the clamp's onChange would warp
-  // the phone (the release snatch). Note: euler extraction may express
-  // the same rotation with different channel numbers than you typed
-  // (e.g. [180,0,180] ≡ [0,180,0]); the quaternion — and therefore the
-  // motion — is identical.
   if (DEV.setLeva) {
     DEV.setLeva({
       pscale: Number(SETTLE.scale.toFixed(2)),
@@ -957,15 +832,11 @@ function captureSettleFromObject(viewport) {
   }
 }
 
-// ---------------------------------------------------------
-// CAPTURE (stage target): direct read — no back-solve, no t maths.
-// The stage transform IS the parameter. Works at any p.
-// ---------------------------------------------------------
 function captureStageFromObject() {
   const obj = DEV.stageGroup;
   if (!obj) return;
 
-  obj.scale.setScalar(obj.scale.x); // uniform only (URL carries one value)
+  obj.scale.setScalar(obj.scale.x);
 
   STAGE.position = [obj.position.x, obj.position.y, obj.position.z];
   const e = new THREE.Euler().setFromQuaternion(obj.quaternion, "XYZ");
@@ -1016,6 +887,69 @@ function DevControls({ initialP }) {
 
   const [, set] = useControls(() => ({
     drive: { value: driveLabel(), editable: false },
+
+    // ---- v3.8 LIGHTING — open by default. This is the dial set that
+    // replaces the hard-coded five-source blowout. Match the Blender
+    // reference by eye, then read the numbers off 📋 copy URL / 📸 save
+    // card and they get baked as the compiled LIGHT defaults. ----
+    "💡 lighting": folder(
+      {
+        amb: {
+          value: LIGHT.amb,
+          min: 0,
+          max: 1.5,
+          step: 0.01,
+          label: "ambient fill",
+          onChange: (v) => {
+            LIGHT.amb = v;
+          },
+        },
+        key: {
+          value: LIGHT.key,
+          min: 0,
+          max: 5,
+          step: 0.05,
+          label: "key light",
+          onChange: (v) => {
+            LIGHT.key = v;
+          },
+        },
+        fill: {
+          value: LIGHT.fill,
+          min: 0,
+          max: 3,
+          step: 0.05,
+          label: "fill / rim light",
+          onChange: (v) => {
+            LIGHT.fill = v;
+          },
+        },
+        env: {
+          value: LIGHT.env,
+          min: 0,
+          max: 3,
+          step: 0.05,
+          label: "studio reflections",
+          onChange: (v) => {
+            LIGHT.env = v;
+            DEV.dirtyLight = true;
+          },
+        },
+        exp: {
+          value: LIGHT.exp,
+          min: 0.1,
+          max: 3,
+          step: 0.01,
+          label: "exposure (highlight rolloff)",
+          onChange: (v) => {
+            LIGHT.exp = v;
+            DEV.dirtyLight = true;
+          },
+        },
+      },
+      { collapsed: false }
+    ),
+
     "🔗 wiring": folder(
       {
         wire: {
@@ -1066,16 +1000,12 @@ function DevControls({ initialP }) {
           onChange: (v) => {
             DEV.lastP = v;
             if (DEV.applyProgress) DEV.applyProgress(v);
-            // Keep the drive readout honest about auto routing when the
-            // playhead crosses the endpoint boundary.
             if (DEV.setLeva) DEV.setLeva({ drive: driveLabel() });
           },
         },
       },
       { collapsed: false }
     ),
-    // Plain-English labels (v3.6). Param KEYS unchanged — URLs, slots,
-    // wiring and manifests all still speak settleX/sposY/etc.
     "📐 phone final pose (end of timeline)": folder(
       {
         tilt: {
@@ -1279,12 +1209,6 @@ function DevControls({ initialP }) {
       },
       { collapsed: true }
     ),
-    // GLASS_REG (v3.3) — whole-glass-unit registration. Drag while
-    // watching the top edge; when the top gap closes and the bottom
-    // bezel seats against the chassis, it's aligned. Read the value
-    // off the URL (📋 copy URL) or the saved pose card. Units are raw
-    // model units (≈ 10 mm each). No dirty flag — useFrame reads these
-    // live every frame.
     "🔲 glass registration": folder(
       {
         glassRegY: {
@@ -1318,13 +1242,10 @@ function DevControls({ initialP }) {
           },
         },
       },
-      { collapsed: false }
+      { collapsed: true }
     ),
   }));
 
-  // Expose set() so gizmo captures, phase jumps, warps, wiring, slots,
-  // the arrow drive, and the Sat-Nav HUD can push values back into the
-  // sliders. The URL-loaded pose becomes the initial start origin.
   useEffect(() => {
     DEV.setLeva = set;
     if (!SNAPSHOTS.origin) takeSnapshot("origin");
@@ -1333,25 +1254,19 @@ function DevControls({ initialP }) {
     };
   }, [set]);
 
-  // Keyboard surface:
-  //   W/E/R  gizmo translate/rotate/scale     Q  gizmo off
-  //   T      target toggle (phone | stage)
-  //   Tab    arrow mode cycle                 G  granularity cycle
-  //   Arrows nudge (hold = glide)             [ ] timeline p nudge
   useEffect(() => {
     const onKey = (ev) => {
       const tag = ev.target && ev.target.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA") return; // don't hijack Leva typing
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
 
-      // ---- arrow drive ----
       if (ev.key === "Tab") {
-        ev.preventDefault(); // keep focus out of the browser tab cycle
+        ev.preventDefault();
         DEV.driveMode = (DEV.driveMode + 1) % 3;
         set({ drive: driveLabel() });
         return;
       }
       if (ev.key === "ArrowLeft" || ev.key === "ArrowRight") {
-        ev.preventDefault(); // stop page scroll
+        ev.preventDefault();
         driveNudge(set, "x", ev.key === "ArrowRight" ? 1 : -1);
         return;
       }
@@ -1373,7 +1288,6 @@ function DevControls({ initialP }) {
         return;
       }
 
-      // ---- gizmo / target ----
       if (k === "t") {
         changeGizmoContext(DEV.gizmoTarget === "settle" ? "stage" : "settle");
         return;
@@ -1389,14 +1303,7 @@ function DevControls({ initialP }) {
 }
 
 // ---------------------------------------------------------
-// DEV DASHBOARD — the primary visual surface, left side.
-// Leva is mounted top-right (collapsed) as the numeric write bus.
-// Collapsible header raises the panel out of the way and recomputes
-// DEV.leftClampNDC so the gizmo parks to the RIGHT of the panel instead
-// of behind it. All writes route through DEV.setLeva → the sliders' own
-// onChange writers, so URL / manifest / wiring machinery is untouched.
-// v3.6: ORIENT mini-proxy removed (no function, covered the glass
-// registration sliders). Square-up split into two SMOOTH buttons.
+// DEV DASHBOARD
 // ---------------------------------------------------------
 const UI = {
   panel: {
@@ -1444,8 +1351,6 @@ const UI = {
   hint: { fontSize: 9, color: "#8aa094", lineHeight: 1.5, marginTop: 8 },
 };
 
-// v3.7: plain-English display names for the compound-motion dropdowns.
-// KEYS are the real param names (unchanged); this is display-only.
 const HUMAN_LABELS = {
   sposX: "Stage ← →",
   sposY: "Stage ↑ ↓",
@@ -1504,8 +1409,6 @@ const slotStyle = (filled) => ({
 });
 
 function DevDashboard() {
-  // Poll the plain-mutable DEV state — dashboard is dev-only, a 150ms
-  // tick is invisible and avoids threading React state through the rig.
   const [, force] = useState(0);
   const panelRef = useRef(null);
   const [collapsed, setCollapsed] = useState(false);
@@ -1520,9 +1423,6 @@ function DevDashboard() {
   const isStage = DEV.gizmoTarget === "stage";
   const routed = effectiveTarget() !== DEV.gizmoTarget;
 
-  // ---- panel-aware gizmo left clamp (the recurring "behind the panel"
-  // fix, made structural). Recomputed every tick from the live panel
-  // width so it can never drift out of sync with the layout again. ----
   useEffect(() => {
     const cw =
       (DEV.canvasEl && DEV.canvasEl.clientWidth) || window.innerWidth || 1600;
@@ -1531,7 +1431,7 @@ function DevDashboard() {
       : panelRef.current
       ? panelRef.current.offsetWidth
       : 258;
-    const rightPx = 12 + pw + 10; // left inset + panel width + gap
+    const rightPx = 12 + pw + 10;
     const ndc = -1 + (2 * rightPx) / cw;
     DEV.leftClampNDC = Math.max(-0.9, Math.min(-0.15, ndc));
   });
@@ -1558,7 +1458,6 @@ function DevDashboard() {
 
   const filledCount = slots.filter(Boolean).length;
 
-  // ---- collapsed pill ----
   if (collapsed) {
     return (
       <div ref={panelRef} style={UI.panelCollapsed}>
@@ -1612,12 +1511,11 @@ function DevDashboard() {
         </span>
       </div>
 
-      {/* ---- target ---- */}
       <div style={UI.head}>target</div>
       <div style={UI.row}>
         <span
           style={chipStyle(!isStage, true)}
-          title="the phone's FINAL docked pose — editable at the end of the timeline; below that, controls act on the stage automatically (nothing ever collapses)"
+          title="the phone's FINAL docked pose"
           onClick={() => changeGizmoContext("settle")}
         >
           📱 phone
@@ -1636,12 +1534,11 @@ function DevDashboard() {
         </div>
       )}
 
-      {/* ---- SQUARE UP — smooth, world-space ---- */}
       <div style={UI.head}>⊞ square up (smooth)</div>
       <div style={UI.row}>
         <span
           style={chipStyle(false, true)}
-          title="rotate the phone AS SEEN ON SCREEN to the nearest clean 90° — smooth, works at any timeline position, never touches the playhead"
+          title="rotate the phone AS SEEN ON SCREEN to the nearest clean 90°"
           onClick={squareUpPhone}
         >
           ⊞ phone
@@ -1655,7 +1552,6 @@ function DevDashboard() {
         </span>
       </div>
 
-      {/* ---- Sat-Nav HUD mode ---- */}
       <div style={UI.head}>🧭 sat-nav</div>
       <div style={UI.row}>
         <span
@@ -1687,7 +1583,6 @@ function DevDashboard() {
         </span>
       </div>
 
-      {/* ---- gizmo (precision / final 5%) ---- */}
       <div style={UI.head}>gizmo — precision (W/E/R/Q)</div>
       <div style={UI.row}>
         {[
@@ -1706,14 +1601,11 @@ function DevDashboard() {
         ))}
       </div>
 
-      {/* ---- compound motion — visual surface for the WIRE driven-key
-           engine. Master moves → driven follows at ratio. Same engine,
-           same anchors, zero new maths. ---- */}
       <div style={UI.head}>🔗 compound motion</div>
       <div style={UI.row}>
         <span
           style={chipStyle(WIRE.enabled, true)}
-          title="couple two parameters — moving the master drives the driven at the set ratio"
+          title="couple two parameters"
           onClick={() => {
             WIRE.enabled = !WIRE.enabled;
             if (WIRE.enabled) wireAnchors();
@@ -1723,7 +1615,7 @@ function DevDashboard() {
         </span>
         <span
           style={chipStyle(false)}
-          title="restore both parameters to their anchors — adjust ratio, run again"
+          title="restore both parameters to their anchors"
           onClick={wireResetRun}
         >
           ↺ reset run
@@ -1770,7 +1662,7 @@ function DevDashboard() {
           step={0.01}
           value={WIRE.ratio}
           style={{ width: 150, accentColor: "#2e7d52" }}
-          title="ratio — driven units per master unit (negative = opposite direction)"
+          title="ratio — driven units per master unit"
           onChange={(ev) => {
             WIRE.ratio = parseFloat(ev.target.value);
           }}
@@ -1787,7 +1679,6 @@ function DevDashboard() {
         </span>
       </div>
 
-      {/* ---- 60 persistent slots ---- */}
       <div style={UI.head}>
         💾 pose slots ({filledCount}/{SLOT_COUNT})
       </div>
@@ -1815,7 +1706,6 @@ function DevDashboard() {
         ))}
       </div>
 
-      {/* ---- actions ---- */}
       <div style={UI.head}>🛠 actions</div>
       <div style={UI.row}>
         <span style={chipStyle(false)} onClick={() => takeSnapshot("origin")}>
@@ -1845,39 +1735,22 @@ function DevDashboard() {
       </div>
 
       <div style={UI.hint}>
-        the playhead NEVER moves unless you move it
+        lighting folder (top right) = the look — match your Blender reference
         <br />
-        below the timeline end, phone controls drive the stage — layers
-        stay raised
+        the playhead NEVER moves unless you move it
         <br />
         move mode: drag canvas = slide · scroll = zoom
         <br />
         rotate mode: drag ring = roll · inside ring = yaw/pitch
         <br />
         gizmo (W/E/R/Q) overrides the sat-nav
-        <br />
-        click phone = phone target · click background = stage
       </div>
     </div>
   );
 }
 
 // ---------------------------------------------------------
-// SAT-NAV STEERING RING — SVG overlay, canvas-centred.
-// Interactive ONLY when hudMode==="rotate" AND the gizmo is off (the
-// gizmo takes precedence). Drag on the band = roll; drag inside the disc
-// = yaw/pitch.
-//
-// v3.7 TRACKBALL: the drag holds a CLEAN working quaternion (workQ) as its
-// only source of truth. Each pointer move applies that frame's incremental
-// screen-axis rotation to workQ and WRITES the resulting euler out — it
-// NEVER reads euler back. That breaks the euler round-trip (Leva →
-// useFrame → node) that used to flip channels near gimbal poses and made
-// the direction invert when the phone was tilted. Now the rotation axes
-// are always the screen axes and the feel is identical in every pose.
-// Deltas are per-frame differential (mx−lastX), so swapping drag direction
-// mid-gesture can never snatch. Mid-timeline the target routes to the
-// stage (effective target), so the exploded layers never move.
+// SAT-NAV STEERING RING
 // ---------------------------------------------------------
 function SatNavHUD() {
   const [, force] = useState(0);
@@ -1908,15 +1781,9 @@ function SatNavHUD() {
 
     cancelSquareAnim();
 
-    // Routed target, NO playhead jump — mid-timeline the ring rotates the
-    // stage; the exploded layers stay exactly where they are.
     const eff = effectiveTarget();
     const isStage = eff === "stage";
 
-    // CLEAN working quaternion — the drag's single source of truth. Seeded
-    // once from the current pose, then only ever accumulated onto and
-    // written OUT (never read back). This is what makes the direction
-    // consistent in every orientation.
     const workQ = isStage
       ? new THREE.Quaternion().setFromEuler(
           new THREE.Euler(
@@ -1967,22 +1834,18 @@ function SatNavHUD() {
       const mx = ev.clientX - r2.left;
       const my = ev.clientY - r2.top;
 
-      // dW = this frame's INCREMENTAL rotation, expressed about the screen
-      // (world) axes. The camera is fixed and axis-aligned, so world-Y is
-      // screen-up and world-X is screen-right exactly.
       const dW = new THREE.Quaternion();
 
       if (state.mode === "roll") {
         const ang = Math.atan2(my - cy, mx - cx);
         let dAng = ang - state.lastAng;
-        // unwrap the ±π seam so dragging past the top can't jump
         if (dAng > Math.PI) dAng -= 2 * Math.PI;
         else if (dAng < -Math.PI) dAng += 2 * Math.PI;
         state.lastAng = ang;
         const delta = dAng * SCREEN_ROT_SIGNS.roll * HUD_ROT_SIGNS.roll;
         dW.setFromAxisAngle(new THREE.Vector3(0, 0, 1), delta);
       } else {
-        const gain = 0.006; // radians per pixel of movement
+        const gain = 0.006;
         const dxp = mx - state.lastX;
         const dyp = my - state.lastY;
         state.lastX = mx;
@@ -2000,10 +1863,6 @@ function SatNavHUD() {
         dW.multiplyQuaternions(Qyaw, Qpitch);
       }
 
-      // Accumulate the screen-axis delta onto the clean working quaternion.
-      // Stage IS the world frame → premultiply directly. Settle pose lives
-      // inside the stage frame → remap the world delta to stage-local first
-      // (Rs⁻¹·dW·Rs), same as the arrow drive.
       if (state.isStage) {
         state.workQ.premultiply(dW);
       } else {
@@ -2043,7 +1902,6 @@ function SatNavHUD() {
         height={ch}
         style={{ position: "absolute", left: 0, top: 0 }}
       >
-        {/* inner disc — yaw/pitch pad */}
         <circle
           cx={cx}
           cy={cy}
@@ -2053,7 +1911,6 @@ function SatNavHUD() {
           strokeOpacity={ringOpacity * 0.5}
           strokeDasharray="4 6"
         />
-        {/* crosshair inside the disc (yaw ↔ / pitch ↕ hint) */}
         <line
           x1={cx - rInner * 0.5}
           y1={cy}
@@ -2070,7 +1927,6 @@ function SatNavHUD() {
           stroke="#2e7d52"
           strokeOpacity={ringOpacity * 0.6}
         />
-        {/* outer steering ring — roll band */}
         <circle
           cx={cx}
           cy={cy}
@@ -2089,7 +1945,6 @@ function SatNavHUD() {
           strokeOpacity={ringOpacity * 0.5}
           strokeWidth={1}
         />
-        {/* roll tick marks */}
         {active &&
           [0, 45, 90, 135, 180, 225, 270, 315].map((deg) => {
             const a = (deg * Math.PI) / 180;
@@ -2110,7 +1965,6 @@ function SatNavHUD() {
               />
             );
           })}
-        {/* single hit surface — branches roll vs yaw/pitch by distance */}
         <circle
           cx={cx}
           cy={cy}
@@ -2128,24 +1982,7 @@ function SatNavHUD() {
 }
 
 // ---------------------------------------------------------
-// DevGizmo — PROXY-ANCHORED TransformControls.
-//
-// The controls attach to an invisible proxy Object3D, never to the
-// phone. Every frame (when not dragging) the proxy is placed at the
-// target's world position CLAMPED to the visible frame (NDC left bound
-// DEV.leftClampNDC so the panel can't hide it; ±0.85 right, ±0.78 y,
-// behind-camera rescue), and copies the target's world quaternion +
-// scale so local-space handles align with the phone. During a drag, the
-// proxy's transform deltas are relayed to the real target (world →
-// stage-local conversion for the settle target). On release, the
-// existing capture functions read the real target — contract unchanged.
-//
-// v3.6: the gizmo binds to the EFFECTIVE target — mid-timeline it
-// operates on the stage, so grabbing the exploded phone and moving it
-// Just Works with the playhead untouched. Zero p side-effects.
-//
-// Hold Shift while dragging to snap (0.1 units / 15° / 0.05 scale).
-// Also stashes the world-unit viewport for the screen-space MOVE maths.
+// DevGizmo
 // ---------------------------------------------------------
 function DevGizmo() {
   const { viewport, camera } = useThree();
@@ -2171,10 +2008,8 @@ function DevGizmo() {
   useFrame(() => {
     DEV.viewport = { width: viewport.width, height: viewport.height };
 
-    // Effective-target routing: below the endpoint the "phone" choice
-    // operates on the stage. Space auto-binds to the effective target.
     const eff = DEV.gizmoDragging && dragRef.current
-      ? dragRef.current.eff // never retarget mid-drag
+      ? dragRef.current.eff
       : effectiveTarget();
     DEV.gizmoSpace = eff === "stage" ? "world" : "local";
 
@@ -2185,12 +2020,9 @@ function DevGizmo() {
     const has = !!obj;
     if (has !== ready) setReady(has);
 
-    // ---- proxy anchor: follow the target, clamped to the frame ----
     if (obj && !DEV.gizmoDragging) {
       obj.getWorldPosition(tmp.v);
 
-      // Behind-camera rescue: pull the anchor to just in front of the
-      // lens so projection stays meaningful.
       tmp.c.copy(tmp.v).applyMatrix4(camera.matrixWorldInverse);
       if (tmp.c.z > -0.25) {
         tmp.c.z = -0.25;
@@ -2198,13 +2030,9 @@ function DevGizmo() {
       }
 
       const ndc = tmp.c.copy(tmp.v).project(camera);
-      // Left bound is panel-aware — the gizmo parks to the RIGHT of the
-      // left dashboard instead of vanishing behind it.
       const cx = Math.max(DEV.leftClampNDC, Math.min(0.85, ndc.x));
       const cy = Math.max(-0.78, Math.min(0.78, ndc.y));
       if (cx !== ndc.x || cy !== ndc.y) {
-        // Origin outside the frame → park the gizmo at the nearest
-        // on-screen point, at the target's own depth.
         proxy.position.set(cx, cy, ndc.z).unproject(camera);
       } else {
         proxy.position.copy(tmp.v);
@@ -2225,14 +2053,6 @@ function DevGizmo() {
     };
   }, []);
 
-  // Visibility hardening + FATTENING. frustumCulled=false keeps handles
-  // rendering; depth flags keep them on top. Fattening: the invisible
-  // picker meshes (material.visible === false) are the real hit zones —
-  // cylinders get 2.4× radial, other shapes 1.6× uniform (torus pickers
-  // excluded: uniform scaling would move the hit ring off the visual
-  // ring). Visible arrow shafts/heads (CylinderGeometry) get 2.2×
-  // radial. three r169+ moved the scene-graph part behind getHelper()
-  // — feature-detect both shapes.
   useEffect(() => {
     const ctrl = ctrlRef.current;
     if (!ctrl) return;
@@ -2252,7 +2072,6 @@ function DevGizmo() {
       const geoType =
         child.geometry && child.geometry.type ? child.geometry.type : "";
       if (child.isMesh && child.material && child.material.visible === false) {
-        // Invisible picker — the actual grab zone
         if (geoType === "CylinderGeometry") {
           child.scale.x *= 2.4;
           child.scale.z *= 2.4;
@@ -2260,15 +2079,12 @@ function DevGizmo() {
           child.scale.multiplyScalar(1.6);
         }
       } else if (child.isMesh && geoType === "CylinderGeometry") {
-        // Visible arrow shaft / head — fatten radially, keep length
         child.scale.x *= 2.2;
         child.scale.z *= 2.2;
       }
     });
   }, [mode, target, ready]);
 
-  // Relay proxy deltas to the real target, live during the drag.
-  // Uses the drag-locked effective target — never the live one.
   const applyDrag = () => {
     const d = dragRef.current;
     if (!d) return;
@@ -2278,14 +2094,12 @@ function DevGizmo() {
     if (DEV.gizmo === "translate") {
       const delta = proxy.position.clone().sub(d.proxyPos);
       if (d.eff === "settle") {
-        // World delta → stage-local (model group lives inside the stage)
         delta
           .applyQuaternion(d.stageQuatInv)
           .divideScalar(d.stageScale || 1);
       }
       obj.position.copy(d.targetPos).add(delta);
     } else if (DEV.gizmo === "rotate") {
-      // World-frame rotation delta of the proxy
       const dq = proxy.quaternion.clone().multiply(d.proxyQuatInv);
       let localDelta = dq;
       if (d.eff === "settle") {
@@ -2303,9 +2117,6 @@ function DevGizmo() {
   const onDown = () => {
     cancelSquareAnim();
     DEV.gizmoDragging = true;
-    // v3.6: NO playhead jump. The effective target is locked for the
-    // duration of the drag — mid-timeline that is the stage, which is
-    // valid at every p. Layers stay raised.
     const eff = effectiveTarget();
     const obj = eff === "stage" ? DEV.stageGroup : DEV.modelGroup;
     if (!obj) return;
@@ -2331,10 +2142,6 @@ function DevGizmo() {
     DEV.lastDragEnd = performance.now();
     const d = dragRef.current;
     dragRef.current = null;
-    // Capture BEFORE the next frame's lerp runs — the lerp target then
-    // equals the pose just set, so there is no snap-back. Routed by the
-    // drag-locked effective target: stage captures work at any p; the
-    // settle back-solve is only ever reached at the endpoint.
     if (!d) return;
     if (d.eff === "stage") captureStageFromObject();
     else captureSettleFromObject(viewport);
@@ -2364,24 +2171,21 @@ function DevGizmo() {
 }
 
 // ============================================
-// Mode & tuning resolution (contract §5.2 — URL params for static config)
+// Mode & tuning resolution
 //
-//   ?mode=scroll|autoplay|standalone   (unchanged tri-mode driver)
-//   ?bg=%230a0a0c                      opaque background; default transparent
-//   ?p=0.85          freeze the timeline at a fixed progress (tuning/capture)
-//   ?settle=0,180,0  override SETTLE.targetEuler, degrees
-//   ?tilt=18         override START.tilt, degrees
-//   ?lift=0.08       override SETTLE.arcLift, viewport-height fraction
-//   ?size=1.6        override MODEL.targetSize
-//   ?pscale=0.8      override SETTLE.scale
-//   ?spos=x,y,z      STAGE position, world units
-//   ?srot=x,y,z      STAGE rotation, degrees
-//   ?sscale=1        STAGE uniform scale
-//   ?snap=1          deterministic capture: damp→1 (exact pose per frozen
-//                    p) + window.__iglassCaptureReady flag for Playwright
-//   ?dev=1           Pose Studio (dashboard + Sat-Nav HUD + gizmo W/E/R/Q,
-//                    T target, Shift snap, Tab arrow-mode, G grain, arrows
-//                    nudge, [ ] p nudge, click-to-target, 60 pose slots)
+//   ?mode=scroll|autoplay|standalone
+//   ?bg=%230a0a0c              opaque background; default transparent
+//   ?p=0.85                    freeze the timeline at a fixed progress
+//   ?settle=0,180,0            SETTLE.targetEuler, degrees
+//   ?tilt=18                   START.tilt, degrees
+//   ?lift=0.08                 SETTLE.arcLift
+//   ?size=1.6                  MODEL.targetSize
+//   ?pscale=0.8                SETTLE.scale
+//   ?spos / ?srot / ?sscale    STAGE transform
+//   ?glassreg=x,y,z            whole-glass-unit registration
+//   ?light=amb,key,fill,env,exp   v3.8 lighting rig
+//   ?snap=1                    deterministic capture (Playwright)
+//   ?dev=1                     Pose Studio
 // ============================================
 function resolveRuntimeConfig() {
   const params = new URLSearchParams(window.location.search);
@@ -2427,7 +2231,6 @@ function resolveRuntimeConfig() {
     SETTLE.scale = pscaleParam;
   }
 
-  // ---- STAGE channel (applies in production too — per-page framing) ----
   const sposParam = params.get("spos");
   if (sposParam) {
     const parts = sposParam.split(",").map((v) => parseFloat(v));
@@ -2448,7 +2251,6 @@ function resolveRuntimeConfig() {
   }
   DEV.dirtyStage = true;
 
-  // ---- GLASS_REG (v3.3) — whole-glass-unit registration offset ----
   const glassregParam = params.get("glassreg");
   if (glassregParam) {
     const parts = glassregParam.split(",").map((v) => parseFloat(v));
@@ -2459,24 +2261,33 @@ function resolveRuntimeConfig() {
     }
   }
 
+  // ---- LIGHT channel (v3.8) — applies in production too ----
+  const lightParam = params.get("light");
+  if (lightParam) {
+    const parts = lightParam.split(",").map((v) => parseFloat(v));
+    if (parts.length === 5 && parts.every((v) => !isNaN(v))) {
+      LIGHT.amb = parts[0];
+      LIGHT.key = parts[1];
+      LIGHT.fill = parts[2];
+      LIGHT.env = parts[3];
+      LIGHT.exp = parts[4];
+    }
+  }
+  DEV.dirtyLight = true;
+
   const dev = params.get("dev") === "1" || params.get("dev") === "true";
   DEV.enabled = dev;
-  // Predictive space binding boot state — follows the effective target
   DEV.gizmoSpace = effectiveTarget() === "stage" ? "world" : "local";
 
-  // Deterministic capture flag (Playwright frame-baking). damp=1 in the
-  // useFrame + window.__iglassCaptureReady signal once settled.
   CAPTURE_SNAP = params.get("snap") === "1" || params.get("snap") === "true";
 
   const pParam = parseFloat(params.get("p"));
   let freezeP = !isNaN(pParam) ? Math.max(0, Math.min(1, pParam)) : null;
-  // Dev rig with no explicit p: freeze mid-timeline so the slider owns progress
   if (dev && freezeP === null) freezeP = 0.5;
 
   return { mode, bg, freezeP, dev };
 }
 
-// Global 0→1 scroll progress → per-phase amounts
 function phaseMap(p) {
   const { explodeEnd, holdEnd, reassembleEnd } = TIMELINE;
   let explode;
@@ -2497,7 +2308,7 @@ function phaseMap(p) {
 }
 
 // ============================================
-// Default props (animation parameters only — no text, no UI)
+// Default props
 // ============================================
 const defaultProps = {
   explodeDistance: 1.2,
@@ -2512,16 +2323,88 @@ const defaultProps = {
 
 // ============================================
 // Global scroll progress
-// (contract §3.1 — plain mutable object; the driver writes,
-//  useFrame reads, React is never in the loop)
 // ============================================
 const scrollState = {
-  explosion: 0, // explode AMOUNT (0 assembled → 1 exploded), post-phase-map
+  explosion: 0,
   glassOffset: 0,
   oledOffset: 0,
   phoneOffset: 0,
-  rotate: 0, // settle amount (0 flat → 1 upright/docked)
+  rotate: 0,
 };
+
+// ---------------------------------------------------------
+// OLED BACK-FACE SPLIT (v3.8)
+//
+// Display_OLED is a solid slab: the GLB carries 118.62 units of face area
+// pointing at the phone's FRONT and 118.63 pointing at its BACK. Both caps
+// are front-facing when viewed from their own side, so THREE.FrontSide
+// renders both of them — which is why the single screen material painted
+// the UI on the back of the phone.
+//
+// You cannot solve this with `side`. FrontSide/BackSide select by facing
+// relative to the CAMERA, and each cap is "front" from where it's seen.
+// The split has to be by GEOMETRY.
+//
+// So: partition the index by the sign of each triangle's winding-normal Z,
+// reorder it front-first, and declare two geometry GROUPS. three.js then
+// accepts a MATERIAL ARRAY — [screen, black] — and shades each group with
+// its own material in a single draw pair, no extra mesh, no extra memory.
+//
+// Front is -Z. Verified against the deployed GLB: Glass_Front sits at
+// z = -0.0051 and Back Glass at z = +0.005, so the phone faces -Z, and the
+// screen is therefore the cap whose normals point that way (nz < 0).
+// ---------------------------------------------------------
+const OLED_SCREEN_GROUP = 0;
+const OLED_BLACK_GROUP = 1;
+
+function splitOledGeometry(geometry) {
+  const geo = geometry.clone(); // never mutate the useGLTF cache
+  const pos = geo.attributes.position;
+  const idx = geo.index;
+  if (!pos || !idx) return geo;
+
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  const c = new THREE.Vector3();
+  const ab = new THREE.Vector3();
+  const ac = new THREE.Vector3();
+  const n = new THREE.Vector3();
+
+  const src = idx.array;
+  const front = [];
+  const back = [];
+
+  for (let i = 0; i < src.length; i += 3) {
+    const i0 = src[i];
+    const i1 = src[i + 1];
+    const i2 = src[i + 2];
+    a.fromBufferAttribute(pos, i0);
+    b.fromBufferAttribute(pos, i1);
+    c.fromBufferAttribute(pos, i2);
+    ab.subVectors(b, a);
+    ac.subVectors(c, a);
+    n.crossVectors(ab, ac);
+
+    // nz < 0 → faces the phone's front (-Z) → this is the screen.
+    // Everything else — the back cap and the slab's rim — goes black.
+    if (n.z < 0) {
+      front.push(i0, i1, i2);
+    } else {
+      back.push(i0, i1, i2);
+    }
+  }
+
+  const merged = new (src.constructor)(front.length + back.length);
+  merged.set(front, 0);
+  merged.set(back, front.length);
+  geo.setIndex(new THREE.BufferAttribute(merged, 1));
+
+  geo.clearGroups();
+  geo.addGroup(0, front.length, OLED_SCREEN_GROUP);
+  geo.addGroup(front.length, back.length, OLED_BLACK_GROUP);
+
+  return geo;
+}
 
 // ============================================
 // iPhone Exploded Model
@@ -2535,7 +2418,7 @@ function IPhoneExploded({
   const { scene } = useGLTF(modelPath);
   const clonedScene = useMemo(() => scene.clone(true), [scene]);
 
-  const { gl } = useThree();
+  const { gl, scene: rootScene } = useThree();
   const maxAniso = gl.capabilities.getMaxAnisotropy();
 
   const oledTexture = useTexture(screenTexture);
@@ -2559,7 +2442,6 @@ function IPhoneExploded({
   internTex.wrapT = THREE.ClampToEdgeWrapping;
   internTex.needsUpdate = true;
 
-  // Rounded rect geometry for internals plane
   const internalsGeo = useMemo(() => {
     const w = 7.0;
     const h = 15.2;
@@ -2592,200 +2474,211 @@ function IPhoneExploded({
   const glassGroupRef = useRef();
   const oledGroupRef = useRef();
   const bodyGroupRef = useRef();
-  const modelGroupRef = useRef(); // whole-model group — settle rotation + drift
-  const stageGroupRef = useRef(); // constant world transform, timeline-free
+  const modelGroupRef = useRef();
+  const stageGroupRef = useRef();
 
   // ---------------------------------------------------------
-  // SORTING + HIERARCHY BAKE (v3.2).
-  // Layers by node name (v1 sorting) — but two new steps bracket it:
-  //   (1) BEFORE classify: updateMatrixWorld(true) on the intact clone,
-  //       so every mesh's matrixWorld is the TRUE pose the GLB encodes
-  //       (with Glass_Bezel still inheriting Glass_Front's transform).
-  //   (1b) inDuplicateBodyTree filter drops the co-located second phone
-  //       (Body Frame.001 subtree) — never classified, never mounted.
-  //   (3) AFTER classify, BEFORE the <primitive> mounts re-parent the
-  //       meshes: ANCHORED REBASE rewrites each mesh's local transform to
-  //       its body-relative world pose. Mounting then can't drop anything
-  //       — the transform the parent chain carried is baked in.
+  // SORTING + HIERARCHY BAKE
   //
-  // Render order: Body 0 → OLED 1 → Glass Front 3 → Bezel 4
-  // NOTE: GLB duplicated hierarchy still pending Blender cleanup (Phase 2).
+  // Selection is by MATERIAL NAME, not mesh name. The GLB's mesh names are
+  // hashes; the material names were hand-authored in Blender and survive
+  // the glTF round-trip. GLTFLoader preserves them, so child.material.name
+  // is the only reliable selector this asset has.
+  //
+  // Render order: Body 0 → OLED 1 → Pill 2 → Glass Front 3 → Bezel 4
   // ---------------------------------------------------------
   const { glassMeshes, oledMeshes, bodyMeshes } = useMemo(() => {
     const glass = [];
     const oled = [];
     const body = [];
 
-    // (1) World matrices for the INTACT graph — ground truth for the
-    // rebase. MUST run before any mesh is re-parented by <primitive>.
+    // World matrices for the INTACT graph — ground truth for the rebase.
+    // MUST run before any mesh is re-parented by <primitive>.
     clonedScene.updateMatrixWorld(true);
 
-    // (1b) Duplicate-body filter. Second co-located phone lives under
-    // node "Body Frame.001" (mesh faSjZVwGMQJEFBf.001, 35 prims). Match
-    // on a normalised ancestor-chain name — the 35 primitives are
-    // children carrying hash names, so the whole chain must be checked.
-    // Display_OLED.001 does NOT match (it is the only OLED, kept).
-    const normName = (s) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
-    const inDuplicateBodyTree = (o) => {
-      for (let p = o; p; p = p.parent) {
-        const n = normName(p.name);
-        if (n.includes("bodyframe001") || n.startsWith("fasjzvwgmqjefbf001")) {
-          return true;
-        }
-      }
-      return false;
-    };
-
     clonedScene.traverse((child) => {
-      if (child.isMesh) {
-        // Duplicate phone: never pushed → never mounted → never rendered.
-        // Expected: rear brightness roughly halves, z-fight flicker gone.
-        // Blender-side deletion follows in Phase 2.
-        if (inDuplicateBodyTree(child)) return;
+      if (!child.isMesh) return;
 
-        const name = child.name.toLowerCase();
+      const name = child.name.toLowerCase();
+      const matName = (child.material && child.material.name) || "";
 
-        if (name.includes("bezel") || name.includes("glass_bezel")) {
-         child.material = new THREE.MeshStandardMaterial({
-  color: new THREE.Color(0x000000),
-  roughness: 0.7,
-  metalness: 0.0,
-  transparent: false,
-  depthWrite: false,
-  depthTest: true,          // ← restored: the body can now occlude it
-  polygonOffset: true,      // ← biases it toward the camera so it still
-  polygonOffsetFactor: -4,  //    wins against coplanar Glass_Front —
-  polygonOffsetUnits: -4,   //    no test, no fight, no flicker, and no
-});                         //    bleed-through from behind
-          child.renderOrder = 4;
-          glass.push(child);
-        } else if (
-          name.includes("glass_front") ||
-          name.includes("glass front") ||
-          (name.includes("glass") && !name.includes("bezel"))
-        ) {
-          child.material = new THREE.MeshStandardMaterial({
-            color: new THREE.Color(0x000000), // black base: diffuse veil gone, specular unaffected
-            roughness: 0.04,
-            metalness: 0.0,
-            transparent: true,
-            opacity: 0.15, // keep — OLED glow must survive the glass
-            depthWrite: false,
-            envMapIntensity: 1.2, // ← was 2.0: reflections stay, blowout doesn't
-            polygonOffset: true,
-            polygonOffsetFactor: -2,
-            polygonOffsetUnits: -2,
-          });
-          child.renderOrder = 3;
-          glass.push(child);
-        } else if (name.includes("display") || name.includes("oled")) {
-          // Programmatic UV fix — remove once UVs corrected in Blender.
-          const posAttr = child.geometry.attributes.position;
-          const uvAttr = child.geometry.attributes.uv;
+      // ---- 1. HIDE: the stray front-camera circle sitting on the
+      // internals PNG. Two flat prims at z = -0.0039, immediately left
+      // of the pill. NOT the "Center Faint"/"Center Bright" prims —
+      // those run to z = +0.0072 and are REAR camera module geometry
+      // despite their names. ----
+      if (HIDDEN_MATERIALS.has(matName)) {
+        child.visible = false;
+        return;
+      }
 
-          if (posAttr && uvAttr) {
-            let minX = Infinity,
-              maxX = -Infinity;
-            let minY = Infinity,
-              maxY = -Infinity;
-            for (let i = 0; i < posAttr.count; i++) {
-              const x = posAttr.getX(i);
-              const y = posAttr.getY(i);
-              if (x < minX) minX = x;
-              if (x > maxX) maxX = x;
-              if (y < minY) minY = y;
-              if (y > maxY) maxY = y;
-            }
+      // ---- 2. BEZEL ----
+      if (name.includes("bezel") || name.includes("glass_bezel")) {
+        child.material = new THREE.MeshStandardMaterial({
+          color: new THREE.Color(0x000000),
+          roughness: 1.0,      // was 0.7 — no specular lobe to blow out
+          metalness: 0.0,
+          envMapIntensity: 0,  // unhook from the IBL: black base reads BLACK
+          transparent: false,
+          depthWrite: false,
+          depthTest: true,     // RESTORED. depthTest:false made the bezel
+                               // draw through the body from behind — the
+                               // v3.2 comment predicted exactly this once
+                               // the choreography showed the phone's back.
+          polygonOffset: true, // takes over the anti-z-fight job that
+          polygonOffsetFactor: -4, // depthTest:false was doing. More
+          polygonOffsetUnits: -4,  // aggressive than Glass_Front's -2, so
+                                   // the bezel still wins where they're
+                                   // coplanar — without ignoring depth.
+        });
+        child.renderOrder = 4;
+        glass.push(child);
+        return;
+      }
 
-            const rangeX = maxX - minX || 1;
-            const rangeY = maxY - minY || 1;
+      // ---- 3. GLASS FRONT ----
+      if (
+        name.includes("glass_front") ||
+        name.includes("glass front") ||
+        (name.includes("glass") && !name.includes("bezel"))
+      ) {
+        child.material = new THREE.MeshStandardMaterial({
+          color: new THREE.Color(0x000000),
+          roughness: 0.04,
+          metalness: 0.0,
+          transparent: true,
+          opacity: 0.15, // OLED glow must survive the glass
+          depthWrite: false,
+          envMapIntensity: 1.2,
+          polygonOffset: true,
+          polygonOffsetFactor: -2,
+          polygonOffsetUnits: -2,
+        });
+        child.renderOrder = 3;
+        glass.push(child);
+        return;
+      }
 
-            for (let i = 0; i < posAttr.count; i++) {
-              // U flipped — unflipped U rendered the screen mirror-imaged
-              // (a rigid rotation can never mirror a texture; this is the
-              // texture-domain fix).
-              const u = 1.0 - (posAttr.getX(i) - minX) / rangeX;
-              const v = 1.0 - (posAttr.getY(i) - minY) / rangeY;
-              uvAttr.setXY(i, u, v);
-            }
-            uvAttr.needsUpdate = true;
+      // ---- 4. OLED — solid slab, split front/back ----
+      if (name.includes("display") || name.includes("oled")) {
+        child.geometry = splitOledGeometry(child.geometry);
+
+        const posAttr = child.geometry.attributes.position;
+        const uvAttr = child.geometry.attributes.uv;
+
+        if (posAttr && uvAttr) {
+          let minX = Infinity,
+            maxX = -Infinity;
+          let minY = Infinity,
+            maxY = -Infinity;
+          for (let i = 0; i < posAttr.count; i++) {
+            const x = posAttr.getX(i);
+            const y = posAttr.getY(i);
+            if (x < minX) minX = x;
+            if (x > maxX) maxX = x;
+            if (y < minY) minY = y;
+            if (y > maxY) maxY = y;
           }
 
-          child.material = new THREE.MeshBasicMaterial({
+          const rangeX = maxX - minX || 1;
+          const rangeY = maxY - minY || 1;
+
+          for (let i = 0; i < posAttr.count; i++) {
+            // U flipped — unflipped U rendered the screen mirror-imaged.
+            const u = 1.0 - (posAttr.getX(i) - minX) / rangeX;
+            const v = 1.0 - (posAttr.getY(i) - minY) / rangeY;
+            uvAttr.setXY(i, u, v);
+          }
+          uvAttr.needsUpdate = true;
+        }
+
+        // Material ARRAY — index matches the geometry groups declared in
+        // splitOledGeometry. [0] = the screen, [1] = back cap + rim.
+        child.material = [
+          new THREE.MeshBasicMaterial({
             map: oledTexture,
             toneMapped: false,
-          });
-          child.renderOrder = 1;
-          oled.push(child);
-        } else {
-          child.material = child.material.clone();
-          const mat = child.material;
-
-          // v3.3: kill any baked emission on body materials. The GLB
-          // rear-glass panel carries emission 0.35 (forensic audit) → it
-          // self-illuminates and reads bright even after the duplicate-
-          // body filter halved it. Nothing in the body group should glow
-          // (the OLED is a separate group with its own unlit material),
-          // so this is a corrective clear, not a workaround. Names are
-          // hashed, so it's applied group-wide rather than to the rear
-          // mesh by name. NOTE (Phase 2 / Blender #7): the rear panel is
-          // also an OPEN shell (no front cap) — its see-through look is
-          // missing geometry, which R3F cannot cap; that is fixed in
-          // Blender, not here.
-          if (mat.emissive) mat.emissive.setRGB(0, 0, 0);
-          if ("emissiveIntensity" in mat) mat.emissiveIntensity = 0;
-          mat.emissiveMap = null;
-
-          // GLB body materials include semi-transparent glass covers
-          // (Dynamic Island / sensor windows / camera glass). Forcing
-          // transparent=false alone turns these into opaque MID-GREY —
-          // the "bright island" defect. Property-based rule (mesh names
-          // in this GLB are obfuscated):
-          //   alpha ≤ 0.05 — effectively-invisible coating films → hide
-          //   alpha <  1   — translucent covers → solid near-black glass
-          if (mat.opacity <= 0.05) {
-            child.visible = false;
-          } else if (mat.opacity < 1) {
-            mat.color.setHex(0x0a0a0a);
-            if ("metalness" in mat) mat.metalness = 0.1;
-            if ("roughness" in mat) mat.roughness = 0.5;
-            if ("envMapIntensity" in mat) mat.envMapIntensity = 0.2;
-            mat.opacity = 1;
-          }
-
-          mat.transparent = false;
-          mat.depthWrite = true;
-          child.renderOrder = 0;
-          [
-            mat.map,
-            mat.normalMap,
-            mat.roughnessMap,
-            mat.metalnessMap,
-            mat.aoMap,
-          ].forEach((tex) => {
-            if (tex) {
-              tex.anisotropy = maxAniso;
-              tex.generateMipmaps = true;
-              tex.minFilter = THREE.LinearMipmapLinearFilter;
-              tex.needsUpdate = true;
-            }
-          });
-
-          body.push(child);
-        }
+          }),
+          new THREE.MeshBasicMaterial({
+            color: new THREE.Color(0x000000),
+            toneMapped: false,
+          }),
+        ];
+        child.renderOrder = 1;
+        oled.push(child);
+        return;
       }
+
+      // ---- 5. BODY (and the pill, which is a body prim that MOUNTS in
+      // the glass group — see below) ----
+      child.material = child.material.clone();
+      const mat = child.material;
+
+      // Kill baked emission. Body materials carry 0.13–0.45 emissive from
+      // the source asset; nothing on the chassis should self-illuminate.
+      if (mat.emissive) mat.emissive.setRGB(0, 0, 0);
+      if ("emissiveIntensity" in mat) mat.emissiveIntensity = 0;
+      mat.emissiveMap = null;
+
+      // Property-based rule (source mesh names are obfuscated):
+      //   alpha ≤ 0.05 — effectively-invisible coating films → hide
+      //   alpha <  1   — translucent covers → solid near-black glass
+      if (mat.opacity <= 0.05) {
+        child.visible = false;
+      } else if (mat.opacity < 1) {
+        mat.color.setHex(0x0a0a0a);
+        if ("metalness" in mat) mat.metalness = 0.1;
+        if ("roughness" in mat) mat.roughness = 0.5;
+        if ("envMapIntensity" in mat) mat.envMapIntensity = 0.2;
+        mat.opacity = 1;
+      }
+
+      mat.transparent = false;
+      mat.depthWrite = true;
+
+      [
+        mat.map,
+        mat.normalMap,
+        mat.roughnessMap,
+        mat.metalnessMap,
+        mat.aoMap,
+      ].forEach((tex) => {
+        if (tex) {
+          tex.anisotropy = maxAniso;
+          tex.generateMipmaps = true;
+          tex.minFilter = THREE.LinearMipmapLinearFilter;
+          tex.needsUpdate = true;
+        }
+      });
+
+      // ---- 5b. PILL ROUTING (v3.8) ----
+      // Display Dynamic Island is authored INSIDE the Glass_Front cutout
+      // (verified: 0 Glass_Front faces cover the pill centre; 2 cover the
+      // glass centre as a control). But it was parented to the BODY while
+      // its hole was parented to the GLASS — and the glass group carries
+      // GLASS_REG (~0.9 mm) that the body does not. That offset IS the
+      // misregistration.
+      //
+      // Mounting it in the glass group gives it the IDENTICAL group
+      // transform: same GLASS_REG, same 2.0× explode, same lerp, same
+      // frame. There is no relative transform between the pill and the
+      // hole, therefore no drift term to tune. They cannot separate.
+      if (GLASS_GROUP_MATERIALS.has(matName)) {
+        child.renderOrder = 2; // after the OLED, before the front glass
+        glass.push(child);
+        return;
+      }
+
+      child.renderOrder = 0;
+      body.push(child);
     });
 
-    // ---- (3) ANCHORED REBASE (v3.2 — the hierarchy fix) ----
+    // ---- ANCHORED REBASE ----
     // newLocal = anchorOldLocal · anchorWorld⁻¹ · meshWorld
     // Anchor = first primary body primitive. Every mesh lands at its TRUE
     // pose relative to the body, expressed in the exact frame the body
-    // already rendered in — so pivot fit, rest quaternion, internals
-    // plane, and explode distances need NO retune. Verified against the
-    // deployed GLB (2026-07-07): the only transform this changes is
-    // Glass_Bezel's — it gains the (+0.025272, −0.091440, −0.088344)
-    // parent offset that flattening was dropping (the perimeter reveal /
-    // top-edge gap). Robust to future re-exports.
+    // already rendered in — so pivot fit, rest quaternion, internals plane
+    // and explode distances need no retune.
     const allMeshes = [...glass, ...oled, ...body];
     const anchorMesh = body[0] || allMeshes[0];
     if (anchorMesh) {
@@ -2803,10 +2696,7 @@ function IPhoneExploded({
   }, [clonedScene, oledTexture, maxAniso]);
 
   // ---------------------------------------------------------
-  // MEASURED PIVOT (contract §2.13) — render-frame Box3 measurement.
-  // Runs before the stage transform is applied (dirtyStage applies in
-  // the first useFrame, after this layout effect), so the Box3 is
-  // measured in the identity stage frame — exact.
+  // MEASURED PIVOT — render-frame Box3 measurement.
   // ---------------------------------------------------------
   const pivotRef = useRef();
   const measuredRef = useRef(false);
@@ -2815,8 +2705,6 @@ function IPhoneExploded({
   useLayoutEffect(() => {
     const g = pivotRef.current;
     if (measuredRef.current || !g) return;
-    // Initial pose set from qStart directly — the rotation prop can't
-    // express the world-frame tilt composition.
     if (modelGroupRef.current) {
       modelGroupRef.current.quaternion.copy(quatsRef.current.qStart);
       DEV.modelGroup = modelGroupRef.current;
@@ -2844,7 +2732,6 @@ function IPhoneExploded({
     measuredRef.current = true;
   }, []);
 
-  // Unregister on unmount so the gizmo never holds a dead object
   useEffect(() => {
     return () => {
       if (DEV.modelGroup === modelGroupRef.current) DEV.modelGroup = null;
@@ -2853,10 +2740,7 @@ function IPhoneExploded({
   }, []);
 
   // ---------------------------------------------------------
-  // SETTLE rotation endpoints — SINGLE geodesic slerp (contract §3.3).
-  // Rest pose untouched; viewer tilt applied as a WORLD-X rotation on
-  // top of it (premultiply). Held in a ref so the dev rig can re-derive
-  // when Leva controls touch START.tilt / SETTLE.targetEuler.
+  // SETTLE rotation endpoints — SINGLE geodesic slerp.
   // ---------------------------------------------------------
   const computeQuats = () => {
     const rest = new THREE.Quaternion().setFromEuler(
@@ -2866,7 +2750,7 @@ function IPhoneExploded({
       new THREE.Vector3(1, 0, 0),
       START.tilt
     );
-    const start = tiltQ.multiply(rest); // rest first, then world tilt
+    const start = tiltQ.multiply(rest);
     const end = new THREE.Quaternion().setFromEuler(
       new THREE.Euler(...SETTLE.targetEuler)
     );
@@ -2877,14 +2761,23 @@ function IPhoneExploded({
   const qTarget = useMemo(() => new THREE.Quaternion(), []);
 
   // ---------------------------------------------------------
-  // ANIMATION: driven by scrollState regardless of the writing mode.
-  // lerp smoothing (contract §3.1) — damping lives here.
+  // ANIMATION
   // ---------------------------------------------------------
   useFrame((state) => {
-    // ?snap=1 → damp 1: each frozen p renders its exact pose in one frame.
     const damp = CAPTURE_SNAP ? 1 : 0.1;
 
-    // Dev rig: re-derive mount-time values when Leva touched them
+    // ---- v3.8 LIGHT apply. Runs in production too (URL-driven look
+    // channel). scene.environmentIntensity scales the IBL contribution;
+    // toneMappingExposure scales everything BEFORE the ACES curve, which
+    // is what actually rolls the highlights off instead of clipping. ----
+    if (DEV.dirtyLight) {
+      gl.toneMappingExposure = LIGHT.exp;
+      if ("environmentIntensity" in rootScene) {
+        rootScene.environmentIntensity = LIGHT.env;
+      }
+      DEV.dirtyLight = false;
+    }
+
     if (DEV.dirtyQuat) {
       quatsRef.current = computeQuats();
       DEV.dirtyQuat = false;
@@ -2901,9 +2794,6 @@ function IPhoneExploded({
       DEV.dirtyFit = false;
     }
 
-    // STAGE apply — runs in production too (URL-driven framing channel).
-    // Only the dirty flag triggers it, and never mid-drag when the
-    // gizmo owns the transform.
     if (
       DEV.dirtyStage &&
       stageGroupRef.current &&
@@ -2924,9 +2814,8 @@ function IPhoneExploded({
     }
 
     if (glassGroupRef.current) {
-      // v3.3: GLASS_REG rides the whole glass unit. z registration adds
-      // to the explode target (explode animation unaffected); x/y are
-      // static screen-plane registration.
+      // GLASS_REG rides the whole glass unit — which now INCLUDES the
+      // Dynamic Island pill, so the pill and its cutout move as one.
       const target = -(scrollState.glassOffset * explodeDistance * 2.0);
       glassGroupRef.current.position.z = THREE.MathUtils.lerp(
         glassGroupRef.current.position.z,
@@ -2950,21 +2839,14 @@ function IPhoneExploded({
       bodyGroupRef.current.position.z = 0;
     }
 
-    // Whole-model writes are suppressed while the gizmo is dragging the
-    // SETTLE target (endpoint-only, thanks to routing). On release,
-    // capture has already made the params equal the pose, so the lerp
-    // target matches — no snap-back. Stage-target drags (including all
-    // routed mid-timeline drags) don't touch this group at all.
     const settleDrag =
       DEV.gizmoDragging && DEV.gizmoTarget === "settle" && atEndpoint();
     if (modelGroupRef.current && !settleDrag) {
       const t = scrollState.rotate;
 
-      // Single geodesic — smooth continuous rotation about one fixed axis
       qTarget.slerpQuaternions(quatsRef.current.qStart, quatsRef.current.qEnd, t);
       modelGroupRef.current.quaternion.slerp(qTarget, damp);
 
-      // Settle scale-down
       const targetScale = 1 - (1 - SETTLE.scale) * t;
       const s = THREE.MathUtils.lerp(
         modelGroupRef.current.scale.x,
@@ -2973,9 +2855,6 @@ function IPhoneExploded({
       );
       modelGroupRef.current.scale.setScalar(s);
 
-      // Path: eased drift to the desktop rest slot + a subtle arc lift.
-      // sin(π·t): bump peaks mid-transition, returns to 0 at the
-      // approved p=1 resting height.
       const isDesktop = state.size.width >= SETTLE.desktopMinWidth;
       const targetX = isDesktop
         ? state.viewport.width * SETTLE.xShiftFraction * t
@@ -2995,9 +2874,6 @@ function IPhoneExploded({
       );
     }
 
-    // Snap-capture readiness signal — Playwright waits on this flag.
-    // damp=1 means the pose is exact after the first write; a few frames
-    // of margin cover the STAGE dirty-apply and texture upload.
     if (CAPTURE_SNAP && !window.__iglassCaptureReady) {
       if (++SNAP_FRAMES >= 3) window.__iglassCaptureReady = true;
     }
@@ -3007,9 +2883,6 @@ function IPhoneExploded({
     <group ref={stageGroupRef}>
       <group
         ref={modelGroupRef}
-        // Click-to-target: tapping any part of the phone selects the
-        // phone target. event.delta filters out gizmo drags and camera
-        // gestures — only clean clicks retarget. NO playhead effect.
         onClick={(e) => {
           if (!DEV.enabled) return;
           if (e.delta > 4) return;
@@ -3018,7 +2891,8 @@ function IPhoneExploded({
         }}
       >
         <group ref={pivotRef}>
-          {/* GLASS (Front Window + Bezel) */}
+          {/* GLASS UNIT — Front Window + Bezel + Dynamic Island pill.
+              The pill is here so it shares the cutout's exact transform. */}
           <group ref={glassGroupRef}>
             {glassMeshes.map((m, i) => (
               <primitive key={`glass-${i}`} object={m} />
@@ -3059,6 +2933,16 @@ function IPhoneExploded({
 
 // ============================================
 // Scene
+//
+// LIGHTING (v3.8). The old rig ran FIVE sources at once — ambient 0.8, two
+// directionals, a point light, AND a studio IBL, which is itself an
+// ambient source. Ambient light has no direction, so stacking it is what
+// destroyed the form gradient. Then NoToneMapping clipped everything over
+// 1.0 flat to white, and the chassis and buttons are metalness 1.0, i.e.
+// mirrors of all of it. Result: the cream blowout.
+//
+// Now: one key (the gradient), one fill (the rim), a low ambient, and the
+// IBL scaled by scene.environmentIntensity — every one of them on a dial.
 // ============================================
 function Scene({
   modelPath,
@@ -3068,10 +2952,17 @@ function Scene({
   dev,
 }) {
   const shadowRef = useRef();
+  const ambRef = useRef();
+  const keyRef = useRef();
+  const fillRef = useRef();
 
-  // Contact shadow fades out through the settle — the docked, face-on
-  // phone reads as UI, not object (matches the Apple reference).
   useFrame(() => {
+    // Lights read LIGHT live — no dirty flag needed, these are 3 float
+    // writes per frame and it keeps the Leva drag perfectly smooth.
+    if (ambRef.current) ambRef.current.intensity = LIGHT.amb;
+    if (keyRef.current) keyRef.current.intensity = LIGHT.key;
+    if (fillRef.current) fillRef.current.intensity = LIGHT.fill;
+
     if (shadowRef.current) {
       shadowRef.current.traverse((o) => {
         if (o.material && "opacity" in o.material) {
@@ -3083,11 +2974,23 @@ function Scene({
 
   return (
     <>
-      <ambientLight intensity={0.8} />
-      <directionalLight position={[5, 10, 5]} intensity={1.5} castShadow />
-      <directionalLight position={[-5, 5, 2]} intensity={0.8} color="#e8f0ff" />
-      <pointLight position={[0, 2, 2]} intensity={0.5} color="#4080ff" />
+      <ambientLight ref={ambRef} intensity={LIGHT.amb} />
+      <directionalLight
+        ref={keyRef}
+        position={[5, 10, 5]}
+        intensity={LIGHT.key}
+        castShadow
+      />
+      <directionalLight
+        ref={fillRef}
+        position={[-6, 3, 4]}
+        intensity={LIGHT.fill}
+        color="#e8f0ff"
+      />
 
+      {/* The IBL. Its strength is scene.environmentIntensity, driven from
+          LIGHT.env in the useFrame above — not a prop, so this works on
+          every drei/three version rather than only the newest. */}
       <Environment preset="studio" />
 
       <IPhoneExploded
@@ -3111,7 +3014,7 @@ function Scene({
 }
 
 // ============================================
-// Main Component — headless canvas, no DOM UI (dashboard is dev-only)
+// Main Component
 // ============================================
 export default function CrossSection3DScrollGLB(props) {
   const merged = { ...defaultProps, ...props };
@@ -3131,9 +3034,6 @@ export default function CrossSection3DScrollGLB(props) {
   const containerRef = useRef(null);
   const stickyRef = useRef(null);
 
-  // ============================================
-  // Progress driver — one applyProgress used by all modes
-  // ============================================
   useEffect(() => {
     const applyProgress = (p) => {
       const { explode, rotate } = phaseMap(p);
@@ -3162,10 +3062,8 @@ export default function CrossSection3DScrollGLB(props) {
       );
     };
 
-    // Dev rig: expose the driver so the Leva p slider can scrub the timeline
     DEV.applyProgress = applyProgress;
 
-    // ---- TUNING FREEZE: ?p=0.85 pins the timeline at fixed progress ----
     if (freezeP !== null) {
       document.documentElement.style.overflow = "hidden";
       document.body.style.overflow = "hidden";
@@ -3174,7 +3072,6 @@ export default function CrossSection3DScrollGLB(props) {
       return;
     }
 
-    // ---- MODE: scroll (Framer postMessage bridge — contract §5.2) ----
     if (mode === "scroll") {
       document.documentElement.style.overflow = "hidden";
       document.body.style.overflow = "hidden";
@@ -3190,14 +3087,12 @@ export default function CrossSection3DScrollGLB(props) {
       };
 
       window.addEventListener("message", onMessage);
-      // Handshake — payload is a non-sensitive readiness flag only.
       if (window.parent) {
         window.parent.postMessage({ type: "iglass-3d-ready" }, "*");
       }
       return () => window.removeEventListener("message", onMessage);
     }
 
-    // ---- MODE: autoplay (self-driving loop — contract §5.3) ----
     if (mode === "autoplay") {
       document.documentElement.style.overflow = "hidden";
       document.body.style.overflow = "hidden";
@@ -3205,7 +3100,7 @@ export default function CrossSection3DScrollGLB(props) {
       const proxy = { p: 0 };
       const tween = gsap.to(proxy, {
         p: 1,
-        duration: 7, // covers explode + hold + reassemble + settle legibly
+        duration: 7,
         ease: "power2.inOut",
         delay: 1,
         repeat: -1,
@@ -3216,7 +3111,6 @@ export default function CrossSection3DScrollGLB(props) {
       return () => tween.kill();
     }
 
-    // ---- MODE: standalone (internal ScrollTrigger — direct URL / QA) ----
     if (!containerRef.current || !stickyRef.current) return;
 
     const ctx = gsap.context(() => {
@@ -3233,17 +3127,6 @@ export default function CrossSection3DScrollGLB(props) {
     return () => ctx.revert();
   }, [mode, freezeP, scrollDistance, glassStagger, oledStagger, phoneStagger]);
 
-  // ============================================
-  // SAT-NAV canvas handlers — drag-to-move + scroll-to-zoom.
-  // Attached to the sticky wrapper. Only act in move mode with the gizmo
-  // off; both route through DEV.setLeva → the existing onChange writers,
-  // so the URL / capture machinery is untouched. Drag translation
-  // accumulates from the pose at pointer-down (race-free vs Leva's async
-  // set/onChange). Zoom drives the stage scale (always-visible global
-  // zoom, independent of target or timeline position).
-  // v3.6: NO playhead side-effects — mid-timeline drags move the STAGE
-  // (effective-target routing), so the exploded phone slides freely.
-  // ============================================
   const onWrapPointerDown = (e) => {
     if (!dev || !DEV.setLeva) return;
     if (DEV.hudMode !== "move" || DEV.gizmo !== "off" || DEV.gizmoDragging) return;
@@ -3278,7 +3161,6 @@ export default function CrossSection3DScrollGLB(props) {
           sposY: Number((base.b + wdy).toFixed(4)),
         });
       } else {
-        // Same inverse-stage-frame compensation as nudgeSettleMoveScreen
         const world = new THREE.Vector3(fx * aspect, -fy, 0);
         const local = world
           .applyQuaternion(Rs.clone().invert())
@@ -3310,8 +3192,6 @@ export default function CrossSection3DScrollGLB(props) {
     DEV.setLeva({ sscale: Number(next.toFixed(4)) });
   };
 
-  // Standalone mode owns its own scroll track; embedded modes are a
-  // single fixed viewport — the Framer page owns the scroll.
   const containerHeight =
     mode === "standalone" ? `${(scrollDistance + 1) * 100}vh` : "100vh";
 
@@ -3323,8 +3203,6 @@ export default function CrossSection3DScrollGLB(props) {
         background: bg,
       }}
     >
-      {/* Leva collapsed top-right — the numeric write bus + numeric-lever
-          surface: playhead p, glass reg, tilt/lift, wiring numerics. */}
       {dev && (
         <Leva
           collapsed={true}
@@ -3353,18 +3231,20 @@ export default function CrossSection3DScrollGLB(props) {
             antialias: true,
             powerPreference: "high-performance",
             alpha: true,
-            // Dev only: lets save-card read the framebuffer after present.
             preserveDrawingBuffer: dev,
           }}
-          onCreated={({ gl }) => {
-            gl.toneMapping = THREE.NoToneMapping;
-            gl.setClearColor(0x000000, 0); // fully transparent clear
-            DEV.canvasEl = gl.domElement; // save-card frame source
+          onCreated={({ gl, scene }) => {
+            // v3.8: ACES Filmic, NOT NoToneMapping. Without a tone curve,
+            // every value over 1.0 clips flat to white — which is exactly
+            // what the metal chassis and the studio IBL were doing.
+            gl.toneMapping = THREE.ACESFilmicToneMapping;
+            gl.toneMappingExposure = LIGHT.exp;
+            if ("environmentIntensity" in scene) {
+              scene.environmentIntensity = LIGHT.env;
+            }
+            gl.setClearColor(0x000000, 0);
+            DEV.canvasEl = gl.domElement;
           }}
-          // Click-to-target: a click that hits nothing = the background =
-          // the stage. Guards: never mid-drag, never within 250ms of a
-          // drag release (a drag that ends over empty space must not
-          // retarget). NO playhead effect.
           onPointerMissed={() => {
             if (!DEV.enabled) return;
             if (
