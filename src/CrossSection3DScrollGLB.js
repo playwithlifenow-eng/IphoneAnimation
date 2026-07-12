@@ -16,6 +16,43 @@ import { Leva, useControls, button, folder } from "leva";
 gsap.registerPlugin(ScrollTrigger);
 
 // ============================================
+// v3.8.4 — OLED FACE-SPLIT THRESHOLD (the jagged corner lip)
+//
+//   The jagged, alternating rainbow edge on the OLED's top corners —
+//   visible ONLY from a grazing angle, never from above — was not the
+//   mesh. It was v3.8's own face classifier.
+//
+//   splitOledGeometry sorted the slab's triangles by the RAW SIGN of the
+//   face normal's Z:
+//
+//       front cap   nz ~ -1   -> screen      correct
+//       back cap    nz ~ +1   -> black       correct
+//       the RIM     nz ~  0   -> COIN TOSS   <-- the bug
+//
+//   The cut sat at exactly 0. The slab's rim is perpendicular to Z, so its
+//   normals land ON the boundary — and around a rounded corner the rim
+//   tilts, so half of those triangles wobble a hair negative and were
+//   handed the SCREEN TEXTURE. That is the jagged lip. It hides from a
+//   face-on view because the rim is the one surface you cannot see from
+//   straight on, and it concentrates at the corners because that is where
+//   the rim sweeps through the threshold.
+//
+//   Fix: normalise the face normal and cut in the EMPTY half of the
+//   distribution (OLED.faceCut = -0.5) instead of on the boundary. The cap
+//   clears it by 0.5; the rim misses it by 0.5. No rim triangle can take
+//   the screen material at any corner radius.
+//
+//   Live dial. The index buffer and groups are rebuilt in place from a
+//   cached per-triangle nz table — the scene graph is never re-traversed,
+//   so this is safe to drag at runtime. Slide it to 0 to reproduce the
+//   v3.8 bug on demand; that IS the proof. (?oled=-0.5)
+//
+//   RESIDUAL: if a stepped SILHOUETTE survives at faceCut -0.9, that part
+//   is the mesh's corner tessellation and no shader can fix it — that is a
+//   Blender bevel/segment-count job on the OLED slab, same drawer as the
+//   Glass_Bezel flank.
+//
+// ============================================
 // v3.8.3 — CONTACT SHADOW REMOVED
 //
 //   The horizontal line running clean across the screen AND out past the
@@ -238,6 +275,21 @@ const LIGHT = {
 //
 // Overridable: ?bezel=env,rough,offset
 // ---------------------------------------------------------
+// ---------------------------------------------------------
+// OLED (v3.8.4) — the front/back face-split threshold.
+//
+// Each triangle of the Display_OLED slab is classified by its UNIT normal
+// Z. nz < faceCut takes the screen texture; everything else goes black.
+//
+//   front cap  nz ~ -1.0     back cap  nz ~ +1.0     rim  nz ~ 0.0
+//
+// -0.5 sits in the gap. -1.0 would starve the cap; 0.0 is the v3.8 bug.
+// Overridable: ?oled=-0.5
+// ---------------------------------------------------------
+const OLED = {
+  faceCut: -0.5,
+};
+
 const BEZEL = {
   env: 0.0,     // envMapIntensity — 0 = dead black, no IBL reflection
   rough: 1.0,   // roughness — 1.0 = no specular lobe at all
@@ -676,6 +728,7 @@ function serialiseParams(params) {
     "bezel",
     [BEZEL.env, BEZEL.rough, BEZEL.offset].map((v) => v.toFixed(2)).join(",")
   );
+  params.set("oled", OLED.faceCut.toFixed(2));
 }
 
 function buildTuningURL() {
@@ -727,7 +780,7 @@ function saveCard() {
     `stage pos ${STAGE.position.map((v) => v.toFixed(2)).join(", ")}    rot ${STAGE.rotationEuler.map(deg).join(", ")}    scl ${STAGE.scale.toFixed(2)}`,
     `glassreg ${[GLASS_REG.x, GLASS_REG.y, GLASS_REG.z].map((v) => v.toFixed(3)).join(", ")}`,
     `light amb ${LIGHT.amb.toFixed(2)}  key ${LIGHT.key.toFixed(2)}  fill ${LIGHT.fill.toFixed(2)}  env ${LIGHT.env.toFixed(2)}  exp ${LIGHT.exp.toFixed(2)}`,
-    `bezel env ${BEZEL.env.toFixed(2)}  rough ${BEZEL.rough.toFixed(2)}  offset ${BEZEL.offset.toFixed(2)}`,
+    `bezel env ${BEZEL.env.toFixed(2)}  rough ${BEZEL.rough.toFixed(2)}  offset ${BEZEL.offset.toFixed(2)}    oled cut ${OLED.faceCut.toFixed(2)}`,
   ];
   const url = buildTuningURL();
 
@@ -1000,6 +1053,26 @@ function DevControls({ initialP }) {
               DEV.bezelMat.polygonOffsetUnits = v;
               DEV.bezelMat.needsUpdate = true;
             }
+          },
+        },
+      },
+      { collapsed: false }
+    ),
+
+    // ---- v3.8.4 OLED — the face-split cut. Drag toward 0 and the jagged
+    // rainbow lip returns at the corners: that IS the v3.8 bug, on demand.
+    // Drag toward -1 and the rim goes black long before the cap starves. ----
+    "📺 oled": folder(
+      {
+        oledCut: {
+          value: OLED.faceCut,
+          min: -1,
+          max: 0,
+          step: 0.01,
+          label: "screen face cut (0 = the bug)",
+          onChange: (v) => {
+            OLED.faceCut = v;
+            applyOledCut(v);
           },
         },
       },
@@ -2241,6 +2314,7 @@ function DevGizmo() {
 //   ?glassreg=x,y,z            whole-glass-unit registration
 //   ?light=amb,key,fill,env,exp   v3.8 lighting rig
 //   ?bezel=env,rough,offset       v3.8.1 bezel dials
+//   ?oled=-0.5                    v3.8.4 OLED face-split cut
 //   ?snap=1                    deterministic capture (Playwright)
 //   ?dev=1                     Pose Studio
 // ============================================
@@ -2327,6 +2401,12 @@ function resolveRuntimeConfig() {
       BEZEL.rough = parts[1];
       BEZEL.offset = parts[2];
     }
+  }
+
+  // ---- OLED channel (v3.8.4) ----
+  const oledParam = parseFloat(params.get("oled"));
+  if (!isNaN(oledParam) && oledParam >= -1 && oledParam <= 0) {
+    OLED.faceCut = oledParam;
   }
 
   // ---- LIGHT channel (v3.8) — applies in production too ----
@@ -2425,6 +2505,38 @@ const scrollState = {
 const OLED_SCREEN_GROUP = 0;
 const OLED_BLACK_GROUP = 1;
 
+// Cached per-triangle classification data. Filled once by splitOledGeometry;
+// applyOledCut then rebuilds ONLY the index buffer + groups from it. This is
+// why the dial is live: nothing re-traverses the scene graph, and the meshes
+// have already been re-parented out of clonedScene by <primitive>, so a
+// second traverse would find nothing and destroy the model.
+const OLED_CACHE = { geo: null, tri: null, nz: null };
+
+function applyOledCut(cut) {
+  const { geo, tri, nz } = OLED_CACHE;
+  if (!geo || !tri || !nz) return;
+
+  const front = [];
+  const back = [];
+  for (let t = 0; t < nz.length; t++) {
+    const o = t * 3;
+    if (nz[t] < cut) {
+      front.push(tri[o], tri[o + 1], tri[o + 2]);
+    } else {
+      back.push(tri[o], tri[o + 1], tri[o + 2]);
+    }
+  }
+
+  const merged = new tri.constructor(front.length + back.length);
+  merged.set(front, 0);
+  merged.set(back, front.length);
+  geo.setIndex(new THREE.BufferAttribute(merged, 1));
+
+  geo.clearGroups();
+  geo.addGroup(0, front.length, OLED_SCREEN_GROUP);
+  geo.addGroup(front.length, back.length, OLED_BLACK_GROUP);
+}
+
 function splitOledGeometry(geometry) {
   const geo = geometry.clone(); // never mutate the useGLTF cache
   const pos = geo.attributes.position;
@@ -2439,38 +2551,34 @@ function splitOledGeometry(geometry) {
   const n = new THREE.Vector3();
 
   const src = idx.array;
-  const front = [];
-  const back = [];
+  const triCount = src.length / 3;
+  const tri = new src.constructor(src.length);
+  tri.set(src);
+  const nz = new Float32Array(triCount);
 
-  for (let i = 0; i < src.length; i += 3) {
-    const i0 = src[i];
-    const i1 = src[i + 1];
-    const i2 = src[i + 2];
-    a.fromBufferAttribute(pos, i0);
-    b.fromBufferAttribute(pos, i1);
-    c.fromBufferAttribute(pos, i2);
+  for (let t = 0; t < triCount; t++) {
+    const o = t * 3;
+    a.fromBufferAttribute(pos, src[o]);
+    b.fromBufferAttribute(pos, src[o + 1]);
+    c.fromBufferAttribute(pos, src[o + 2]);
     ab.subVectors(b, a);
     ac.subVectors(c, a);
     n.crossVectors(ab, ac);
 
-    // nz < 0 → faces the phone's front (-Z) → this is the screen.
-    // Everything else — the back cap and the slab's rim — goes black.
-    if (n.z < 0) {
-      front.push(i0, i1, i2);
-    } else {
-      back.push(i0, i1, i2);
-    }
+    // NORMALISE. v3.8 compared the RAW cross product's z against 0, which
+    // made the classification a function of triangle AREA as well as
+    // facing — and put the threshold exactly where the rim's normals live.
+    // A unit normal puts the front cap at nz ~ -1 and the rim at nz ~ 0,
+    // so a cut at -0.5 has half a unit of margin on both sides.
+    const len2 = n.lengthSq();
+    nz[t] = len2 > 1e-20 ? n.z / Math.sqrt(len2) : 0; // degenerate -> black
   }
 
-  const merged = new (src.constructor)(front.length + back.length);
-  merged.set(front, 0);
-  merged.set(back, front.length);
-  geo.setIndex(new THREE.BufferAttribute(merged, 1));
+  OLED_CACHE.geo = geo;
+  OLED_CACHE.tri = tri;
+  OLED_CACHE.nz = nz;
 
-  geo.clearGroups();
-  geo.addGroup(0, front.length, OLED_SCREEN_GROUP);
-  geo.addGroup(front.length, back.length, OLED_BLACK_GROUP);
-
+  applyOledCut(OLED.faceCut);
   return geo;
 }
 
