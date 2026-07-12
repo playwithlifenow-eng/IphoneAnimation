@@ -17,68 +17,60 @@ import { Leva, useControls, button, folder } from "leva";
 gsap.registerPlugin(ScrollTrigger);
 
 // ============================================
-// v3.8 — LIGHTING RIG + BEZEL DEPTH + OLED BACK-FACE + PILL ROUTING
+// v3.8.2 — REVERT: PILL ROUTING + CAMERA HIDING
 //
-//   LIGHTING RIG       The blown-white "shiny" look was never the model.
-//                      It was FIVE light sources stacked (ambient 0.8 +
-//                      two directionals + a point light + a studio IBL,
-//                      which is itself an ambient source), rendered with
-//                      NoToneMapping so every value over 1.0 CLIPPED FLAT
-//                      to white instead of rolling off. All of it is now
-//                      a live LIGHT config with a Leva folder and URL
-//                      serialisation (?light=amb,key,fill,env,exp) —
-//                      exactly the GLASS_REG pattern. Dial it against the
-//                      Blender reference; the values bake as defaults.
-//                      Tone mapping is ACES Filmic with an exposure dial.
+//   Two v3.8 interventions are withdrawn on request. Everything else
+//   from v3.8 / v3.8.1 stands untouched.
 //
-//   BEZEL DEPTH        depthTest:false made the bezel ignore the depth
-//                      buffer entirely, so it drew THROUGH the body from
-//                      behind. The v3.2 comment predicted this exactly:
-//                      "SAFE for this timeline only: front face never
-//                      leaves the camera." The choreography now shows the
-//                      back, so the precondition is void. Restored to
-//                      depthTest:true and the anti-flicker job is handed
-//                      to polygonOffset (-4/-4, more aggressive than
-//                      Glass_Front's -2) — same no-z-fight guarantee, no
-//                      bleed-through. envMapIntensity:0 unhooks it from
-//                      the IBL so the black base reads black.
+//   PILL ROUTING       WITHDRAWN. "Display Dynamic Island" no longer
+//     (reverted)       mounts in the glass group. It falls through the
+//                      traverse to body.push() exactly as it did before
+//                      v3.8 — so it carries NO GLASS_REG, NO 2.0×
+//                      explode, and sits in the body's frame. The
+//                      GLASS_GROUP_MATERIALS set and the 5b routing
+//                      block are gone.
 //
-//   OLED BACK FACE     Display_OLED is a SOLID SLAB, not a plane — the
-//                      GLB carries 118.62 units of area facing the front
-//                      and 118.63 facing the back. Both caps are
-//                      front-facing from their own side, so FrontSide
-//                      renders both and the single screen material was
-//                      painting the UI on the phone's back. Fixed by
-//                      splitting the index by face-normal Z into two
-//                      geometry groups and handing the mesh a MATERIAL
-//                      ARRAY: [screen, black]. Front is -Z (verified:
-//                      Glass_Front sits at z -0.0051, Back Glass at
-//                      +0.005), so faces with nz < 0 get the screen and
-//                      everything else — back cap and rim — goes black.
+//   STRAY CAMERA       WITHDRAWN. HIDDEN_MATERIALS and the hide branch
+//     (reverted)       are gone. "Front Camera (Center + Outer Ring)"
+//                      and "Display Camera Hole (Outer Bright)" render
+//                      again, in the body group, as they did before.
 //
-//   PILL ROUTING       Display Dynamic Island lived in the BODY group
-//                      while its cutout lived in the GLASS group, so the
-//                      glass carried GLASS_REG (~0.9 mm) and the pill did
-//                      not. That offset IS the misregistration. The pill
-//                      now mounts in the glass group: it inherits the
-//                      identical group transform — same GLASS_REG, same
-//                      2.0x explode, same lerp, same frame. There is no
-//                      relative transform, therefore no drift term to
-//                      tune. It cannot separate.
-//                      Verified in the GLB: 0 Glass_Front faces cover the
-//                      pill centre (the cutout is real), 2 cover the glass
-//                      centre (control).
+//   normMat            Removed with them — it existed only to feed those
+//     (removed)        two Sets and had no other caller.
 //
-//   STRAY CAMERA       Front Camera (Center + Outer Ring) and Display
-//                      Camera Hole (Outer Bright) are the flat circle
-//                      perched on the internals PNG. Hidden.
-//                      NOT touched: Display Camera Hole (Center Faint) and
-//                      (Center Bright) — despite the names, their world Z
-//                      runs to +0.0072, i.e. they are REAR camera module
-//                      geometry. Hiding them would hole the camera island.
+//   Glass_Front cutout is UNAFFECTED by this revert. The pill hole is
+//   authored in the GLB geometry; no code path ever filled it, in any
+//   version. It stays hollow.
 //
-//   DEAD CODE REMOVED  inDuplicateBodyTree matched "Body Frame.001", which
-//                      no longer exists in the GLB. It filtered nothing.
+// ============================================
+// v3.8.1 — RETAINED
+//
+//   BEZEL DIALS        depthTest restored to true; anti-flicker handed to
+//                      polygonOffset. env / rough / offset are live dials
+//                      (?bezel=env,rough,offset).
+//
+//   TRANSLUCENT COATS  The old `opacity < 1 → paint it black` rule is gone.
+//                      Gloss coats (Rear Camera Island + Apple Logo, Flash
+//                      Bright, the camera-hole brights) render as AUTHORED
+//                      — real colour, real alpha, depthWrite off so they
+//                      cannot fight the surface they sit on. Only
+//                      alpha ≤ 0.05 films are still hidden.
+//
+// ============================================
+// v3.8 — RETAINED
+//
+//   LIGHTING RIG       Five stacked sources + NoToneMapping was the cream
+//                      blowout. Now one key, one fill, a low ambient, and
+//                      the IBL scaled by scene.environmentIntensity —
+//                      every one on a Leva dial, ACES Filmic tone mapping
+//                      with an exposure dial. (?light=amb,key,fill,env,exp)
+//
+//   OLED BACK FACE     Display_OLED is a SOLID SLAB (118.62 units of front-
+//                      facing area, 118.63 back-facing), so FrontSide drew
+//                      the UI on the phone's back too. Fixed by splitting
+//                      the index by face-normal Z into two geometry groups
+//                      and handing the mesh a MATERIAL ARRAY [screen, black].
+//                      Front is -Z (Glass_Front z -0.0051, Back Glass +0.005).
 //
 // ============================================
 // v3.7 — trackball ring (orientation-independent), 100 pose slots, labels.
@@ -185,11 +177,6 @@ const MODEL = {
 };
 
 const GLASS_REG = { x: -0.03, y: 0.09, z: 0.07 };
-// Pill offset RELATIVE to the glass group. Same units as GLASS_REG
-// (mesh-local — 0.09 ≈ 0.9 mm, so ~0.1 = 1 mm).
-// -Z = toward the phone's front face (out of the screen)
-// +Z = sinks into the body
-const PILL_REG = { x: 0, y: 0, z: 0 };
 
 // ============================================
 // LIGHT (v3.8) — the whole lighting rig as one tunable config.
@@ -210,9 +197,6 @@ const PILL_REG = { x: 0, y: 0, z: 0 };
 //         clipping them. This is what stops the blowout.
 //
 // Overridable: ?light=amb,key,fill,env,exp
-// Tune in the Leva "lighting" folder, read the values off the pose card
-// or the copied URL, then bake them here as compiled defaults (the same
-// lifecycle GLASS_REG went through).
 // ============================================
 const LIGHT = {
   amb: 0.1,
@@ -221,55 +205,6 @@ const LIGHT = {
   env: 0.4,
   exp: 1.0,
 };
-
-// ============================================
-// MATERIAL ROUTING TABLE (v3.8)
-//
-// The GLB's mesh names are hashes (faSjZVwGMQJEFBf_N) — useless for
-// selection. But MATERIAL names survive the glTF round-trip intact, and
-// they have been hand-named in Blender. GLTFLoader preserves them, so
-// child.material.name is the reliable selector. This table is the single
-// source of truth for which primitive goes where.
-//
-// Every string below is copied verbatim from the deployed GLB, INCLUDING
-// its irregular spacing. Do not tidy them — an edit here silently stops
-// matching and the part reverts to the body group with no error.
-// ============================================
-
-// ---------------------------------------------------------
-// NAME NORMALISATION (v3.8.1) — THE BUG THAT KILLED v3.8's ROUTING.
-//
-// GLTFLoader does NOT hand you the material name from the GLB. It runs
-// every name through THREE.PropertyBinding.sanitizeNodeName first:
-//
-//     sanitizeNodeName(n) { return n.replace(/\s/g, "_").replace(reserved, "") }
-//
-// EVERY SPACE BECOMES AN UNDERSCORE. So the GLB's "Display Dynamic Island"
-// arrives in three.js as "Display_Dynamic_Island", and an exact-match
-// Set.has() against the spaced string never fires — silently, with no
-// error, and the part just quietly stays where it was.
-//
-// Fix: normalise BOTH sides down to lowercase alphanumerics. Spaces,
-// underscores, double-spaces, punctuation and case can then never break
-// the match — including if the materials get renamed in Blender later.
-// ---------------------------------------------------------
-const normMat = (s) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
-
-// Mounts in the GLASS group so it shares the cutout's exact transform.
-const GLASS_GROUP_MATERIALS = new Set(
-  ["Display Dynamic Island"].map(normMat)
-);
-
-// The flat circle sitting on top of the internals PNG. Both are at
-// z = -0.0039 (front face), immediately left of the pill.
-// NOT the "Center Faint"/"Center Bright" prims — despite their names,
-// those run to z = +0.0072 and are REAR camera module geometry.
-const HIDDEN_MATERIALS = new Set(
-  [
-    "Front Camera  (Center + Outer Ring)",
-    "Display Camera Hole (Outer Bright)",
-  ].map(normMat)
-);
 
 // ---------------------------------------------------------
 // BEZEL (v3.8.1) — dials, because the black-rim cause is UNRESOLVED.
@@ -1350,26 +1285,6 @@ function DevControls({ initialP }) {
       },
       { collapsed: true }
     ),
-    "💊 pill registration": folder(
-      {
-        pillRegZ: {
-          value: PILL_REG.z, min: -0.5, max: 0.5, step: 0.005,
-          label: "depth (Z)",
-          onChange: (v) => { PILL_REG.z = v; },
-        },
-        pillRegY: {
-          value: PILL_REG.y, min: -0.5, max: 0.5, step: 0.005,
-          label: "up / down (Y)",
-          onChange: (v) => { PILL_REG.y = v; },
-        },
-        pillRegX: {
-          value: PILL_REG.x, min: -0.5, max: 0.5, step: 0.005,
-          label: "across (X)",
-          onChange: (v) => { PILL_REG.x = v; },
-        },
-      },
-      { collapsed: false }
-    ),
   }));
 
   useEffect(() => {
@@ -2310,6 +2225,7 @@ function DevGizmo() {
 //   ?spos / ?srot / ?sscale    STAGE transform
 //   ?glassreg=x,y,z            whole-glass-unit registration
 //   ?light=amb,key,fill,env,exp   v3.8 lighting rig
+//   ?bezel=env,rough,offset       v3.8.1 bezel dials
 //   ?snap=1                    deterministic capture (Playwright)
 //   ?dev=1                     Pose Studio
 // ============================================
@@ -2617,12 +2533,12 @@ function IPhoneExploded({
   // ---------------------------------------------------------
   // SORTING + HIERARCHY BAKE
   //
-  // Selection is by MATERIAL NAME, not mesh name. The GLB's mesh names are
-  // hashes; the material names were hand-authored in Blender and survive
-  // the glTF round-trip. GLTFLoader preserves them, so child.material.name
-  // is the only reliable selector this asset has.
+  // Selection is by MESH NAME for the glass/OLED families. The pill and
+  // the camera prims get NO special handling — they fall through to the
+  // body group, which is where they lived before v3.8 and where they
+  // belong again (v3.8.2 revert).
   //
-  // Render order: Body 0 → OLED 1 → Pill 2 → Glass Front 3 → Bezel 4
+  // Render order: Body 0 → coats 1 → OLED 1 → Glass Front 3 → Bezel 4
   // ---------------------------------------------------------
   const { glassMeshes, oledMeshes, bodyMeshes } = useMemo(() => {
     const glass = [];
@@ -2637,23 +2553,8 @@ function IPhoneExploded({
       if (!child.isMesh) return;
 
       const name = child.name.toLowerCase();
-      // NORMALISED. GLTFLoader has already turned every space in the GLB's
-      // material name into an underscore (sanitizeNodeName), so the raw
-      // string here is "Display_Dynamic_Island", not "Display Dynamic
-      // Island". Comparing normalised forms is the only safe match.
-      const matName = normMat(child.material && child.material.name);
 
-      // ---- 1. HIDE: the stray front-camera circle sitting on the
-      // internals PNG. Two flat prims at z = -0.0039, immediately left
-      // of the pill. NOT the "Center Faint"/"Center Bright" prims —
-      // those run to z = +0.0072 and are REAR camera module geometry
-      // despite their names. ----
-      if (HIDDEN_MATERIALS.has(matName)) {
-        child.visible = false;
-        return;
-      }
-
-      // ---- 2. BEZEL ----
+      // ---- 1. BEZEL ----
       // depthTest:true is RESTORED and non-negotiable: depthTest:false made
       // the bezel draw through the body from behind, exactly as the v3.2
       // comment predicted once the choreography showed the phone's back.
@@ -2679,7 +2580,9 @@ function IPhoneExploded({
         return;
       }
 
-      // ---- 3. GLASS FRONT ----
+      // ---- 2. GLASS FRONT ----
+      // The Dynamic Island cutout is authored into this geometry. Nothing
+      // here fills it, in any version — it stays a true hole.
       if (
         name.includes("glass_front") ||
         name.includes("glass front") ||
@@ -2702,7 +2605,7 @@ function IPhoneExploded({
         return;
       }
 
-      // ---- 4. OLED — solid slab, split front/back ----
+      // ---- 3. OLED — solid slab, split front/back ----
       if (name.includes("display") || name.includes("oled")) {
         child.geometry = splitOledGeometry(child.geometry);
 
@@ -2752,8 +2655,9 @@ function IPhoneExploded({
         return;
       }
 
-      // ---- 5. BODY (and the pill, which is a body prim that MOUNTS in
-      // the glass group — see below) ----
+      // ---- 4. BODY ----
+      // Includes the Dynamic Island pill and the front-camera prims. No
+      // special routing, no hiding — v3.8.2 reverts both.
       child.material = child.material.clone();
       const mat = child.material;
 
@@ -2763,22 +2667,19 @@ function IPhoneExploded({
       if ("emissiveIntensity" in mat) mat.emissiveIntensity = 0;
       mat.emissiveMap = null;
 
-      // ---- TRANSLUCENT COATS (v3.8.1 — REWRITTEN) ----
+      // ---- TRANSLUCENT COATS (v3.8.1 — RETAINED) ----
       //
       // The old rule was `if (opacity < 1) color.setHex(0x0a0a0a)` — it
       // painted EVERY translucent body material near-black. That is why the
-      // Rear Camera Island renders black: the island itself is opaque white
+      // Rear Camera Island rendered black: the island itself is opaque white
       // and perfectly fine, but "Rear Camera Island + Apple Logo" is a
       // 10%-alpha WHITE gloss coat lying on top of it, and the rule turned
       // that coat into an opaque black slab. Same for "Display Camera Hole
       // (Center Bright)" (white, alpha 0.175) and "Flash Bright" (alpha 0.20
       // — a FLASH, painted black).
       //
-      // That rule was a casualty of the see-through-body firefight: the body
-      // had to be forced opaque because its back glass was being culled.
-      // That is fixed. The constraint is gone. So the coats now render as
-      // AUTHORED — real colour, real alpha — with depthWrite off so they
-      // cannot fight the surface they sit on.
+      // Coats now render as AUTHORED — real colour, real alpha — with
+      // depthWrite off so they cannot fight the surface they sit on.
       //
       //   alpha ≤ 0.05 — effectively-invisible film → still hidden
       //   alpha <  1   — gloss coat → keep colour, keep transparency
@@ -2809,25 +2710,6 @@ function IPhoneExploded({
 
       // Coats draw after the opaque body they sit on.
       const isCoat = mat.transparent && child.visible;
-
-      // ---- 5b. PILL ROUTING (v3.8) ----
-      // Display Dynamic Island is authored INSIDE the Glass_Front cutout
-      // (verified: 0 Glass_Front faces cover the pill centre; 2 cover the
-      // glass centre as a control). But it was parented to the BODY while
-      // its hole was parented to the GLASS — and the glass group carries
-      // GLASS_REG (~0.9 mm) that the body does not. That offset IS the
-      // misregistration.
-      //
-      // Mounting it in the glass group gives it the IDENTICAL group
-      // transform: same GLASS_REG, same 2.0× explode, same lerp, same
-      // frame. There is no relative transform between the pill and the
-      // hole, therefore no drift term to tune. They cannot separate.
-      if (GLASS_GROUP_MATERIALS.has(matName)) {
-        child.renderOrder = 2; // after the OLED, before the front glass
-        glass.push(child);
-        return;
-      }
-
       child.renderOrder = isCoat ? 1 : 0;
       body.push(child);
     });
@@ -2850,15 +2732,7 @@ function IPhoneExploded({
         rebased.decompose(m.position, m.quaternion, m.scale);
       }
     }
-// Pill base pose — captured AFTER the rebase, because the rebase
-    // decompose() overwrites position and would clobber any earlier offset.
-    for (const m of glass) {
-      const mn = normMat(m.material && m.material.name);
-      if (GLASS_GROUP_MATERIALS.has(mn)) {
-        m.userData.__pill = true;
-        m.userData.__base = m.position.clone();
-      }
-    }
+
     return { glassMeshes: glass, oledMeshes: oled, bodyMeshes: body };
   }, [clonedScene, oledTexture, maxAniso]);
 
@@ -2981,8 +2855,7 @@ function IPhoneExploded({
     }
 
     if (glassGroupRef.current) {
-      // GLASS_REG rides the whole glass unit — which now INCLUDES the
-      // Dynamic Island pill, so the pill and its cutout move as one.
+      // GLASS_REG rides the glass unit — Front Window + Bezel only.
       const target = -(scrollState.glassOffset * explodeDistance * 2.0);
       glassGroupRef.current.position.z = THREE.MathUtils.lerp(
         glassGroupRef.current.position.z,
@@ -2992,15 +2865,7 @@ function IPhoneExploded({
       glassGroupRef.current.position.x = GLASS_REG.x;
       glassGroupRef.current.position.y = GLASS_REG.y;
     }
-for (const c of glassGroupRef.current.children) {
-        if (c.userData.__pill) {
-          c.position.set(
-            c.userData.__base.x + PILL_REG.x,
-            c.userData.__base.y + PILL_REG.y,
-            c.userData.__base.z + PILL_REG.z
-          );
-        }
-      }
+
     if (oledGroupRef.current) {
       const target = -(scrollState.oledOffset * explodeDistance * 1.0);
       oledGroupRef.current.position.z = THREE.MathUtils.lerp(
@@ -3066,8 +2931,7 @@ for (const c of glassGroupRef.current.children) {
         }}
       >
         <group ref={pivotRef}>
-          {/* GLASS UNIT — Front Window + Bezel + Dynamic Island pill.
-              The pill is here so it shares the cutout's exact transform. */}
+          {/* GLASS UNIT — Front Window + Bezel. */}
           <group ref={glassGroupRef}>
             {glassMeshes.map((m, i) => (
               <primitive key={`glass-${i}`} object={m} />
@@ -3081,7 +2945,7 @@ for (const c of glassGroupRef.current.children) {
             ))}
           </group>
 
-          {/* BODY */}
+          {/* BODY — includes the Dynamic Island pill and camera prims */}
           <group ref={bodyGroupRef}>
             {bodyMeshes.map((m, i) => (
               <primitive key={`body-${i}`} object={m} />
