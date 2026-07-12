@@ -1,4 +1,4 @@
-vimport screenImg from "./Screen.png";
+import screenImg from "./Screen.png";
 import internalsImg from "./internals.jpg";
 import { useRef, useMemo, useEffect, useLayoutEffect, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
