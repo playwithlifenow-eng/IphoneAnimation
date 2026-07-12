@@ -185,6 +185,11 @@ const MODEL = {
 };
 
 const GLASS_REG = { x: -0.03, y: 0.09, z: 0.07 };
+// Pill offset RELATIVE to the glass group. Same units as GLASS_REG
+// (mesh-local — 0.09 ≈ 0.9 mm, so ~0.1 = 1 mm).
+// -Z = toward the phone's front face (out of the screen)
+// +Z = sinks into the body
+const PILL_REG = { x: 0, y: 0, z: 0 };
 
 // ============================================
 // LIGHT (v3.8) — the whole lighting rig as one tunable config.
@@ -1344,6 +1349,26 @@ function DevControls({ initialP }) {
         },
       },
       { collapsed: true }
+    ),
+    "💊 pill registration": folder(
+      {
+        pillRegZ: {
+          value: PILL_REG.z, min: -0.5, max: 0.5, step: 0.005,
+          label: "depth (Z)",
+          onChange: (v) => { PILL_REG.z = v; },
+        },
+        pillRegY: {
+          value: PILL_REG.y, min: -0.5, max: 0.5, step: 0.005,
+          label: "up / down (Y)",
+          onChange: (v) => { PILL_REG.y = v; },
+        },
+        pillRegX: {
+          value: PILL_REG.x, min: -0.5, max: 0.5, step: 0.005,
+          label: "across (X)",
+          onChange: (v) => { PILL_REG.x = v; },
+        },
+      },
+      { collapsed: false }
     ),
   }));
 
@@ -2825,7 +2850,15 @@ function IPhoneExploded({
         rebased.decompose(m.position, m.quaternion, m.scale);
       }
     }
-
+// Pill base pose — captured AFTER the rebase, because the rebase
+    // decompose() overwrites position and would clobber any earlier offset.
+    for (const m of glass) {
+      const mn = normMat(m.material && m.material.name);
+      if (GLASS_GROUP_MATERIALS.has(mn)) {
+        m.userData.__pill = true;
+        m.userData.__base = m.position.clone();
+      }
+    }
     return { glassMeshes: glass, oledMeshes: oled, bodyMeshes: body };
   }, [clonedScene, oledTexture, maxAniso]);
 
@@ -2959,7 +2992,15 @@ function IPhoneExploded({
       glassGroupRef.current.position.x = GLASS_REG.x;
       glassGroupRef.current.position.y = GLASS_REG.y;
     }
-
+for (const c of glassGroupRef.current.children) {
+        if (c.userData.__pill) {
+          c.position.set(
+            c.userData.__base.x + PILL_REG.x,
+            c.userData.__base.y + PILL_REG.y,
+            c.userData.__base.z + PILL_REG.z
+          );
+        }
+      }
     if (oledGroupRef.current) {
       const target = -(scrollState.oledOffset * explodeDistance * 1.0);
       oledGroupRef.current.position.z = THREE.MathUtils.lerp(
