@@ -1268,7 +1268,7 @@ function DevControls({ initialP }) {
           value: 1.0,
           min: -20,
           max: 20,
-          step: 0.05,
+          step: 0.1,
           onChange: (v) => {
             WIRE.ratio = v;
           },
