@@ -16,6 +16,41 @@ import { Leva, useControls, button, folder } from "leva";
 gsap.registerPlugin(ScrollTrigger);
 
 // ============================================
+// v3.8.7 — KEYBOARD DRIVE: TAP vs HOLD
+//
+//   The arrow keys felt slow because the repeat was coming from the
+//   OPERATING SYSTEM: a ~500 ms dead pause, then a fixed ~30/sec chatter,
+//   every step the same size. That is a text-entry repeat curve, not a
+//   navigation one.
+//
+//   Split the two gestures, because they want opposite things:
+//
+//     TAP   one keydown -> exactly ONE nudge at the full grain step.
+//           Unchanged. This is the precision gesture and it stays exact.
+//
+//     HOLD  after KEYS.delay ms, a rAF loop takes over at 60 fps and
+//           ramps the per-frame step from 0.25x grain up to 1.5x grain
+//           over KEYS.ramp ms. No OS pause, no chatter, and it lands
+//           roughly 3-6x faster than the old repeat at full glide while
+//           still starting gently enough to stop where you meant to.
+//
+//   OS key-repeat events (ev.repeat) are now DISCARDED — the rAF loop owns
+//   the hold, so the two cannot fight each other.
+//
+//   Speed is therefore controlled on two axes, both of them reachable:
+//     GRAIN  fine / mid / coarse — the size of one tap. G key, and now
+//            three clickable chips in the dashboard.
+//     GAIN   the "hold speed" dial — scales the hold ramp only. Taps are
+//            untouched by it.
+//
+// ============================================
+// v3.8.6 — compound-motion ratio range widened to +/-20 (was +/-5), in
+//          BOTH clamps: the Leva "ratio" control and the dashboard's range
+//          slider. Step coarsened 0.01 -> 0.05 so a full sweep is still one
+//          drag rather than 800 of them. WIRE.ratio itself was never
+//          clamped in code — only the two UI widgets were.
+//
+// ============================================
 // v3.8.5 — THE TWO BLACK RIM TRIMS
 //
 //   PROBED FROM THE DEPLOYED GLB, not inferred. Three prims stack at the
@@ -387,6 +422,42 @@ const GRAIN_STEPS = {
   p: [0.002, 0.01, 0.05],
 };
 
+// HOLD curve. Taps do not touch any of this.
+//   delay  ms of continuous hold before the glide engages. Below this, a
+//          tap is still just a tap.
+//   ramp   ms to travel from the slow end of the glide to the fast end.
+//   min/max  per-FRAME step as a multiple of the grain step. At 60 fps,
+//          0.25x grain = 15 grain-steps/sec; 1.5x = 90/sec.
+//   gain   live multiplier on the whole glide ("hold speed" dial).
+const KEYS = {
+  delay: 200,
+  ramp: 900,
+  min: 0.25,
+  max: 1.5,
+  gain: 1.0,
+};
+
+const HOLD = { keys: new Set(), raf: 0, t0: 0 };
+
+const ARROWS = {
+  ArrowLeft: ["x", -1],
+  ArrowRight: ["x", 1],
+  ArrowUp: ["y", 1],
+  ArrowDown: ["y", -1],
+};
+
+function holdScale(elapsed) {
+  if (elapsed < KEYS.delay) return 0; // still a tap — the loop stays silent
+  const t = Math.min(1, (elapsed - KEYS.delay) / KEYS.ramp);
+  return (KEYS.min + (KEYS.max - KEYS.min) * smoothstep(t)) * KEYS.gain;
+}
+
+function stopHold() {
+  HOLD.keys.clear();
+  if (HOLD.raf) cancelAnimationFrame(HOLD.raf);
+  HOLD.raf = 0;
+}
+
 const SCREEN_ROT_SIGNS = { yaw: 1, pitch: -1, roll: -1 };
 const HUD_ROT_SIGNS = { yaw: 1, pitch: -1, roll: 1 };
 
@@ -648,8 +719,8 @@ function stageQuat() {
   );
 }
 
-function nudgeSettleMoveScreen(set, axis, dir) {
-  const step = GRAIN_STEPS.frac[DEV.driveGrain] * dir;
+function nudgeSettleMoveScreen(set, axis, dir, scale = 1) {
+  const step = GRAIN_STEPS.frac[DEV.driveGrain] * dir * scale;
   const aspect = DEV.viewport
     ? DEV.viewport.width / DEV.viewport.height
     : window.innerWidth / window.innerHeight;
@@ -678,8 +749,9 @@ function nudgeSettleMoveScreen(set, axis, dir) {
   });
 }
 
-function nudgeRotateScreen(set, axis, dir, isRoll) {
-  const stepRad = (GRAIN_STEPS.deg[DEV.driveGrain] * Math.PI) / 180;
+function nudgeRotateScreen(set, axis, dir, isRoll, scale = 1) {
+  const stepRad =
+    (GRAIN_STEPS.deg[DEV.driveGrain] * scale * Math.PI) / 180;
   let axisVec, sign;
   if (isRoll) {
     axisVec = new THREE.Vector3(0, 0, 1);
@@ -717,18 +789,21 @@ function nudgeRotateScreen(set, axis, dir, isRoll) {
   }
 }
 
-function driveNudge(set, axis, dir) {
+function driveNudge(set, axis, dir, scale = 1) {
   cancelSquareAnim();
   const eff = effectiveTarget();
   const mode = DEV.driveMode;
 
   if (mode === 0 && eff === "settle")
-    return nudgeSettleMoveScreen(set, axis, dir);
-  if (mode === 1) return nudgeRotateScreen(set, axis, dir, false);
-  if (mode === 2 && axis === "x") return nudgeRotateScreen(set, axis, dir, true);
+    return nudgeSettleMoveScreen(set, axis, dir, scale);
+  if (mode === 1) return nudgeRotateScreen(set, axis, dir, false, scale);
+  if (mode === 2 && axis === "x")
+    return nudgeRotateScreen(set, axis, dir, true, scale);
 
-  const [param, cls, sign] = DRIVE_MAP[eff][mode][axis];
-  const step = GRAIN_STEPS[cls][DEV.driveGrain] * dir * sign;
+  const entry = DRIVE_MAP[eff][mode][axis];
+  if (!entry) return;
+  const [param, cls, sign] = entry;
+  const step = GRAIN_STEPS[cls][DEV.driveGrain] * dir * sign * scale;
   const [lo, hi] = DRIVE_CLAMPS[param];
   const next = Math.min(hi, Math.max(lo, DRIVE_READERS[param]() + step));
   set({ [param]: Number(next.toFixed(4)) });
@@ -1135,6 +1210,34 @@ function DevControls({ initialP }) {
       { collapsed: false }
     ),
 
+    // ---- v3.8.7 KEYBOARD — this dial scales the HOLD glide only. A tap is
+    // always one exact grain step and is never affected by it. ----
+    "⌨ keyboard": folder(
+      {
+        holdGain: {
+          value: KEYS.gain,
+          min: 0.25,
+          max: 6,
+          step: 0.05,
+          label: "hold speed (taps unaffected)",
+          onChange: (v) => {
+            KEYS.gain = v;
+          },
+        },
+        holdDelay: {
+          value: KEYS.delay,
+          min: 0,
+          max: 600,
+          step: 10,
+          label: "hold kick-in (ms)",
+          onChange: (v) => {
+            KEYS.delay = v;
+          },
+        },
+      },
+      { collapsed: true }
+    ),
+
     "🔗 wiring": folder(
       {
         wire: {
@@ -1163,9 +1266,9 @@ function DevControls({ initialP }) {
         },
         ratio: {
           value: 1.0,
-          min: -5,
-          max: 5,
-          step: 0.01,
+          min: -20,
+          max: 20,
+          step: 0.05,
           onChange: (v) => {
             WIRE.ratio = v;
           },
@@ -1450,14 +1553,37 @@ function DevControls({ initialP }) {
         set({ drive: driveLabel() });
         return;
       }
-      if (ev.key === "ArrowLeft" || ev.key === "ArrowRight") {
+      // ---- ARROWS: tap = one exact step, hold = 60 fps ramped glide ----
+      if (ARROWS[ev.key]) {
         ev.preventDefault();
-        driveNudge(set, "x", ev.key === "ArrowRight" ? 1 : -1);
-        return;
-      }
-      if (ev.key === "ArrowUp" || ev.key === "ArrowDown") {
-        ev.preventDefault();
-        driveNudge(set, "y", ev.key === "ArrowUp" ? 1 : -1);
+
+        // Discard the OS's own repeat events. The rAF loop owns the hold;
+        // if both ran, they would stack and the glide would double.
+        if (ev.repeat) return;
+        if (HOLD.keys.has(ev.key)) return;
+
+        const [axis, dir] = ARROWS[ev.key];
+        driveNudge(set, axis, dir); // the TAP — full grain step, always
+        HOLD.keys.add(ev.key);
+
+        if (!HOLD.raf) {
+          HOLD.t0 = performance.now();
+          const loop = (now) => {
+            if (!HOLD.keys.size) {
+              HOLD.raf = 0;
+              return;
+            }
+            const scale = holdScale(now - HOLD.t0);
+            if (scale > 0) {
+              for (const k of HOLD.keys) {
+                const [a, d] = ARROWS[k];
+                driveNudge(set, a, d, scale);
+              }
+            }
+            HOLD.raf = requestAnimationFrame(loop);
+          };
+          HOLD.raf = requestAnimationFrame(loop);
+        }
         return;
       }
 
@@ -1480,8 +1606,26 @@ function DevControls({ initialP }) {
       const map = { w: "translate", e: "rotate", r: "scale", q: "off" };
       if (map[k]) setGizmoMode(map[k]);
     };
+    const onKeyUp = (ev) => {
+      if (!ARROWS[ev.key]) return;
+      HOLD.keys.delete(ev.key);
+      if (!HOLD.keys.size && HOLD.raf) {
+        cancelAnimationFrame(HOLD.raf);
+        HOLD.raf = 0;
+      }
+    };
+
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("keyup", onKeyUp);
+    // A key held while the tab loses focus never fires keyup — without this
+    // the glide would run forever in the background.
+    window.addEventListener("blur", stopHold);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", stopHold);
+      stopHold();
+    };
   }, [set]);
 
   return null;
@@ -1768,6 +1912,29 @@ function DevDashboard() {
         </span>
       </div>
 
+      <div style={UI.head}>⚡ step size (G)</div>
+      <div style={UI.row}>
+        {GRAIN_LABELS.map((label, i) => (
+          <span
+            key={label}
+            style={chipStyle(DEV.driveGrain === i, true)}
+            title={
+              i === 0
+                ? "smallest arrow-key step — precision"
+                : i === 1
+                ? "medium arrow-key step"
+                : "largest arrow-key step — fast travel"
+            }
+            onClick={() => {
+              DEV.driveGrain = i;
+              if (DEV.setLeva) DEV.setLeva({ drive: driveLabel() });
+            }}
+          >
+            {label}
+          </span>
+        ))}
+      </div>
+
       <div style={UI.head}>gizmo — precision (W/E/R/Q)</div>
       <div style={UI.row}>
         {[
@@ -1842,9 +2009,9 @@ function DevDashboard() {
       <div style={{ ...UI.row, marginTop: 3, alignItems: "center" }}>
         <input
           type="range"
-          min={-5}
-          max={5}
-          step={0.01}
+          min={-20}
+          max={20}
+          step={0.05}
           value={WIRE.ratio}
           style={{ width: 150, accentColor: "#2e7d52" }}
           title="ratio — driven units per master unit"
@@ -1929,6 +2096,8 @@ function DevDashboard() {
         rotate mode: drag ring = roll · inside ring = yaw/pitch
         <br />
         gizmo (W/E/R/Q) overrides the sat-nav
+        <br />
+        arrows: tap = one exact step · hold = accelerating glide
       </div>
     </div>
   );
