@@ -16,6 +16,40 @@ import { Leva, useControls, button, folder } from "leva";
 gsap.registerPlugin(ScrollTrigger);
 
 // ============================================
+// v3.8.5 — THE TWO BLACK RIM TRIMS
+//
+//   PROBED FROM THE DEPLOYED GLB, not inferred. Three prims stack at the
+//   front face (metres):
+//
+//     Glass_Front        z -0.0051 (FLAT PLANE, 0 thick)   71 x 155 mm
+//     Glass_Bezel        z -0.0051 -> -0.0046  (0.5 mm)    75 x 159 mm
+//     Display_OLED.001   z -0.0042 -> -0.0038  (0.4 mm)    75 x 159 mm
+//
+//   The bezel and the OLED carry IDENTICAL footprints, both 2 mm larger
+//   per side than the front glass, and they sit 0.4 mm apart in Z. Neither
+//   is a plane — both are SLABS, so both have a side-wall RIM running the
+//   whole perimeter. Both rims render black (the bezel by design; the OLED
+//   rim because v3.8's two-way split sent everything that was not the
+//   front cap to the black material). Two black slab rims, 0.4 mm apart,
+//   only visible at a grazing angle. That is the doubled trim, exactly.
+//
+//   The BEZEL band is wanted — it is the phone's real black border, and
+//   2 mm is dimensionally right for a 14 Pro. The OLED rim is pure
+//   artefact: on a real panel that manufacturing edge is buried under the
+//   bezel, and here it is being drawn as a second line.
+//
+//   Fix: THREE-way split, not two.
+//     nz <  faceCut   -> screen  (front cap)
+//     nz > -faceCut   -> black   (back cap; still occludes from behind)
+//     otherwise       -> RIM     -> its own material, visible = false
+//
+//   The rim now renders nothing at all. The back cap survives, so the slab
+//   is still solid from the rear. Rim visibility is a dial ("show OLED
+//   rim") in case anything unexpected shows through, and there is a "hide
+//   bezel" toggle beside it so each trim can be isolated on demand and the
+//   attribution confirmed by eye rather than by argument.
+//
+// ============================================
 // v3.8.4 — OLED FACE-SPLIT THRESHOLD (the jagged corner lip)
 //
 //   The jagged, alternating rainbow edge on the OLED's top corners —
@@ -288,6 +322,7 @@ const LIGHT = {
 // ---------------------------------------------------------
 const OLED = {
   faceCut: -0.5,
+  showRim: false, // the slab's side wall — artefact, hidden by default
 };
 
 const BEZEL = {
@@ -324,6 +359,8 @@ const DEV = {
   hudMode: "move",
   leftClampNDC: -0.85,
   bezelMat: null, // live handle — the bezel Leva folder writes through it
+  bezelMeshes: [], // live handles — the "hide bezel" isolate toggle
+  oledRimMat: null, // live handle — the "show OLED rim" toggle
 };
 
 function atEndpoint() {
@@ -728,7 +765,7 @@ function serialiseParams(params) {
     "bezel",
     [BEZEL.env, BEZEL.rough, BEZEL.offset].map((v) => v.toFixed(2)).join(",")
   );
-  params.set("oled", OLED.faceCut.toFixed(2));
+  params.set("oled", `${OLED.faceCut.toFixed(2)},${OLED.showRim ? 1 : 0}`);
 }
 
 function buildTuningURL() {
@@ -780,7 +817,7 @@ function saveCard() {
     `stage pos ${STAGE.position.map((v) => v.toFixed(2)).join(", ")}    rot ${STAGE.rotationEuler.map(deg).join(", ")}    scl ${STAGE.scale.toFixed(2)}`,
     `glassreg ${[GLASS_REG.x, GLASS_REG.y, GLASS_REG.z].map((v) => v.toFixed(3)).join(", ")}`,
     `light amb ${LIGHT.amb.toFixed(2)}  key ${LIGHT.key.toFixed(2)}  fill ${LIGHT.fill.toFixed(2)}  env ${LIGHT.env.toFixed(2)}  exp ${LIGHT.exp.toFixed(2)}`,
-    `bezel env ${BEZEL.env.toFixed(2)}  rough ${BEZEL.rough.toFixed(2)}  offset ${BEZEL.offset.toFixed(2)}    oled cut ${OLED.faceCut.toFixed(2)}`,
+    `bezel env ${BEZEL.env.toFixed(2)}  rough ${BEZEL.rough.toFixed(2)}  offset ${BEZEL.offset.toFixed(2)}    oled cut ${OLED.faceCut.toFixed(2)}  rim ${OLED.showRim ? "on" : "off"}`,
   ];
   const url = buildTuningURL();
 
@@ -1073,6 +1110,25 @@ function DevControls({ initialP }) {
           onChange: (v) => {
             OLED.faceCut = v;
             applyOledCut(v);
+          },
+        },
+        // The OLED slab's side wall. This is the INNER of the two black
+        // trims. Off = gone. On = v3.8.4 behaviour, for comparison.
+        oledRim: {
+          value: OLED.showRim,
+          label: "show OLED rim (trim 2)",
+          onChange: (v) => {
+            OLED.showRim = v;
+            if (DEV.oledRimMat) DEV.oledRimMat.visible = v;
+          },
+        },
+        // The OUTER trim. Toggle it to confirm the attribution by eye:
+        // whichever black line vanishes is the one this owns.
+        hideBezel: {
+          value: false,
+          label: "hide bezel (trim 1) — isolate",
+          onChange: (v) => {
+            for (const m of DEV.bezelMeshes) m.visible = !v;
           },
         },
       },
@@ -2314,7 +2370,7 @@ function DevGizmo() {
 //   ?glassreg=x,y,z            whole-glass-unit registration
 //   ?light=amb,key,fill,env,exp   v3.8 lighting rig
 //   ?bezel=env,rough,offset       v3.8.1 bezel dials
-//   ?oled=-0.5                    v3.8.4 OLED face-split cut
+//   ?oled=-0.5,0                  OLED face-split cut, rim on/off
 //   ?snap=1                    deterministic capture (Playwright)
 //   ?dev=1                     Pose Studio
 // ============================================
@@ -2404,9 +2460,15 @@ function resolveRuntimeConfig() {
   }
 
   // ---- OLED channel (v3.8.4) ----
-  const oledParam = parseFloat(params.get("oled"));
-  if (!isNaN(oledParam) && oledParam >= -1 && oledParam <= 0) {
-    OLED.faceCut = oledParam;
+  const oledParam = params.get("oled");
+  if (oledParam) {
+    const parts = oledParam.split(",").map((v) => parseFloat(v));
+    if (!isNaN(parts[0]) && parts[0] >= -1 && parts[0] <= 0) {
+      OLED.faceCut = parts[0];
+    }
+    if (parts.length > 1 && !isNaN(parts[1])) {
+      OLED.showRim = parts[1] === 1;
+    }
   }
 
   // ---- LIGHT channel (v3.8) — applies in production too ----
@@ -2504,6 +2566,7 @@ const scrollState = {
 // ---------------------------------------------------------
 const OLED_SCREEN_GROUP = 0;
 const OLED_BLACK_GROUP = 1;
+const OLED_RIM_GROUP = 2;
 
 // Cached per-triangle classification data. Filled once by splitOledGeometry;
 // applyOledCut then rebuilds ONLY the index buffer + groups from it. This is
@@ -2512,29 +2575,35 @@ const OLED_BLACK_GROUP = 1;
 // second traverse would find nothing and destroy the model.
 const OLED_CACHE = { geo: null, tri: null, nz: null };
 
+// THREE-way partition (v3.8.5). The cut is symmetric: faceCut for the front
+// cap, -faceCut for the back cap, and everything in between is the slab's
+// side wall — the rim — which gets its own group so it can be switched off
+// without taking the back cap (and the slab's solidity) with it.
 function applyOledCut(cut) {
   const { geo, tri, nz } = OLED_CACHE;
   if (!geo || !tri || !nz) return;
 
+  const back = -cut;
   const front = [];
-  const back = [];
+  const rear = [];
+  const rim = [];
+
   for (let t = 0; t < nz.length; t++) {
     const o = t * 3;
-    if (nz[t] < cut) {
-      front.push(tri[o], tri[o + 1], tri[o + 2]);
-    } else {
-      back.push(tri[o], tri[o + 1], tri[o + 2]);
-    }
+    const bucket = nz[t] < cut ? front : nz[t] > back ? rear : rim;
+    bucket.push(tri[o], tri[o + 1], tri[o + 2]);
   }
 
-  const merged = new tri.constructor(front.length + back.length);
+  const merged = new tri.constructor(front.length + rear.length + rim.length);
   merged.set(front, 0);
-  merged.set(back, front.length);
+  merged.set(rear, front.length);
+  merged.set(rim, front.length + rear.length);
   geo.setIndex(new THREE.BufferAttribute(merged, 1));
 
   geo.clearGroups();
   geo.addGroup(0, front.length, OLED_SCREEN_GROUP);
-  geo.addGroup(front.length, back.length, OLED_BLACK_GROUP);
+  geo.addGroup(front.length, rear.length, OLED_BLACK_GROUP);
+  geo.addGroup(front.length + rear.length, rim.length, OLED_RIM_GROUP);
 }
 
 function splitOledGeometry(geometry) {
@@ -2667,6 +2736,7 @@ function IPhoneExploded({
     const glass = [];
     const oled = [];
     const body = [];
+    DEV.bezelMeshes = [];
 
     // World matrices for the INTACT graph — ground truth for the rebase.
     // MUST run before any mesh is re-parented by <primitive>.
@@ -2698,6 +2768,7 @@ function IPhoneExploded({
         });
         child.material = bezelMat;
         DEV.bezelMat = bezelMat; // live handle for the Leva folder
+        DEV.bezelMeshes.push(child); // live handle for the isolate toggle
         child.renderOrder = 4;
         glass.push(child);
         return;
@@ -2762,7 +2833,15 @@ function IPhoneExploded({
         }
 
         // Material ARRAY — index matches the geometry groups declared in
-        // splitOledGeometry. [0] = the screen, [1] = back cap + rim.
+        // splitOledGeometry. [0] screen, [1] back cap, [2] the slab RIM.
+        // The rim is the second of the two black trims; it is off.
+        const oledRimMat = new THREE.MeshBasicMaterial({
+          color: new THREE.Color(0x000000),
+          toneMapped: false,
+        });
+        oledRimMat.visible = OLED.showRim;
+        DEV.oledRimMat = oledRimMat;
+
         child.material = [
           new THREE.MeshBasicMaterial({
             map: oledTexture,
@@ -2772,6 +2851,7 @@ function IPhoneExploded({
             color: new THREE.Color(0x000000),
             toneMapped: false,
           }),
+          oledRimMat,
         ];
         child.renderOrder = 1;
         oled.push(child);
