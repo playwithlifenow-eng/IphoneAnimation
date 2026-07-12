@@ -2646,16 +2646,17 @@ function IPhoneExploded({
         const name = child.name.toLowerCase();
 
         if (name.includes("bezel") || name.includes("glass_bezel")) {
-          child.material = new THREE.MeshStandardMaterial({
-            color: new THREE.Color(0x000000),
-            roughness: 0.7,
-            metalness: 0.0,
-            transparent: false,
-            depthWrite: false,
-            depthTest: false, // bezel opts out of depth entirely — no test, no fight, no flicker.
-            // SAFE for this timeline only: front face never leaves the camera.
-            // If the choreography ever shows the phone's back, revisit.
-          });
+         child.material = new THREE.MeshStandardMaterial({
+  color: new THREE.Color(0x000000),
+  roughness: 0.7,
+  metalness: 0.0,
+  transparent: false,
+  depthWrite: false,
+  depthTest: true,          // ← restored: the body can now occlude it
+  polygonOffset: true,      // ← biases it toward the camera so it still
+  polygonOffsetFactor: -4,  //    wins against coplanar Glass_Front —
+  polygonOffsetUnits: -4,   //    no test, no fight, no flicker, and no
+});                         //    bleed-through from behind
           child.renderOrder = 4;
           glass.push(child);
         } else if (
