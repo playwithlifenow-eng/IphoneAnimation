@@ -231,17 +231,65 @@ const LIGHT = {
 // matching and the part reverts to the body group with no error.
 // ============================================
 
+// ---------------------------------------------------------
+// NAME NORMALISATION (v3.8.1) — THE BUG THAT KILLED v3.8's ROUTING.
+//
+// GLTFLoader does NOT hand you the material name from the GLB. It runs
+// every name through THREE.PropertyBinding.sanitizeNodeName first:
+//
+//     sanitizeNodeName(n) { return n.replace(/\s/g, "_").replace(reserved, "") }
+//
+// EVERY SPACE BECOMES AN UNDERSCORE. So the GLB's "Display Dynamic Island"
+// arrives in three.js as "Display_Dynamic_Island", and an exact-match
+// Set.has() against the spaced string never fires — silently, with no
+// error, and the part just quietly stays where it was.
+//
+// Fix: normalise BOTH sides down to lowercase alphanumerics. Spaces,
+// underscores, double-spaces, punctuation and case can then never break
+// the match — including if the materials get renamed in Blender later.
+// ---------------------------------------------------------
+const normMat = (s) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+
 // Mounts in the GLASS group so it shares the cutout's exact transform.
-const GLASS_GROUP_MATERIALS = new Set([
-  "Display Dynamic Island",
-]);
+const GLASS_GROUP_MATERIALS = new Set(
+  ["Display Dynamic Island"].map(normMat)
+);
 
 // The flat circle sitting on top of the internals PNG. Both are at
 // z = -0.0039 (front face), immediately left of the pill.
-const HIDDEN_MATERIALS = new Set([
-  "Front Camera  (Center + Outer Ring)", // note: DOUBLE space, verbatim
-  "Display Camera Hole (Outer Bright)",
-]);
+// NOT the "Center Faint"/"Center Bright" prims — despite their names,
+// those run to z = +0.0072 and are REAR camera module geometry.
+const HIDDEN_MATERIALS = new Set(
+  [
+    "Front Camera  (Center + Outer Ring)",
+    "Display Camera Hole (Outer Bright)",
+  ].map(normMat)
+);
+
+// ---------------------------------------------------------
+// BEZEL (v3.8.1) — dials, because the black-rim cause is UNRESOLVED.
+//
+// Two candidates for the faint black rim on the OLED edge and the front
+// outward edge, and a screenshot cannot separate them:
+//   (a) the bezel is now DEAD black (env 0, rough 1.0), so its rim
+//       geometry — which was always drawn — is finally conspicuous
+//   (b) offset -4 pushes it in front of the chassis edge at grazing
+//       angles, expanding its visible footprint
+//
+// Confidence is MEDIUM/MEDIUM, which is a hard stop. So: dials, not a
+// guess. Drag "depth push" toward 0 — if the rim goes, it was (b). If it
+// doesn't, raise "black level" off 0 until the rim reads as glossy trim
+// instead of an outline; that means it was (a).
+//
+// Overridable: ?bezel=env,rough,offset
+// ---------------------------------------------------------
+const BEZEL = {
+  env: 0.0,     // envMapIntensity — 0 = dead black, no IBL reflection
+  rough: 1.0,   // roughness — 1.0 = no specular lobe at all
+  offset: -4,   // polygonOffset factor+units. Glass_Front sits at -2, so
+                // the bezel must be MORE negative to win where they are
+                // coplanar. 0 = no offset (chassis can occlude it).
+};
 
 // ============================================
 // DEV RIG
@@ -268,6 +316,7 @@ const DEV = {
   viewport: null,
   hudMode: "move",
   leftClampNDC: -0.85,
+  bezelMat: null, // live handle — the bezel Leva folder writes through it
 };
 
 function atEndpoint() {
@@ -668,6 +717,10 @@ function serialiseParams(params) {
       .map((v) => v.toFixed(3))
       .join(",")
   );
+  params.set(
+    "bezel",
+    [BEZEL.env, BEZEL.rough, BEZEL.offset].map((v) => v.toFixed(2)).join(",")
+  );
 }
 
 function buildTuningURL() {
@@ -719,6 +772,7 @@ function saveCard() {
     `stage pos ${STAGE.position.map((v) => v.toFixed(2)).join(", ")}    rot ${STAGE.rotationEuler.map(deg).join(", ")}    scl ${STAGE.scale.toFixed(2)}`,
     `glassreg ${[GLASS_REG.x, GLASS_REG.y, GLASS_REG.z].map((v) => v.toFixed(3)).join(", ")}`,
     `light amb ${LIGHT.amb.toFixed(2)}  key ${LIGHT.key.toFixed(2)}  fill ${LIGHT.fill.toFixed(2)}  env ${LIGHT.env.toFixed(2)}  exp ${LIGHT.exp.toFixed(2)}`,
+    `bezel env ${BEZEL.env.toFixed(2)}  rough ${BEZEL.rough.toFixed(2)}  offset ${BEZEL.offset.toFixed(2)}`,
   ];
   const url = buildTuningURL();
 
@@ -944,6 +998,53 @@ function DevControls({ initialP }) {
           onChange: (v) => {
             LIGHT.exp = v;
             DEV.dirtyLight = true;
+          },
+        },
+      },
+      { collapsed: false }
+    ),
+
+    // ---- v3.8.1 BEZEL — the black-rim cause is UNRESOLVED, so this is a
+    // dial set, not a guess. depth push -> 0 tests one hypothesis;
+    // black level off 0 tests the other. ----
+    "🖤 bezel": folder(
+      {
+        bezelEnv: {
+          value: BEZEL.env,
+          min: 0,
+          max: 2,
+          step: 0.05,
+          label: "black level (0 = dead black)",
+          onChange: (v) => {
+            BEZEL.env = v;
+            if (DEV.bezelMat) DEV.bezelMat.envMapIntensity = v;
+          },
+        },
+        bezelRough: {
+          value: BEZEL.rough,
+          min: 0,
+          max: 1,
+          step: 0.01,
+          label: "gloss (1 = matte)",
+          onChange: (v) => {
+            BEZEL.rough = v;
+            if (DEV.bezelMat) DEV.bezelMat.roughness = v;
+          },
+        },
+        bezelOffset: {
+          value: BEZEL.offset,
+          min: -10,
+          max: 0,
+          step: 0.5,
+          label: "depth push (0 = none)",
+          onChange: (v) => {
+            BEZEL.offset = v;
+            if (DEV.bezelMat) {
+              DEV.bezelMat.polygonOffset = v !== 0;
+              DEV.bezelMat.polygonOffsetFactor = v;
+              DEV.bezelMat.polygonOffsetUnits = v;
+              DEV.bezelMat.needsUpdate = true;
+            }
           },
         },
       },
@@ -2261,6 +2362,17 @@ function resolveRuntimeConfig() {
     }
   }
 
+  // ---- BEZEL channel (v3.8.1) ----
+  const bezelParam = params.get("bezel");
+  if (bezelParam) {
+    const parts = bezelParam.split(",").map((v) => parseFloat(v));
+    if (parts.length === 3 && parts.every((v) => !isNaN(v))) {
+      BEZEL.env = parts[0];
+      BEZEL.rough = parts[1];
+      BEZEL.offset = parts[2];
+    }
+  }
+
   // ---- LIGHT channel (v3.8) — applies in production too ----
   const lightParam = params.get("light");
   if (lightParam) {
@@ -2500,7 +2612,11 @@ function IPhoneExploded({
       if (!child.isMesh) return;
 
       const name = child.name.toLowerCase();
-      const matName = (child.material && child.material.name) || "";
+      // NORMALISED. GLTFLoader has already turned every space in the GLB's
+      // material name into an underscore (sanitizeNodeName), so the raw
+      // string here is "Display_Dynamic_Island", not "Display Dynamic
+      // Island". Comparing normalised forms is the only safe match.
+      const matName = normMat(child.material && child.material.name);
 
       // ---- 1. HIDE: the stray front-camera circle sitting on the
       // internals PNG. Two flat prims at z = -0.0039, immediately left
@@ -2513,24 +2629,26 @@ function IPhoneExploded({
       }
 
       // ---- 2. BEZEL ----
+      // depthTest:true is RESTORED and non-negotiable: depthTest:false made
+      // the bezel draw through the body from behind, exactly as the v3.2
+      // comment predicted once the choreography showed the phone's back.
+      // Everything else here is a live dial (BEZEL) because the residual
+      // black-rim cause is unresolved — see the BEZEL block at the top.
       if (name.includes("bezel") || name.includes("glass_bezel")) {
-        child.material = new THREE.MeshStandardMaterial({
+        const bezelMat = new THREE.MeshStandardMaterial({
           color: new THREE.Color(0x000000),
-          roughness: 1.0,      // was 0.7 — no specular lobe to blow out
+          roughness: BEZEL.rough,
           metalness: 0.0,
-          envMapIntensity: 0,  // unhook from the IBL: black base reads BLACK
+          envMapIntensity: BEZEL.env,
           transparent: false,
           depthWrite: false,
-          depthTest: true,     // RESTORED. depthTest:false made the bezel
-                               // draw through the body from behind — the
-                               // v3.2 comment predicted exactly this once
-                               // the choreography showed the phone's back.
-          polygonOffset: true, // takes over the anti-z-fight job that
-          polygonOffsetFactor: -4, // depthTest:false was doing. More
-          polygonOffsetUnits: -4,  // aggressive than Glass_Front's -2, so
-                                   // the bezel still wins where they're
-                                   // coplanar — without ignoring depth.
+          depthTest: true,
+          polygonOffset: BEZEL.offset !== 0,
+          polygonOffsetFactor: BEZEL.offset,
+          polygonOffsetUnits: BEZEL.offset,
         });
+        child.material = bezelMat;
+        DEV.bezelMat = bezelMat; // live handle for the Leva folder
         child.renderOrder = 4;
         glass.push(child);
         return;
@@ -2620,21 +2738,34 @@ function IPhoneExploded({
       if ("emissiveIntensity" in mat) mat.emissiveIntensity = 0;
       mat.emissiveMap = null;
 
-      // Property-based rule (source mesh names are obfuscated):
-      //   alpha ≤ 0.05 — effectively-invisible coating films → hide
-      //   alpha <  1   — translucent covers → solid near-black glass
+      // ---- TRANSLUCENT COATS (v3.8.1 — REWRITTEN) ----
+      //
+      // The old rule was `if (opacity < 1) color.setHex(0x0a0a0a)` — it
+      // painted EVERY translucent body material near-black. That is why the
+      // Rear Camera Island renders black: the island itself is opaque white
+      // and perfectly fine, but "Rear Camera Island + Apple Logo" is a
+      // 10%-alpha WHITE gloss coat lying on top of it, and the rule turned
+      // that coat into an opaque black slab. Same for "Display Camera Hole
+      // (Center Bright)" (white, alpha 0.175) and "Flash Bright" (alpha 0.20
+      // — a FLASH, painted black).
+      //
+      // That rule was a casualty of the see-through-body firefight: the body
+      // had to be forced opaque because its back glass was being culled.
+      // That is fixed. The constraint is gone. So the coats now render as
+      // AUTHORED — real colour, real alpha — with depthWrite off so they
+      // cannot fight the surface they sit on.
+      //
+      //   alpha ≤ 0.05 — effectively-invisible film → still hidden
+      //   alpha <  1   — gloss coat → keep colour, keep transparency
       if (mat.opacity <= 0.05) {
         child.visible = false;
       } else if (mat.opacity < 1) {
-        mat.color.setHex(0x0a0a0a);
-        if ("metalness" in mat) mat.metalness = 0.1;
-        if ("roughness" in mat) mat.roughness = 0.5;
-        if ("envMapIntensity" in mat) mat.envMapIntensity = 0.2;
-        mat.opacity = 1;
+        mat.transparent = true;
+        mat.depthWrite = false; // sits ON the surface, doesn't occlude it
+      } else {
+        mat.transparent = false;
+        mat.depthWrite = true;
       }
-
-      mat.transparent = false;
-      mat.depthWrite = true;
 
       [
         mat.map,
@@ -2650,6 +2781,9 @@ function IPhoneExploded({
           tex.needsUpdate = true;
         }
       });
+
+      // Coats draw after the opaque body they sit on.
+      const isCoat = mat.transparent && child.visible;
 
       // ---- 5b. PILL ROUTING (v3.8) ----
       // Display Dynamic Island is authored INSIDE the Glass_Front cutout
@@ -2669,7 +2803,7 @@ function IPhoneExploded({
         return;
       }
 
-      child.renderOrder = 0;
+      child.renderOrder = isCoat ? 1 : 0;
       body.push(child);
     });
 
