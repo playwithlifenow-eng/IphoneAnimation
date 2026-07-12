@@ -4,7 +4,6 @@ import { useRef, useMemo, useEffect, useLayoutEffect, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import {
   Environment,
-  ContactShadows,
   useGLTF,
   useTexture,
   TransformControls,
@@ -16,6 +15,22 @@ import { Leva, useControls, button, folder } from "leva";
 
 gsap.registerPlugin(ScrollTrigger);
 
+// ============================================
+// v3.8.3 — CONTACT SHADOW REMOVED
+//
+//   The horizontal line running clean across the screen AND out past the
+//   phone's silhouette on both sides was never a shadow ON the phone — it
+//   was ContactShadows itself. It is a ground plane at y = -0.7 and the
+//   camera sits at y = 0, so it was being viewed almost perfectly edge-on:
+//   a plane seen edge-on collapses to a line. Its opacity ran
+//   0.5 * (1 - rotate), so it was at FULL strength at the start of the
+//   timeline (the hero pose being captured) and faded out by the settle —
+//   which is why it only ever showed up here.
+//
+//   Nothing is lost by deleting it: the background is transparent, the
+//   phone is floating, and there is no ground for it to contact. The
+//   shadowRef and its per-frame opacity write go with it.
+//
 // ============================================
 // v3.8.2 — REVERT: PILL ROUTING + CAMERA HIDING
 //
@@ -2990,7 +3005,6 @@ function Scene({
   explodeDistance,
   dev,
 }) {
-  const shadowRef = useRef();
   const ambRef = useRef();
   const keyRef = useRef();
   const fillRef = useRef();
@@ -3001,14 +3015,6 @@ function Scene({
     if (ambRef.current) ambRef.current.intensity = LIGHT.amb;
     if (keyRef.current) keyRef.current.intensity = LIGHT.key;
     if (fillRef.current) fillRef.current.intensity = LIGHT.fill;
-
-    if (shadowRef.current) {
-      shadowRef.current.traverse((o) => {
-        if (o.material && "opacity" in o.material) {
-          o.material.opacity = 0.5 * (1 - scrollState.rotate);
-        }
-      });
-    }
   });
 
   return (
@@ -3040,14 +3046,6 @@ function Scene({
       />
 
       {dev && <DevGizmo />}
-
-      <ContactShadows
-        ref={shadowRef}
-        position={[0, -0.7, 0]}
-        opacity={0.5}
-        scale={5}
-        blur={2.5}
-      />
     </>
   );
 }
