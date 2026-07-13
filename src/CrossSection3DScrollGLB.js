@@ -16,6 +16,23 @@ import { Leva, useControls, button, folder } from "leva";
 gsap.registerPlugin(ScrollTrigger);
 
 // ============================================
+// v4.0 — SLOT-BASED MOTION PATH STUDIO
+//
+//   POSE SLOTS -> PATH   Ctrl/Cmd-click filled slots to append them to an
+//                        ordered path. Each incoming leg owns its duration,
+//                        arrival hold, and easing. Paths persist locally.
+//
+//   MOTION TESTING       Preview, pause, restart, loop, scrub, switch between
+//                        straight and Catmull-Rom stage travel, and compare
+//                        easing curves without changing the saved poses.
+//
+//   CAPTURE CONTRACT     "copy preview URL" embeds every pose into the URL;
+//                        "path manifest" emits the existing capture manifest
+//                        with sweepParam "mp". Therefore ?snap=1&mp=0.5000
+//                        renders one exact path pose in a fresh browser with
+//                        no dependency on localStorage.
+//
+// ============================================
 // v3.9 — GLASS MATERIAL, IBL SOFTNESS, AND THE CRACKED-GLASS LAYER
 //
 //   THE HARD CIRCLE     It is not a light. It is a REFLECTION. Glass_Front
@@ -527,6 +544,7 @@ const DEV = {
   glassMat: null, // live handle — the front-glass folder
   crackMat: null, // live handle — the cracked-pane folder
   setEnv: null, // Scene's setter — preset/blur need a React re-render
+  pathPreview: false, // path engine already owns easing; bypass render damping
 };
 
 function atEndpoint() {
@@ -708,6 +726,282 @@ const SNAPSHOTS = { origin: null };
 
 const SLOT_KEY = "iglass_pose_slots_v1";
 const SLOT_COUNT = 100;
+const MOTION_PATH_KEY = "iglass_motion_path_v1";
+
+const MOTION_EASES = {
+  linear: (t) => t,
+  smooth: (t) => t * t * (3 - 2 * t),
+  cinematic: (t) => t * t * t * (t * (t * 6 - 15) + 10),
+  sine: (t) => 0.5 - 0.5 * Math.cos(Math.PI * t),
+  accelerate: (t) => t * t * t,
+  decelerate: (t) => 1 - Math.pow(1 - t, 3),
+};
+
+const MOTION_EASE_LABELS = {
+  linear: "linear",
+  smooth: "smooth",
+  cinematic: "cinematic",
+  sine: "sine",
+  accelerate: "accelerate",
+  decelerate: "decelerate",
+};
+
+const POSE_ROTATION_GROUPS = [
+  ["settleX", "settleY", "settleZ"],
+  ["srotX", "srotY", "srotZ"],
+];
+
+const POSE_ROTATION_KEYS = new Set(POSE_ROTATION_GROUPS.flat());
+
+function defaultMotionPath() {
+  return {
+    version: 1,
+    trajectory: "curve",
+    speed: 1,
+    loop: true,
+    nodes: [],
+  };
+}
+
+function loadMotionPath() {
+  try {
+    const raw = window.localStorage.getItem(MOTION_PATH_KEY);
+    const saved = raw ? JSON.parse(raw) : null;
+    if (saved && Array.isArray(saved.nodes)) {
+      return {
+        ...defaultMotionPath(),
+        ...saved,
+        trajectory: saved.trajectory === "line" ? "line" : "curve",
+        speed: Math.max(0.1, Number(saved.speed) || 1),
+        loop: saved.loop !== false,
+        nodes: saved.nodes
+          .filter((n) => Number.isInteger(n.slot))
+          .map((n, i) => ({
+            slot: n.slot,
+            duration: i === 0 ? 0 : Math.max(0.1, Number(n.duration) || 1.25),
+            hold: Math.max(0, Number(n.hold) || 0),
+            ease: MOTION_EASES[n.ease] ? n.ease : "cinematic",
+          })),
+      };
+    }
+  } catch (e) {
+    /* corrupted store -> fresh path */
+  }
+  return defaultMotionPath();
+}
+
+function persistMotionPath(path) {
+  try {
+    window.localStorage.setItem(MOTION_PATH_KEY, JSON.stringify(path));
+  } catch (e) {
+    /* storage blocked -> path remains session-only */
+  }
+}
+
+function compileMotionPath(path, slots) {
+  const nodes = path.nodes
+    .map((node) => ({ ...node, pose: slots[node.slot] || null }))
+    .filter((node) => node.pose);
+  return {
+    type: "iglass-motion-path",
+    version: 1,
+    trajectory: path.trajectory === "line" ? "line" : "curve",
+    speed: Math.max(0.1, Number(path.speed) || 1),
+    loop: path.loop !== false,
+    nodes,
+  };
+}
+
+function motionPathDuration(path) {
+  if (!path || !path.nodes || !path.nodes.length) return 0;
+  return path.nodes.reduce(
+    (sum, node, i) =>
+      sum + (i === 0 ? 0 : Math.max(0.1, Number(node.duration) || 0)) +
+      Math.max(0, Number(node.hold) || 0),
+    0
+  );
+}
+
+function catmullRom(p0, p1, p2, p3, t) {
+  const t2 = t * t;
+  const t3 = t2 * t;
+  return 0.5 * (
+    2 * p1 +
+    (-p0 + p2) * t +
+    (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 +
+    (-p0 + 3 * p1 - 3 * p2 + p3) * t3
+  );
+}
+
+function interpolateEulerGroup(a, b, keys, t, out) {
+  const rad = Math.PI / 180;
+  const qa = new THREE.Quaternion().setFromEuler(
+    new THREE.Euler(a[keys[0]] * rad, a[keys[1]] * rad, a[keys[2]] * rad)
+  );
+  const qb = new THREE.Quaternion().setFromEuler(
+    new THREE.Euler(b[keys[0]] * rad, b[keys[1]] * rad, b[keys[2]] * rad)
+  );
+  const q = new THREE.Quaternion().slerpQuaternions(qa, qb, t);
+  const e = new THREE.Euler().setFromQuaternion(q, "XYZ");
+  out[keys[0]] = wrapDeg(e.x);
+  out[keys[1]] = wrapDeg(e.y);
+  out[keys[2]] = wrapDeg(e.z);
+}
+
+function interpolateMotionPose(nodes, fromIndex, t, trajectory) {
+  const a = nodes[fromIndex].pose;
+  const b = nodes[fromIndex + 1].pose;
+  const out = {};
+
+  for (const key of Object.keys(a)) {
+    if (POSE_ROTATION_KEYS.has(key)) continue;
+    const av = a[key];
+    const bv = b[key];
+    if (typeof av === "number" && typeof bv === "number") {
+      out[key] = av + (bv - av) * t;
+    } else {
+      out[key] = t < 1 ? av : bv;
+    }
+  }
+
+  for (const keys of POSE_ROTATION_GROUPS) {
+    if (keys.every((key) => typeof a[key] === "number" && typeof b[key] === "number")) {
+      interpolateEulerGroup(a, b, keys, t, out);
+    }
+  }
+
+  if (trajectory === "curve") {
+    const p0 = nodes[Math.max(0, fromIndex - 1)].pose;
+    const p1 = a;
+    const p2 = b;
+    const p3 = nodes[Math.min(nodes.length - 1, fromIndex + 2)].pose;
+    for (const key of ["sposX", "sposY", "sposZ"]) {
+      if ([p0[key], p1[key], p2[key], p3[key]].every(Number.isFinite)) {
+        out[key] = catmullRom(p0[key], p1[key], p2[key], p3[key], t);
+      }
+    }
+  }
+
+  return out;
+}
+
+function sampleMotionPath(path, progress) {
+  if (!path || !path.nodes || !path.nodes.length) return null;
+  if (path.nodes.length === 1) return { ...path.nodes[0].pose };
+
+  const total = motionPathDuration(path);
+  if (total <= 0) return { ...path.nodes[path.nodes.length - 1].pose };
+
+  let time = Math.max(0, Math.min(1, progress)) * total;
+  const firstHold = Math.max(0, Number(path.nodes[0].hold) || 0);
+  if (time <= firstHold) return { ...path.nodes[0].pose };
+  time -= firstHold;
+
+  for (let i = 1; i < path.nodes.length; i++) {
+    const node = path.nodes[i];
+    const duration = Math.max(0.1, Number(node.duration) || 0);
+    if (time <= duration) {
+      const raw = Math.max(0, Math.min(1, time / duration));
+      const ease = MOTION_EASES[node.ease] || MOTION_EASES.cinematic;
+      return interpolateMotionPose(path.nodes, i - 1, ease(raw), path.trajectory);
+    }
+    time -= duration;
+
+    const hold = Math.max(0, Number(node.hold) || 0);
+    if (time <= hold) return { ...node.pose };
+    time -= hold;
+  }
+
+  return { ...path.nodes[path.nodes.length - 1].pose };
+}
+
+function applyPoseParamsDirect(pose) {
+  if (!pose) return;
+  const rad = Math.PI / 180;
+
+  if (Number.isFinite(pose.shift)) SETTLE.xShiftFraction = pose.shift;
+  if (Number.isFinite(pose.vshift)) SETTLE.yShiftFraction = pose.vshift;
+  if ([pose.settleX, pose.settleY, pose.settleZ].every(Number.isFinite)) {
+    SETTLE.targetEuler = [pose.settleX * rad, pose.settleY * rad, pose.settleZ * rad];
+    DEV.dirtyQuat = true;
+  }
+  if (Number.isFinite(pose.size) && pose.size > 0) {
+    MODEL.targetSize = pose.size;
+    DEV.dirtyFit = true;
+  }
+  if ([pose.sposX, pose.sposY, pose.sposZ].every(Number.isFinite)) {
+    STAGE.position = [pose.sposX, pose.sposY, pose.sposZ];
+    DEV.dirtyStage = true;
+  }
+  if ([pose.srotX, pose.srotY, pose.srotZ].every(Number.isFinite)) {
+    STAGE.rotationEuler = [pose.srotX * rad, pose.srotY * rad, pose.srotZ * rad];
+    DEV.dirtyStage = true;
+  }
+  if (Number.isFinite(pose.sscale) && pose.sscale > 0) {
+    STAGE.scale = pose.sscale;
+    DEV.dirtyStage = true;
+  }
+  if (Number.isFinite(pose.tilt)) {
+    START.tilt = pose.tilt * rad;
+    DEV.dirtyQuat = true;
+  }
+  if (Number.isFinite(pose.lift)) SETTLE.arcLift = pose.lift;
+  if (Number.isFinite(pose.pscale) && pose.pscale > 0) SETTLE.scale = pose.pscale;
+  if (Number.isFinite(pose.p)) {
+    const p = Math.max(0, Math.min(1, pose.p));
+    DEV.lastP = p;
+    if (DEV.applyProgress) DEV.applyProgress(p);
+  }
+
+  DEV.pathPreview = true;
+}
+
+function syncPoseControls(pose) {
+  if (!pose || !DEV.setLeva) return;
+  WIRE.suspended = true;
+  DEV.setLeva({ ...pose, drive: driveLabel() });
+  WIRE.suspended = false;
+}
+
+function encodeMotionPath(path) {
+  const json = JSON.stringify(path);
+  const bytes = new TextEncoder().encode(json);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function decodeMotionPath(value) {
+  try {
+    const base64 = value.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
+    const binary = atob(padded);
+    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+    const parsed = JSON.parse(new TextDecoder().decode(bytes));
+    if (parsed && parsed.type === "iglass-motion-path" && Array.isArray(parsed.nodes)) {
+      const nodes = parsed.nodes
+        .filter((node) => node && node.pose && typeof node.pose === "object")
+        .map((node, i) => ({
+          duration: i === 0 ? 0 : Math.max(0.1, Number(node.duration) || 1.25),
+          hold: Math.max(0, Number(node.hold) || 0),
+          ease: MOTION_EASES[node.ease] ? node.ease : "cinematic",
+          pose: node.pose,
+        }));
+      if (!nodes.length) return null;
+      return {
+        type: "iglass-motion-path",
+        version: 1,
+        trajectory: parsed.trajectory === "line" ? "line" : "curve",
+        speed: Math.max(0.1, Number(parsed.speed) || 1),
+        loop: parsed.loop !== false,
+        nodes,
+      };
+    }
+  } catch (e) {
+    /* invalid motion payload -> fall back to the normal timeline */
+  }
+  return null;
+}
 
 function loadSlots() {
   try {
@@ -1016,6 +1310,44 @@ function copyManifest() {
   };
   const json = JSON.stringify(manifest, null, 2);
   if (navigator.clipboard) navigator.clipboard.writeText(json);
+}
+
+function buildMotionPathBaseURL(path, slots) {
+  const compiled = compileMotionPath(path, slots);
+  if (compiled.nodes.length < 2) return null;
+  const params = new URLSearchParams();
+  serialiseParams(params);
+  params.set("motion", encodeMotionPath(compiled));
+  return `${window.location.origin}${window.location.pathname}?${params.toString()}`;
+}
+
+function copyMotionPreviewURL(path, slots) {
+  const base = buildMotionPathBaseURL(path, slots);
+  if (!base) return false;
+  const url = new URL(base);
+  url.searchParams.set("mode", "autoplay");
+  if (navigator.clipboard) navigator.clipboard.writeText(url.toString());
+  return true;
+}
+
+function copyMotionManifest(path, slots) {
+  const baseURL = buildMotionPathBaseURL(path, slots);
+  if (!baseURL) return false;
+  const manifest = {
+    type: "iglass-capture-manifest",
+    version: 1,
+    baseURL,
+    sweepParam: "mp",
+    startValue: 0,
+    endValue: 1,
+    totalFrames: 90,
+    viewport: { width: 1600, height: 900, deviceScaleFactor: 2 },
+    captureSelector: "canvas",
+  };
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(JSON.stringify(manifest, null, 2));
+  }
+  return true;
 }
 
 // ---------------------------------------------------------
@@ -2020,6 +2352,12 @@ function DevDashboard() {
   const [, force] = useState(0);
   const panelRef = useRef(null);
   const [collapsed, setCollapsed] = useState(false);
+  const [motionPath, setMotionPath] = useState(loadMotionPath);
+  const [selectedPathNode, setSelectedPathNode] = useState(-1);
+  const [pathProgress, setPathProgress] = useState(0);
+  const [pathPlaying, setPathPlaying] = useState(false);
+  const pathProgressRef = useRef(0);
+  const pathPlaybackRef = useRef({ raf: 0 });
 
   useEffect(() => {
     const id = setInterval(() => force((n) => n + 1), 150);
@@ -2027,6 +2365,18 @@ function DevDashboard() {
   }, []);
 
   const [slots, setSlots] = useState(loadSlots);
+
+  useEffect(() => {
+    persistMotionPath(motionPath);
+  }, [motionPath]);
+
+  useEffect(() => {
+    return () => {
+      if (pathPlaybackRef.current.raf) {
+        cancelAnimationFrame(pathPlaybackRef.current.raf);
+      }
+    };
+  }, []);
 
   const isStage = DEV.gizmoTarget === "stage";
   const routed = effectiveTarget() !== DEV.gizmoTarget;
@@ -2044,13 +2394,132 @@ function DevDashboard() {
     DEV.leftClampNDC = Math.max(-0.9, Math.min(-0.15, ndc));
   });
 
+  const applyPathAt = (progress, syncControls = false, sourcePath = motionPath) => {
+    const compiled = compileMotionPath(sourcePath, slots);
+    const pose = sampleMotionPath(compiled, progress);
+    if (!pose) return false;
+    const p = Math.max(0, Math.min(1, progress));
+    pathProgressRef.current = p;
+    setPathProgress(p);
+    applyPoseParamsDirect(pose);
+    if (syncControls) syncPoseControls(pose);
+    return true;
+  };
+
+  const pauseMotionPath = (syncControls = true) => {
+    if (pathPlaybackRef.current.raf) {
+      cancelAnimationFrame(pathPlaybackRef.current.raf);
+      pathPlaybackRef.current.raf = 0;
+    }
+    setPathPlaying(false);
+    if (syncControls) {
+      const compiled = compileMotionPath(motionPath, slots);
+      syncPoseControls(sampleMotionPath(compiled, pathProgressRef.current));
+    }
+  };
+
+  const playMotionPath = () => {
+    pauseMotionPath(false);
+    const compiled = compileMotionPath(motionPath, slots);
+    const total = motionPathDuration(compiled);
+    if (compiled.nodes.length < 2 || total <= 0) return;
+
+    let startProgress = pathProgressRef.current;
+    if (startProgress >= 0.999) startProgress = 0;
+    const startSeconds = startProgress * total;
+    const startedAt = performance.now();
+    const speed = Math.max(0.1, Number(motionPath.speed) || 1);
+    setPathPlaying(true);
+
+    const tick = (now) => {
+      const seconds = startSeconds + ((now - startedAt) / 1000) * speed;
+      const done = seconds >= total;
+      const progress = motionPath.loop
+        ? (seconds % total) / total
+        : Math.min(1, seconds / total);
+
+      const pose = sampleMotionPath(compiled, progress);
+      if (pose) {
+        pathProgressRef.current = progress;
+        setPathProgress(progress);
+        applyPoseParamsDirect(pose);
+      }
+
+      if (done && !motionPath.loop) {
+        pathPlaybackRef.current.raf = 0;
+        setPathPlaying(false);
+        syncPoseControls(sampleMotionPath(compiled, 1));
+        return;
+      }
+      pathPlaybackRef.current.raf = requestAnimationFrame(tick);
+    };
+
+    pathPlaybackRef.current.raf = requestAnimationFrame(tick);
+  };
+
+  const commitMotionPath = (next) => {
+    pauseMotionPath(false);
+    setMotionPath(next);
+  };
+
+  const addPathNode = (slot) => {
+    if (!slots[slot]) return;
+    const index = motionPath.nodes.length;
+    const next = {
+      ...motionPath,
+      nodes: [
+        ...motionPath.nodes,
+        {
+          slot,
+          duration: index === 0 ? 0 : 1.25,
+          hold: index === 0 ? 0.35 : 0.2,
+          ease: "cinematic",
+        },
+      ],
+    };
+    commitMotionPath(next);
+    setSelectedPathNode(index);
+  };
+
+  const updateSelectedPathNode = (patch) => {
+    if (selectedPathNode < 0 || !motionPath.nodes[selectedPathNode]) return;
+    const nodes = motionPath.nodes.map((node, i) =>
+      i === selectedPathNode ? { ...node, ...patch } : node
+    );
+    if (nodes[0]) nodes[0] = { ...nodes[0], duration: 0 };
+    commitMotionPath({ ...motionPath, nodes });
+  };
+
+  const removeSelectedPathNode = () => {
+    if (selectedPathNode < 0) return;
+    const nodes = motionPath.nodes.filter((_, i) => i !== selectedPathNode);
+    if (nodes[0]) nodes[0] = { ...nodes[0], duration: 0 };
+    commitMotionPath({ ...motionPath, nodes });
+    setSelectedPathNode(Math.min(selectedPathNode, nodes.length - 1));
+  };
+
+  const moveSelectedPathNode = (direction) => {
+    const to = selectedPathNode + direction;
+    if (selectedPathNode < 0 || to < 0 || to >= motionPath.nodes.length) return;
+    const nodes = [...motionPath.nodes];
+    [nodes[selectedPathNode], nodes[to]] = [nodes[to], nodes[selectedPathNode]];
+    if (nodes[0]) nodes[0] = { ...nodes[0], duration: 0 };
+    if (nodes[1] && nodes[1].duration <= 0) nodes[1] = { ...nodes[1], duration: 1.25 };
+    commitMotionPath({ ...motionPath, nodes });
+    setSelectedPathNode(to);
+  };
+
   const slotClick = (i, ev) => {
     if (ev.shiftKey) {
+      pauseMotionPath(false);
       const next = [...slots];
       next[i] = readPoseParams();
       setSlots(next);
       persistSlots(next);
+    } else if ((ev.ctrlKey || ev.metaKey) && slots[i]) {
+      addPathNode(i);
     } else if (slots[i]) {
+      pauseMotionPath(false);
       warpToParams(slots[i]);
     }
   };
@@ -2058,6 +2527,7 @@ function DevDashboard() {
   const slotClear = (i, ev) => {
     ev.preventDefault();
     if (!slots[i]) return;
+    pauseMotionPath(false);
     const next = [...slots];
     next[i] = null;
     setSlots(next);
@@ -2065,6 +2535,10 @@ function DevDashboard() {
   };
 
   const filledCount = slots.filter(Boolean).length;
+  const compiledPath = compileMotionPath(motionPath, slots);
+  const pathReady = compiledPath.nodes.length >= 2;
+  const pathDuration = motionPathDuration(compiledPath);
+  const selectedNode = motionPath.nodes[selectedPathNode] || null;
 
   if (collapsed) {
     return (
@@ -2326,7 +2800,7 @@ function DevDashboard() {
             style={slotStyle(!!s)}
             title={
               s
-                ? `slot ${i + 1} — click: warp · right-click: clear`
+                ? `slot ${i + 1} — click: warp · Ctrl/Cmd-click: add to path · right-click: clear`
                 : `slot ${i + 1} — shift+click: save`
             }
             onClick={(ev) => slotClick(i, ev)}
@@ -2335,6 +2809,194 @@ function DevDashboard() {
             {i + 1}
           </div>
         ))}
+      </div>
+
+      <div style={UI.head}>
+        🎬 motion path ({compiledPath.nodes.length}/{motionPath.nodes.length}) · {pathDuration.toFixed(2)}s
+      </div>
+      <div style={{ ...UI.row, minHeight: 24 }}>
+        {motionPath.nodes.length === 0 && (
+          <span style={UI.hint}>Ctrl/Cmd-click filled pose slots in travel order.</span>
+        )}
+        {motionPath.nodes.map((node, i) => {
+          const valid = !!slots[node.slot];
+          return (
+            <span
+              key={`${node.slot}-${i}`}
+              style={{
+                ...chipStyle(i === selectedPathNode),
+                borderColor: valid ? undefined : "#bd3f3f",
+                background: valid
+                  ? chipStyle(i === selectedPathNode).background
+                  : "#fff0f0",
+                color: valid
+                  ? chipStyle(i === selectedPathNode).color
+                  : "#8b2020",
+              }}
+              title={valid ? `path node ${i + 1} = pose slot ${node.slot + 1}` : "source pose was cleared"}
+              onClick={() => setSelectedPathNode(i)}
+            >
+              {i + 1}:S{node.slot + 1}
+            </span>
+          );
+        })}
+      </div>
+
+      {selectedNode && (
+        <div style={{ marginTop: 4, padding: 5, border: "1px solid #d5e2d9", borderRadius: 6 }}>
+          <div style={{ ...UI.row, justifyContent: "space-between" }}>
+            <span style={{ fontSize: 10, color: "#25332b" }}>
+              node {selectedPathNode + 1} · slot {selectedNode.slot + 1}
+            </span>
+            <span>
+              <span style={chipStyle(false)} onClick={() => moveSelectedPathNode(-1)}>←</span>
+              <span style={chipStyle(false)} onClick={() => moveSelectedPathNode(1)}>→</span>
+              <span style={chipStyle(false)} onClick={removeSelectedPathNode}>×</span>
+            </span>
+          </div>
+
+          {selectedPathNode > 0 && (
+            <>
+              <div style={{ ...UI.row, marginTop: 4, alignItems: "center" }}>
+                <span style={{ width: 42, fontSize: 9, color: "#5a6b60" }}>travel</span>
+                <input
+                  type="range"
+                  min={0.1}
+                  max={5}
+                  step={0.05}
+                  value={selectedNode.duration}
+                  style={{ width: 125, accentColor: "#2e7d52" }}
+                  onChange={(ev) => updateSelectedPathNode({ duration: parseFloat(ev.target.value) })}
+                />
+                <span style={{ fontSize: 9, minWidth: 34 }}>{selectedNode.duration.toFixed(2)}s</span>
+              </div>
+              <div style={{ ...UI.row, marginTop: 3, alignItems: "center" }}>
+                <span style={{ width: 42, fontSize: 9, color: "#5a6b60" }}>ease</span>
+                <select
+                  style={{ ...SEL_STYLE, maxWidth: 120 }}
+                  value={selectedNode.ease}
+                  onChange={(ev) => updateSelectedPathNode({ ease: ev.target.value })}
+                >
+                  {Object.entries(MOTION_EASE_LABELS).map(([value, label]) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
+                </select>
+              </div>
+            </>
+          )}
+
+          <div style={{ ...UI.row, marginTop: 3, alignItems: "center" }}>
+            <span style={{ width: 42, fontSize: 9, color: "#5a6b60" }}>hold</span>
+            <input
+              type="range"
+              min={0}
+              max={3}
+              step={0.05}
+              value={selectedNode.hold}
+              style={{ width: 125, accentColor: "#2e7d52" }}
+              onChange={(ev) => updateSelectedPathNode({ hold: parseFloat(ev.target.value) })}
+            />
+            <span style={{ fontSize: 9, minWidth: 34 }}>{selectedNode.hold.toFixed(2)}s</span>
+          </div>
+        </div>
+      )}
+
+      <div style={{ ...UI.row, marginTop: 5, alignItems: "center" }}>
+        <select
+          style={SEL_STYLE}
+          value={motionPath.trajectory}
+          title="stage translation between poses"
+          onChange={(ev) => commitMotionPath({ ...motionPath, trajectory: ev.target.value })}
+        >
+          <option value="curve">curved path</option>
+          <option value="line">straight path</option>
+        </select>
+        <span
+          style={chipStyle(motionPath.loop, true)}
+          onClick={() => commitMotionPath({ ...motionPath, loop: !motionPath.loop })}
+        >
+          {motionPath.loop ? "loop on" : "loop off"}
+        </span>
+      </div>
+
+      <div style={{ ...UI.row, marginTop: 3, alignItems: "center" }}>
+        <span style={{ width: 36, fontSize: 9, color: "#5a6b60" }}>speed</span>
+        <input
+          type="range"
+          min={0.25}
+          max={2.5}
+          step={0.05}
+          value={motionPath.speed}
+          style={{ width: 135, accentColor: "#2e7d52" }}
+          onChange={(ev) => commitMotionPath({ ...motionPath, speed: parseFloat(ev.target.value) })}
+        />
+        <span style={{ fontSize: 9 }}>×{motionPath.speed.toFixed(2)}</span>
+      </div>
+
+      <input
+        type="range"
+        min={0}
+        max={1}
+        step={0.001}
+        value={pathProgress}
+        disabled={!pathReady}
+        style={{ width: "100%", marginTop: 5, accentColor: "#2e7d52" }}
+        title={`motion path progress ${pathProgress.toFixed(3)}`}
+        onChange={(ev) => {
+          pauseMotionPath(false);
+          applyPathAt(parseFloat(ev.target.value));
+        }}
+        onPointerUp={() => {
+          const pose = sampleMotionPath(compileMotionPath(motionPath, slots), pathProgressRef.current);
+          syncPoseControls(pose);
+        }}
+      />
+
+      <div style={UI.row}>
+        <span
+          style={chipStyle(pathPlaying, true)}
+          onClick={() => (pathPlaying ? pauseMotionPath(true) : playMotionPath())}
+        >
+          {pathPlaying ? "❚❚ pause" : "▶ preview"}
+        </span>
+        <span
+          style={chipStyle(false, true)}
+          onClick={() => {
+            pauseMotionPath(false);
+            applyPathAt(0, true);
+          }}
+        >
+          ↺ start
+        </span>
+        <span
+          style={chipStyle(false)}
+          onClick={() => {
+            pauseMotionPath(false);
+            commitMotionPath(defaultMotionPath());
+            setSelectedPathNode(-1);
+            pathProgressRef.current = 0;
+            setPathProgress(0);
+          }}
+        >
+          clear
+        </span>
+      </div>
+
+      <div style={UI.row}>
+        <span
+          style={chipStyle(false, true)}
+          title="copy a self-contained Vercel autoplay URL"
+          onClick={() => copyMotionPreviewURL(motionPath, slots)}
+        >
+          🔗 preview URL
+        </span>
+        <span
+          style={chipStyle(false, true)}
+          title="copy a capture manifest that sweeps mp from 0 to 1"
+          onClick={() => copyMotionManifest(motionPath, slots)}
+        >
+          🎞 path manifest
+        </span>
       </div>
 
       <div style={UI.head}>🛠 actions</div>
@@ -2377,6 +3039,8 @@ function DevDashboard() {
         gizmo (W/E/R/Q) overrides the sat-nav
         <br />
         arrows: tap = one exact step · hold = accelerating glide
+        <br />
+        path: Ctrl/Cmd-click filled slots in travel order
       </div>
     </div>
   );
@@ -2822,6 +3486,8 @@ function DevGizmo() {
 //   ?glass=rough,env,opac,cc,ccr  v3.9 front-glass material
 //   ?envp=studio   ?envb=0        reflected world + IBL blur
 //   ?crack=opac,exX,exY,exZ       cracked-pane strength + discard path
+//   ?motion=<base64url-json>       self-contained slot-based motion path
+//   ?mp=0.5                       freeze motion-path progress for capture
 //   ?snap=1                    deterministic capture (Playwright)
 //   ?dev=1                     Pose Studio
 // ============================================
@@ -2971,11 +3637,20 @@ function resolveRuntimeConfig() {
 
   CAPTURE_SNAP = params.get("snap") === "1" || params.get("snap") === "true";
 
+  const motionPath = params.get("motion")
+    ? decodeMotionPath(params.get("motion"))
+    : null;
+  const mpParam = parseFloat(params.get("mp"));
+  const motionFreezeP =
+    motionPath && !isNaN(mpParam)
+      ? Math.max(0, Math.min(1, mpParam))
+      : null;
+
   const pParam = parseFloat(params.get("p"));
   let freezeP = !isNaN(pParam) ? Math.max(0, Math.min(1, pParam)) : null;
   if (dev && freezeP === null) freezeP = 0.5;
 
-  return { mode, bg, freezeP, dev };
+  return { mode, bg, freezeP, dev, motionPath, motionFreezeP };
 }
 
 function phaseMap(p) {
@@ -3588,7 +4263,7 @@ function IPhoneExploded({
   // ANIMATION
   // ---------------------------------------------------------
   useFrame((state) => {
-    const damp = CAPTURE_SNAP ? 1 : 0.1;
+    const damp = CAPTURE_SNAP || DEV.pathPreview ? 1 : 0.1;
 
     // ---- v3.8 LIGHT apply. Runs in production too (URL-driven look
     // channel). scene.environmentIntensity scales the IBL contribution;
@@ -3899,7 +4574,14 @@ export default function CrossSection3DScrollGLB(props) {
     crackTexture,
   } = merged;
 
-  const { mode, bg, freezeP, dev } = useMemo(resolveRuntimeConfig, []);
+  const {
+    mode,
+    bg,
+    freezeP,
+    dev,
+    motionPath: runtimeMotionPath,
+    motionFreezeP,
+  } = useMemo(resolveRuntimeConfig, []);
 
   const containerRef = useRef(null);
   const stickyRef = useRef(null);
@@ -3935,13 +4617,31 @@ export default function CrossSection3DScrollGLB(props) {
 
     DEV.applyProgress = applyProgress;
 
-    if (freezeP !== null) {
+    const applyRuntimeProgress = (progress) => {
+      if (runtimeMotionPath) {
+        const pose = sampleMotionPath(runtimeMotionPath, progress);
+        if (pose) applyPoseParamsDirect(pose);
+      } else {
+        applyProgress(progress);
+      }
+    };
+
+    if (runtimeMotionPath && motionFreezeP !== null) {
+      document.documentElement.style.overflow = "hidden";
+      document.body.style.overflow = "hidden";
+      applyRuntimeProgress(motionFreezeP);
+      return;
+    }
+
+    if (!runtimeMotionPath && freezeP !== null) {
       document.documentElement.style.overflow = "hidden";
       document.body.style.overflow = "hidden";
       DEV.lastP = freezeP;
       applyProgress(freezeP);
       return;
     }
+
+    if (runtimeMotionPath) applyRuntimeProgress(0);
 
     if (mode === "scroll") {
       document.documentElement.style.overflow = "hidden";
@@ -3953,7 +4653,7 @@ export default function CrossSection3DScrollGLB(props) {
           event.data.type === "scroll-progress" &&
           typeof event.data.progress === "number"
         ) {
-          applyProgress(Math.max(0, Math.min(1, event.data.progress)));
+          applyRuntimeProgress(Math.max(0, Math.min(1, event.data.progress)));
         }
       };
 
@@ -3969,15 +4669,26 @@ export default function CrossSection3DScrollGLB(props) {
       document.body.style.overflow = "hidden";
 
       const proxy = { p: 0 };
+      const runtimeDuration = runtimeMotionPath
+        ? Math.max(
+            0.1,
+            motionPathDuration(runtimeMotionPath) /
+              Math.max(0.1, Number(runtimeMotionPath.speed) || 1)
+          )
+        : 7;
       const tween = gsap.to(proxy, {
         p: 1,
-        duration: 7,
-        ease: "power2.inOut",
+        duration: runtimeDuration,
+        ease: runtimeMotionPath ? "none" : "power2.inOut",
         delay: 1,
-        repeat: -1,
-        yoyo: true,
-        repeatDelay: 1.2,
-        onUpdate: () => applyProgress(proxy.p),
+        repeat: runtimeMotionPath
+          ? runtimeMotionPath.loop === false
+            ? 0
+            : -1
+          : -1,
+        yoyo: runtimeMotionPath ? false : true,
+        repeatDelay: runtimeMotionPath ? 0 : 1.2,
+        onUpdate: () => applyRuntimeProgress(proxy.p),
       });
       return () => tween.kill();
     }
@@ -3991,12 +4702,21 @@ export default function CrossSection3DScrollGLB(props) {
         end: `+=${scrollDistance * 100}vh`,
         pin: stickyRef.current,
         scrub: 1,
-        onUpdate: (self) => applyProgress(self.progress),
+        onUpdate: (self) => applyRuntimeProgress(self.progress),
       });
     }, containerRef);
 
     return () => ctx.revert();
-  }, [mode, freezeP, scrollDistance, glassStagger, oledStagger, phoneStagger]);
+  }, [
+    mode,
+    freezeP,
+    runtimeMotionPath,
+    motionFreezeP,
+    scrollDistance,
+    glassStagger,
+    oledStagger,
+    phoneStagger,
+  ]);
 
   const onWrapPointerDown = (e) => {
     if (!dev || !DEV.setLeva) return;
