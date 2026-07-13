@@ -16,6 +16,67 @@ import { Leva, useControls, button, folder } from "leva";
 gsap.registerPlugin(ScrollTrigger);
 
 // ============================================
+// v3.9 — GLASS MATERIAL, IBL SOFTNESS, AND THE CRACKED-GLASS LAYER
+//
+//   THE HARD CIRCLE     It is not a light. It is a REFLECTION. Glass_Front
+//                       ran roughness 0.04 — that is a mirror — and
+//                       Environment preset="studio" is a virtual photo
+//                       studio whose HDRI contains actual softbox panels.
+//                       A mirror reflects a softbox as a hard-edged bright
+//                       shape. That is the circle.
+//
+//                       Two independent softeners, both now dials:
+//                         GLASS.rough   blurs what the GLASS reflects.
+//                                       This is the local one. Roughness
+//                                       convolves the env map through its
+//                                       prefiltered mips, so raising it
+//                                       spreads the highlight instead of
+//                                       dimming it. THE dial for this.
+//                         LIGHT.blur    blurs the IBL ITSELF, so every
+//                                       reflective surface softens at
+//                                       once. Version-dependent: drei's
+//                                       Environment gained `blur` at some
+//                                       point; on an older build the prop
+//                                       is simply ignored, no error. If
+//                                       nothing happens when you drag it,
+//                                       that is why — use GLASS.rough.
+//                         LIGHT.preset  changes the reflected SHAPES
+//                                       outright. "studio" has the hard
+//                                       boxes; "apartment"/"city"/"lobby"
+//                                       reflect softer, messier worlds.
+//
+//   SHINIER GLASS       Glass_Front is now MeshPhysicalMaterial, not
+//                       MeshStandardMaterial. That buys a CLEARCOAT: a
+//                       second specular layer over the base, with its own
+//                       roughness. It is the lacquer-over-paint model, and
+//                       it is what separates "a dark surface" from "glass".
+//                       clearcoat is constructed non-zero so the shader
+//                       compiles the chunk in; dialling it afterwards is a
+//                       free uniform write, not a recompile.
+//
+//   CRACKED GLASS       No Blender. No second GLB. Probed the deployed
+//                       asset: Glass_Front is a FLAT 1216-vert plane and
+//                       it already carries TEXCOORD_0. So the cracked pane
+//                       is its geometry, cloned in code, with a crack PNG
+//                       on it — the identical pattern to Screen.png and
+//                       internals.jpg, which already work.
+//
+//                       Coexistence, which you flagged as the hard part,
+//                       is not a problem at all: it is just a third group
+//                       under the pivot. It rides GLASS_REG and the glass
+//                       explode by default, so it looks welded to the
+//                       pane; CRACK.exit then sends it off on its OWN path
+//                       as it goes. The crossfade is scrollState.swap,
+//                       which runs across the existing HOLD phase — so the
+//                       choreography is already the repair story: the
+//                       cracked pane lifts off during the explode, is
+//                       discarded across the hold, and the clean pane
+//                       re-seats on the reassemble. No new timeline.
+//
+//                       crackTexture is an OPTIONAL prop. Absent, the
+//                       whole layer costs nothing and renders nothing.
+//
+// ============================================
 // v3.8.7 — KEYBOARD DRIVE: TAP vs HOLD
 //
 //   The arrow keys felt slow because the repeat was coming from the
@@ -325,7 +386,22 @@ const LIGHT = {
   fill: 0.35,
   env: 0.4,
   exp: 1.0,
+  preset: "studio", // the HDRI whose SHAPES get reflected in the glass
+  blur: 0.0, // blurs the IBL itself — softens every reflection at once
 };
+
+const ENV_PRESETS = [
+  "studio",
+  "apartment",
+  "city",
+  "lobby",
+  "warehouse",
+  "dawn",
+  "sunset",
+  "park",
+  "forest",
+  "night",
+];
 
 // ---------------------------------------------------------
 // BEZEL (v3.8.1) — dials, because the black-rim cause is UNRESOLVED.
@@ -359,6 +435,58 @@ const OLED = {
   faceCut: -0.5,
   showRim: false, // the slab's side wall — artefact, hidden by default
 };
+
+// ---------------------------------------------------------
+// GLASS (v3.9) — the front pane's material, as dials.
+//
+//   rough      THE softness control for the studio-light circle. 0.04 is a
+//              mirror and reflects the HDRI's softbox as a hard shape.
+//              0.10-0.30 spreads it into a soft bloom. Costs nothing —
+//              roughness reads the env map's prefiltered mip chain.
+//   env        reflection BRIGHTNESS (envMapIntensity), independent of
+//              spread. Turn this down and up separately from rough and the
+//              two together give you the full highlight.
+//   opacity    how much the pane darkens what is under it.
+//   clearcoat  the second specular layer — the lacquer coat. This is the
+//              "expensive glass" lever.
+//   ccRough    the clearcoat's OWN roughness. Lets the coat highlight stay
+//              tight while the base reflection goes soft, or vice versa.
+// Overridable: ?glass=rough,env,opacity,clearcoat,ccRough
+// ---------------------------------------------------------
+const GLASS = {
+  rough: 0.12,
+  env: 1.4,
+  opacity: 0.15,
+  clearcoat: 1.0,
+  ccRough: 0.06,
+};
+
+// ---------------------------------------------------------
+// CRACK (v3.9) — the cracked pane that gets removed and replaced.
+//
+//   The cracked pane is a CLONE of Glass_Front's geometry (a flat plane,
+//   1216 verts, already UV'd) carrying a crack PNG. It is a sibling group
+//   of the glass, so by default it inherits the same GLASS_REG and the
+//   same explode multiplier and looks welded to the pane it sits on.
+//
+//   swap 0 -> 1 across the HOLD phase (TIMELINE.explodeEnd -> holdEnd).
+//     opacity  fades CRACK.opacity -> 0
+//     exit     an EXTRA translation, scaled by swap, that sends the broken
+//              pane off on its own path while the clean one stays put.
+//              Leave at 0,0,0 and it simply dissolves in place.
+// Overridable: ?crack=opacity,exitX,exitY,exitZ
+// ---------------------------------------------------------
+const CRACK = {
+  opacity: 1.0,
+  explodeMul: 2.0, // 2.0 == the glass group's multiplier: welded
+  exit: [0, 0, 0],
+};
+
+// 1x1 fully transparent PNG. useTexture cannot be called conditionally
+// (hooks rule), so when no crackTexture prop is supplied this loads
+// instead and the crack layer is simply never mounted.
+const BLANK_PX =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
 
 const BEZEL = {
   env: 0.0,     // envMapIntensity — 0 = dead black, no IBL reflection
@@ -396,6 +524,9 @@ const DEV = {
   bezelMat: null, // live handle — the bezel Leva folder writes through it
   bezelMeshes: [], // live handles — the "hide bezel" isolate toggle
   oledRimMat: null, // live handle — the "show OLED rim" toggle
+  glassMat: null, // live handle — the front-glass folder
+  crackMat: null, // live handle — the cracked-pane folder
+  setEnv: null, // Scene's setter — preset/blur need a React re-render
 };
 
 function atEndpoint() {
@@ -841,6 +972,20 @@ function serialiseParams(params) {
     [BEZEL.env, BEZEL.rough, BEZEL.offset].map((v) => v.toFixed(2)).join(",")
   );
   params.set("oled", `${OLED.faceCut.toFixed(2)},${OLED.showRim ? 1 : 0}`);
+  params.set(
+    "glass",
+    [GLASS.rough, GLASS.env, GLASS.opacity, GLASS.clearcoat, GLASS.ccRough]
+      .map((v) => v.toFixed(3))
+      .join(",")
+  );
+  params.set("envp", LIGHT.preset);
+  params.set("envb", LIGHT.blur.toFixed(2));
+  params.set(
+    "crack",
+    [CRACK.opacity, CRACK.exit[0], CRACK.exit[1], CRACK.exit[2]]
+      .map((v) => v.toFixed(2))
+      .join(",")
+  );
 }
 
 function buildTuningURL() {
@@ -893,6 +1038,8 @@ function saveCard() {
     `glassreg ${[GLASS_REG.x, GLASS_REG.y, GLASS_REG.z].map((v) => v.toFixed(3)).join(", ")}`,
     `light amb ${LIGHT.amb.toFixed(2)}  key ${LIGHT.key.toFixed(2)}  fill ${LIGHT.fill.toFixed(2)}  env ${LIGHT.env.toFixed(2)}  exp ${LIGHT.exp.toFixed(2)}`,
     `bezel env ${BEZEL.env.toFixed(2)}  rough ${BEZEL.rough.toFixed(2)}  offset ${BEZEL.offset.toFixed(2)}    oled cut ${OLED.faceCut.toFixed(2)}  rim ${OLED.showRim ? "on" : "off"}`,
+    `glass rough ${GLASS.rough.toFixed(3)}  env ${GLASS.env.toFixed(2)}  opac ${GLASS.opacity.toFixed(2)}  clearcoat ${GLASS.clearcoat.toFixed(2)} / ${GLASS.ccRough.toFixed(3)}`,
+    `ibl ${LIGHT.preset}  blur ${LIGHT.blur.toFixed(2)}    crack ${CRACK.opacity.toFixed(2)}  exit ${CRACK.exit.map((v) => v.toFixed(2)).join(", ")}`,
   ];
   const url = buildTuningURL();
 
@@ -1120,8 +1267,140 @@ function DevControls({ initialP }) {
             DEV.dirtyLight = true;
           },
         },
+        envPreset: {
+          value: LIGHT.preset,
+          options: ENV_PRESETS,
+          label: "reflected world (the circle's shape)",
+          onChange: (v) => {
+            LIGHT.preset = v;
+            if (DEV.setEnv) DEV.setEnv(LIGHT.preset, LIGHT.blur);
+          },
+        },
+        envBlur: {
+          value: LIGHT.blur,
+          min: 0,
+          max: 1,
+          step: 0.01,
+          label: "IBL blur (softens EVERY reflection)",
+          onChange: (v) => {
+            LIGHT.blur = v;
+            if (DEV.setEnv) DEV.setEnv(LIGHT.preset, LIGHT.blur);
+          },
+        },
       },
       { collapsed: false }
+    ),
+
+    // ---- v3.9 FRONT GLASS. "spread" is the dial for the hard circle: it
+    // blurs the reflection instead of dimming it. "brightness" is separate.
+    // clearcoat is the shine — a second specular layer over the base. ----
+    "✨ front glass": folder(
+      {
+        glassRough: {
+          value: GLASS.rough,
+          min: 0,
+          max: 0.6,
+          step: 0.005,
+          label: "spread (0 = mirror-hard circle)",
+          onChange: (v) => {
+            GLASS.rough = v;
+            if (DEV.glassMat) DEV.glassMat.roughness = v;
+          },
+        },
+        glassEnv: {
+          value: GLASS.env,
+          min: 0,
+          max: 4,
+          step: 0.05,
+          label: "reflection brightness",
+          onChange: (v) => {
+            GLASS.env = v;
+            if (DEV.glassMat) DEV.glassMat.envMapIntensity = v;
+            if (DEV.crackMat) DEV.crackMat.envMapIntensity = v;
+          },
+        },
+        glassOpacity: {
+          value: GLASS.opacity,
+          min: 0,
+          max: 1,
+          step: 0.01,
+          label: "tint / darkness",
+          onChange: (v) => {
+            GLASS.opacity = v;
+            if (DEV.glassMat) DEV.glassMat.opacity = v;
+          },
+        },
+        glassClearcoat: {
+          value: GLASS.clearcoat,
+          min: 0,
+          max: 1,
+          step: 0.01,
+          label: "clearcoat (the shine)",
+          onChange: (v) => {
+            GLASS.clearcoat = v;
+            if (DEV.glassMat) DEV.glassMat.clearcoat = v;
+          },
+        },
+        glassCCRough: {
+          value: GLASS.ccRough,
+          min: 0,
+          max: 0.5,
+          step: 0.005,
+          label: "clearcoat softness",
+          onChange: (v) => {
+            GLASS.ccRough = v;
+            if (DEV.glassMat) DEV.glassMat.clearcoatRoughness = v;
+          },
+        },
+      },
+      { collapsed: false }
+    ),
+
+    // ---- v3.9 CRACKED PANE. Inert unless a crackTexture prop is passed. ----
+    "💥 cracked pane": folder(
+      {
+        crackOpacity: {
+          value: CRACK.opacity,
+          min: 0,
+          max: 1,
+          step: 0.01,
+          label: "crack strength",
+          onChange: (v) => {
+            CRACK.opacity = v;
+          },
+        },
+        crackExitX: {
+          value: CRACK.exit[0],
+          min: -3,
+          max: 3,
+          step: 0.01,
+          label: "discard ← → (X)",
+          onChange: (v) => {
+            CRACK.exit[0] = v;
+          },
+        },
+        crackExitY: {
+          value: CRACK.exit[1],
+          min: -3,
+          max: 3,
+          step: 0.01,
+          label: "discard ↑ ↓ (Y)",
+          onChange: (v) => {
+            CRACK.exit[1] = v;
+          },
+        },
+        crackExitZ: {
+          value: CRACK.exit[2],
+          min: -3,
+          max: 3,
+          step: 0.01,
+          label: "discard depth (Z)",
+          onChange: (v) => {
+            CRACK.exit[2] = v;
+          },
+        },
+      },
+      { collapsed: true }
     ),
 
     // ---- v3.8.1 BEZEL — the black-rim cause is UNRESOLVED, so this is a
@@ -1268,7 +1547,7 @@ function DevControls({ initialP }) {
           value: 1.0,
           min: -20,
           max: 20,
-          step: 0.1,
+          step: 0.05,
           onChange: (v) => {
             WIRE.ratio = v;
           },
@@ -2540,6 +2819,9 @@ function DevGizmo() {
 //   ?light=amb,key,fill,env,exp   v3.8 lighting rig
 //   ?bezel=env,rough,offset       v3.8.1 bezel dials
 //   ?oled=-0.5,0                  OLED face-split cut, rim on/off
+//   ?glass=rough,env,opac,cc,ccr  v3.9 front-glass material
+//   ?envp=studio   ?envb=0        reflected world + IBL blur
+//   ?crack=opac,exX,exY,exZ       cracked-pane strength + discard path
 //   ?snap=1                    deterministic capture (Playwright)
 //   ?dev=1                     Pose Studio
 // ============================================
@@ -2640,6 +2922,35 @@ function resolveRuntimeConfig() {
     }
   }
 
+  // ---- GLASS / ENV / CRACK channels (v3.9) ----
+  const glassParam = params.get("glass");
+  if (glassParam) {
+    const q = glassParam.split(",").map((v) => parseFloat(v));
+    if (q.length === 5 && q.every((v) => !isNaN(v))) {
+      GLASS.rough = q[0];
+      GLASS.env = q[1];
+      GLASS.opacity = q[2];
+      GLASS.clearcoat = q[3];
+      GLASS.ccRough = q[4];
+    }
+  }
+  const envpParam = params.get("envp");
+  if (envpParam && ENV_PRESETS.includes(envpParam)) {
+    LIGHT.preset = envpParam;
+  }
+  const envbParam = parseFloat(params.get("envb"));
+  if (!isNaN(envbParam) && envbParam >= 0 && envbParam <= 1) {
+    LIGHT.blur = envbParam;
+  }
+  const crackParam = params.get("crack");
+  if (crackParam) {
+    const q = crackParam.split(",").map((v) => parseFloat(v));
+    if (q.length === 4 && q.every((v) => !isNaN(v))) {
+      CRACK.opacity = q[0];
+      CRACK.exit = [q[1], q[2], q[3]];
+    }
+  }
+
   // ---- LIGHT channel (v3.8) — applies in production too ----
   const lightParam = params.get("light");
   if (lightParam) {
@@ -2683,7 +2994,17 @@ function phaseMap(p) {
     p <= reassembleEnd
       ? 0
       : smoothstep((p - reassembleEnd) / (1 - reassembleEnd));
-  return { explode, rotate };
+
+  // The cracked pane is discarded across the HOLD — the beat where the
+  // phone is already open. 0 = still cracked, 1 = clean pane only.
+  const swap =
+    p <= explodeEnd
+      ? 0
+      : p >= holdEnd
+      ? 1
+      : smoothstep((p - explodeEnd) / (holdEnd - explodeEnd));
+
+  return { explode, rotate, swap };
 }
 
 // ============================================
@@ -2698,6 +3019,9 @@ const defaultProps = {
   modelPath: "/14 pro.glb",
   screenTexture: screenImg,
   internalsTexture: internalsImg,
+  // OPTIONAL. White/grey crack lines on a TRANSPARENT background, same
+  // aspect as the screen. Absent -> the crack layer never mounts.
+  crackTexture: null,
 };
 
 // ============================================
@@ -2709,6 +3033,7 @@ const scrollState = {
   oledOffset: 0,
   phoneOffset: 0,
   rotate: 0,
+  swap: 0,
 };
 
 // ---------------------------------------------------------
@@ -2827,8 +3152,10 @@ function IPhoneExploded({
   modelPath,
   screenTexture,
   internalsTexture,
+  crackTexture,
   explodeDistance,
 }) {
+  const hasCrack = !!crackTexture;
   const { scene } = useGLTF(modelPath);
   const clonedScene = useMemo(() => scene.clone(true), [scene]);
 
@@ -2845,6 +3172,18 @@ function IPhoneExploded({
   oledTexture.wrapS = THREE.ClampToEdgeWrapping;
   oledTexture.wrapT = THREE.ClampToEdgeWrapping;
   oledTexture.needsUpdate = true;
+
+  // Hooks cannot be conditional — BLANK_PX stands in when there is no
+  // crack PNG, and hasCrack gates the mount instead.
+  const crackTex = useTexture(crackTexture || BLANK_PX);
+  crackTex.flipY = false; // matches the OLED/UV convention for this asset
+  crackTex.colorSpace = THREE.SRGBColorSpace;
+  crackTex.anisotropy = maxAniso;
+  crackTex.generateMipmaps = true;
+  crackTex.minFilter = THREE.LinearMipmapLinearFilter;
+  crackTex.wrapS = THREE.ClampToEdgeWrapping;
+  crackTex.wrapT = THREE.ClampToEdgeWrapping;
+  crackTex.needsUpdate = true;
 
   const internTex = useTexture(internalsTexture);
   internTex.colorSpace = THREE.SRGBColorSpace;
@@ -2886,6 +3225,7 @@ function IPhoneExploded({
   }, []);
 
   const glassGroupRef = useRef();
+  const crackGroupRef = useRef();
   const oledGroupRef = useRef();
   const bodyGroupRef = useRef();
   const modelGroupRef = useRef();
@@ -2901,10 +3241,11 @@ function IPhoneExploded({
   //
   // Render order: Body 0 → coats 1 → OLED 1 → Glass Front 3 → Bezel 4
   // ---------------------------------------------------------
-  const { glassMeshes, oledMeshes, bodyMeshes } = useMemo(() => {
+  const { glassMeshes, oledMeshes, bodyMeshes, crackGeo } = useMemo(() => {
     const glass = [];
     const oled = [];
     const body = [];
+    let crack = null;
     DEV.bezelMeshes = [];
 
     // World matrices for the INTACT graph — ground truth for the rebase.
@@ -2938,7 +3279,7 @@ function IPhoneExploded({
         child.material = bezelMat;
         DEV.bezelMat = bezelMat; // live handle for the Leva folder
         DEV.bezelMeshes.push(child); // live handle for the isolate toggle
-        child.renderOrder = 4;
+        child.renderOrder = 5; // above the crack overlay (4)
         glass.push(child);
         return;
       }
@@ -2951,20 +3292,56 @@ function IPhoneExploded({
         name.includes("glass front") ||
         (name.includes("glass") && !name.includes("bezel"))
       ) {
-        child.material = new THREE.MeshStandardMaterial({
+        // MeshPHYSICAL, not Standard. The clearcoat is the whole point: a
+        // second specular layer with its own roughness. Constructed with a
+        // non-zero clearcoat so the shader compiles the chunk in — dialling
+        // it to 0 later is then a uniform write, not a recompile.
+        const glassMat = new THREE.MeshPhysicalMaterial({
           color: new THREE.Color(0x000000),
-          roughness: 0.04,
+          roughness: GLASS.rough,
           metalness: 0.0,
           transparent: true,
-          opacity: 0.15, // OLED glow must survive the glass
+          opacity: GLASS.opacity, // OLED glow must survive the glass
           depthWrite: false,
-          envMapIntensity: 1.2,
+          envMapIntensity: GLASS.env,
+          clearcoat: GLASS.clearcoat,
+          clearcoatRoughness: GLASS.ccRough,
           polygonOffset: true,
           polygonOffsetFactor: -2,
           polygonOffsetUnits: -2,
         });
+        child.material = glassMat;
+        DEV.glassMat = glassMat;
         child.renderOrder = 3;
         glass.push(child);
+
+        // ---- THE CRACKED PANE'S GEOMETRY ----
+        // Cloned from the clean pane, so it is the same plane, at the same
+        // place, at the same size, forever — it cannot drift. Its UVs are
+        // regenerated planar from the bounding box rather than trusting the
+        // GLB's TEXCOORD_0, so the crack PNG maps predictably.
+        const cg = child.geometry.clone();
+        const cpos = cg.attributes.position;
+        if (cpos) {
+          let minX = Infinity, maxX = -Infinity;
+          let minY = Infinity, maxY = -Infinity;
+          for (let i = 0; i < cpos.count; i++) {
+            const x = cpos.getX(i), y = cpos.getY(i);
+            if (x < minX) minX = x;
+            if (x > maxX) maxX = x;
+            if (y < minY) minY = y;
+            if (y > maxY) maxY = y;
+          }
+          const rx = maxX - minX || 1;
+          const ry = maxY - minY || 1;
+          const uv = new Float32Array(cpos.count * 2);
+          for (let i = 0; i < cpos.count; i++) {
+            uv[i * 2] = 1.0 - (cpos.getX(i) - minX) / rx;
+            uv[i * 2 + 1] = 1.0 - (cpos.getY(i) - minY) / ry;
+          }
+          cg.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
+        }
+        crack = cg;
         return;
       }
 
@@ -3105,8 +3482,42 @@ function IPhoneExploded({
       }
     }
 
-    return { glassMeshes: glass, oledMeshes: oled, bodyMeshes: body };
+    return {
+      glassMeshes: glass,
+      oledMeshes: oled,
+      bodyMeshes: body,
+      crackGeo: crack,
+    };
   }, [clonedScene, oledTexture, maxAniso]);
+
+  // ---------------------------------------------------------
+  // CRACKED-PANE MATERIAL (v3.9)
+  //
+  // The PNG is white/grey crack lines on TRANSPARENT. transparent:true
+  // means the PNG's own alpha carves the shape, so the pane is invisible
+  // everywhere except along the fractures — which sit ON TOP of the clean
+  // glass beneath. depthWrite off so it cannot fight the pane it lies on;
+  // polygonOffset -3 so it wins over the glass's -2 where they are exactly
+  // coplanar (they are — it is the same geometry).
+  // ---------------------------------------------------------
+  const crackMat = useMemo(() => {
+    const m = new THREE.MeshPhysicalMaterial({
+      map: crackTex,
+      transparent: true,
+      opacity: CRACK.opacity,
+      roughness: 0.06,
+      metalness: 0.0,
+      depthWrite: false,
+      envMapIntensity: GLASS.env,
+      clearcoat: 1.0,
+      clearcoatRoughness: 0.04,
+      polygonOffset: true,
+      polygonOffsetFactor: -3,
+      polygonOffsetUnits: -3,
+    });
+    DEV.crackMat = m;
+    return m;
+  }, [crackTex]);
 
   // ---------------------------------------------------------
   // MEASURED PIVOT — render-frame Box3 measurement.
@@ -3238,6 +3649,33 @@ function IPhoneExploded({
       glassGroupRef.current.position.y = GLASS_REG.y;
     }
 
+    // ---- CRACKED PANE ----
+    // Rides the glass's GLASS_REG and explode by default (explodeMul 2.0 ==
+    // the glass group's), so it looks welded to the pane. CRACK.exit then
+    // adds its OWN departure, scaled by swap, so the broken glass can be
+    // thrown clear while the clean pane stays on its path.
+    if (crackGroupRef.current && hasCrack) {
+      const sw = scrollState.swap;
+      const g = crackGroupRef.current;
+      const target = -(
+        scrollState.glassOffset *
+        explodeDistance *
+        CRACK.explodeMul
+      );
+      g.position.z = THREE.MathUtils.lerp(
+        g.position.z,
+        target + GLASS_REG.z + CRACK.exit[2] * sw,
+        damp
+      );
+      g.position.x = GLASS_REG.x + CRACK.exit[0] * sw;
+      g.position.y = GLASS_REG.y + CRACK.exit[1] * sw;
+
+      if (DEV.crackMat) {
+        DEV.crackMat.opacity = CRACK.opacity * (1 - sw);
+        DEV.crackMat.visible = sw < 0.999; // stop drawing it once it is gone
+      }
+    }
+
     if (oledGroupRef.current) {
       const target = -(scrollState.oledOffset * explodeDistance * 1.0);
       oledGroupRef.current.position.z = THREE.MathUtils.lerp(
@@ -3310,6 +3748,19 @@ function IPhoneExploded({
             ))}
           </group>
 
+          {/* CRACKED PANE — sibling of the glass, its own transform, so it
+              can be thrown clear independently. Never mounts without a
+              crackTexture prop. */}
+          {hasCrack && crackGeo && (
+            <group ref={crackGroupRef}>
+              <mesh
+                geometry={crackGeo}
+                material={crackMat}
+                renderOrder={4}
+              />
+            </group>
+          )}
+
           {/* OLED */}
           <group ref={oledGroupRef}>
             {oledMeshes.map((m, i) => (
@@ -3359,9 +3810,26 @@ function Scene({
   modelPath,
   screenTexture,
   internalsTexture,
+  crackTexture,
   explodeDistance,
   dev,
 }) {
+  const [envPreset, setEnvPreset] = useState(LIGHT.preset);
+  const [envBlur, setEnvBlur] = useState(LIGHT.blur);
+
+  // preset and blur are React PROPS on <Environment>, not uniforms — they
+  // need a re-render, so Leva writes through this setter rather than
+  // mutating LIGHT and waiting for a frame that will never notice.
+  useEffect(() => {
+    DEV.setEnv = (pr, b) => {
+      setEnvPreset(pr);
+      setEnvBlur(b);
+    };
+    return () => {
+      DEV.setEnv = null;
+    };
+  }, []);
+
   const ambRef = useRef();
   const keyRef = useRef();
   const fillRef = useRef();
@@ -3390,15 +3858,22 @@ function Scene({
         color="#e8f0ff"
       />
 
-      {/* The IBL. Its strength is scene.environmentIntensity, driven from
-          LIGHT.env in the useFrame above — not a prop, so this works on
-          every drei/three version rather than only the newest. */}
-      <Environment preset="studio" />
+      {/* The IBL. Its STRENGTH is scene.environmentIntensity, driven from
+          LIGHT.env in the useFrame above — not a prop, so that part works on
+          every drei/three version.
+          `preset` swaps WHICH WORLD gets reflected — this is what changes the
+          SHAPE of the highlight on the glass. "studio" is the one with hard
+          softbox panels in it; that circle IS this preset.
+          `blur` softens the IBL itself. Version-dependent: on an older drei
+          the prop is ignored — no error, no effect. GLASS.rough is the
+          guaranteed softener. */}
+      <Environment preset={envPreset} blur={envBlur} />
 
       <IPhoneExploded
         modelPath={modelPath}
         screenTexture={screenTexture}
         internalsTexture={internalsTexture}
+        crackTexture={crackTexture}
         explodeDistance={explodeDistance}
       />
 
@@ -3421,6 +3896,7 @@ export default function CrossSection3DScrollGLB(props) {
     modelPath,
     screenTexture,
     internalsTexture,
+    crackTexture,
   } = merged;
 
   const { mode, bg, freezeP, dev } = useMemo(resolveRuntimeConfig, []);
@@ -3430,9 +3906,10 @@ export default function CrossSection3DScrollGLB(props) {
 
   useEffect(() => {
     const applyProgress = (p) => {
-      const { explode, rotate } = phaseMap(p);
+      const { explode, rotate, swap } = phaseMap(p);
       scrollState.explosion = explode;
       scrollState.rotate = rotate;
+      scrollState.swap = swap;
       scrollState.glassOffset = mapRange(
         explode,
         glassStagger[0],
@@ -3654,6 +4131,7 @@ export default function CrossSection3DScrollGLB(props) {
             modelPath={modelPath}
             screenTexture={screenTexture}
             internalsTexture={internalsTexture}
+            crackTexture={crackTexture}
             explodeDistance={explodeDistance}
             dev={dev}
           />
