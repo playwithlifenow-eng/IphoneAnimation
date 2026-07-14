@@ -1,5 +1,6 @@
 import screenImg from "./Screen.png";
 import internalsImg from "./internals.jpg";
+import crackImg from "./Crack.png";
 import { useRef, useMemo, useEffect, useLayoutEffect, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import {
@@ -16,270 +17,65 @@ import { Leva, useControls, button, folder } from "leva";
 gsap.registerPlugin(ScrollTrigger);
 
 // ============================================
-// v4.0 — SLOT-BASED MOTION PATH STUDIO
+// v3.10 — THE CRACKED PANE IS YOURS TO CHOREOGRAPH
 //
-//   POSE SLOTS -> PATH   Ctrl/Cmd-click filled slots to append them to an
-//                        ordered path. Each incoming leg owns its duration,
-//                        arrival hold, and easing. Paths persist locally.
+//   v3.9 hard-wired the swap to the HOLD phase (0.35 -> 0.45). That was a
+//   decision I made for you and it does not belong in the code. It belongs
+//   on a dial. So every beat of the shatter is now one:
 //
-//   MOTION TESTING       Preview, pause, restart, loop, scrub, switch between
-//                        straight and Catmull-Rom stage travel, and compare
-//                        easing curves without changing the saved poses.
+//     departs at p / gone by p   The window. FREE RANGE 0..1. Put it
+//         anywhere. 0.0 -> 0.05 and the glass goes the instant you scroll.
+//         0.75 -> 1.0 and it survives the whole explode and only leaves as
+//         the phone squares up. Set them EQUAL and the swap is a hard cut.
+//         Set end BEFORE start and it runs backwards — the pane ARRIVES.
 //
-//   CAPTURE CONTRACT     "copy preview URL" embeds every pose into the URL;
-//                        "path manifest" emits the existing capture manifest
-//                        with sweepParam "mp". Therefore ?snap=1&mp=0.5000
-//                        renders one exact path pose in a fresh browser with
-//                        no dependency on localStorage.
+//     travel ×    How hard the cracked pane rides the explode. 2.0 is the
+//         glass group's own multiplier: welded, moves exactly with the
+//         clean pane. Above, it outruns it. Below, it lags and separates.
 //
-// ============================================
-// v3.9 — GLASS MATERIAL, IBL SOFTNESS, AND THE CRACKED-GLASS LAYER
+//     tumble X/Y/Z   Degrees of spin across the window. Discarded glass
+//         flips; it does not slide. Cheapest realism in the component.
 //
-//   THE HARD CIRCLE     It is not a light. It is a REFLECTION. Glass_Front
-//                       ran roughness 0.04 — that is a mirror — and
-//                       Environment preset="studio" is a virtual photo
-//                       studio whose HDRI contains actual softbox panels.
-//                       A mirror reflects a softbox as a hard-edged bright
-//                       shape. That is the circle.
+//     dissolve    1.0 = it fades as it goes (v3.9). 0.0 = it NEVER fades —
+//         thrown clear and left in shot. A real object that was REMOVED,
+//         not a ghost that evaporated. Arguably the stronger picture.
 //
-//                       Two independent softeners, both now dials:
-//                         GLASS.rough   blurs what the GLASS reflects.
-//                                       This is the local one. Roughness
-//                                       convolves the env map through its
-//                                       prefiltered mips, so raising it
-//                                       spreads the highlight instead of
-//                                       dimming it. THE dial for this.
-//                         LIGHT.blur    blurs the IBL ITSELF, so every
-//                                       reflective surface softens at
-//                                       once. Version-dependent: drei's
-//                                       Environment gained `blur` at some
-//                                       point; on an older build the prop
-//                                       is simply ignored, no error. If
-//                                       nothing happens when you drag it,
-//                                       that is why — use GLASS.rough.
-//                         LIGHT.preset  changes the reflected SHAPES
-//                                       outright. "studio" has the hard
-//                                       boxes; "apartment"/"city"/"lobby"
-//                                       reflect softer, messier worlds.
+//     mirror / flip   UV orientation. The planar UVs and the GLB's flipY
+//         convention cannot be settled by argument. If the impact star
+//         lands on the wrong side: click.
 //
-//   SHINIER GLASS       Glass_Front is now MeshPhysicalMaterial, not
-//                       MeshStandardMaterial. That buys a CLEARCOAT: a
-//                       second specular layer over the base, with its own
-//                       roughness. It is the lacquer-over-paint model, and
-//                       it is what separates "a dark surface" from "glass".
-//                       clearcoat is constructed non-zero so the shader
-//                       compiles the chunk in; dialling it afterwards is a
-//                       free uniform write, not a recompile.
+//   All of it rides the URL (?crack=) like the pose does, so a dialled-in
+//   shatter is reproducible in the Playwright capture and lands on the card.
 //
-//   CRACKED GLASS       No Blender. No second GLB. Probed the deployed
-//                       asset: Glass_Front is a FLAT 1216-vert plane and
-//                       it already carries TEXCOORD_0. So the cracked pane
-//                       is its geometry, cloned in code, with a crack PNG
-//                       on it — the identical pattern to Screen.png and
-//                       internals.jpg, which already work.
+//   ARCHITECTURE: the cracked pane is a SEPARATE OBJECT — a clone of
+//   Glass_Front's geometry (a flat 1216-vert plane) carrying the crack PNG,
+//   mounted as a sibling group of the glass. It has to be two objects: a
+//   single pane wearing a crack texture cannot be REMOVED, and removal is
+//   the whole story. No Blender. No second GLB.
 //
-//                       Coexistence, which you flagged as the hard part,
-//                       is not a problem at all: it is just a third group
-//                       under the pivot. It rides GLASS_REG and the glass
-//                       explode by default, so it looks welded to the
-//                       pane; CRACK.exit then sends it off on its OWN path
-//                       as it goes. The crossfade is scrollState.swap,
-//                       which runs across the existing HOLD phase — so the
-//                       choreography is already the repair story: the
-//                       cracked pane lifts off during the explode, is
-//                       discarded across the hold, and the clean pane
-//                       re-seats on the reassemble. No new timeline.
-//
-//                       crackTexture is an OPTIONAL prop. Absent, the
-//                       whole layer costs nothing and renders nothing.
-//
-// ============================================
-// v3.8.7 — KEYBOARD DRIVE: TAP vs HOLD
-//
-//   The arrow keys felt slow because the repeat was coming from the
-//   OPERATING SYSTEM: a ~500 ms dead pause, then a fixed ~30/sec chatter,
-//   every step the same size. That is a text-entry repeat curve, not a
-//   navigation one.
-//
-//   Split the two gestures, because they want opposite things:
-//
-//     TAP   one keydown -> exactly ONE nudge at the full grain step.
-//           Unchanged. This is the precision gesture and it stays exact.
-//
-//     HOLD  after KEYS.delay ms, a rAF loop takes over at 60 fps and
-//           ramps the per-frame step from 0.25x grain up to 1.5x grain
-//           over KEYS.ramp ms. No OS pause, no chatter, and it lands
-//           roughly 3-6x faster than the old repeat at full glide while
-//           still starting gently enough to stop where you meant to.
-//
-//   OS key-repeat events (ev.repeat) are now DISCARDED — the rAF loop owns
-//   the hold, so the two cannot fight each other.
-//
-//   Speed is therefore controlled on two axes, both of them reachable:
-//     GRAIN  fine / mid / coarse — the size of one tap. G key, and now
-//            three clickable chips in the dashboard.
-//     GAIN   the "hold speed" dial — scales the hold ramp only. Taps are
-//            untouched by it.
-//
-// ============================================
-// v3.8.6 — compound-motion ratio range widened to +/-20 (was +/-5), in
-//          BOTH clamps: the Leva "ratio" control and the dashboard's range
-//          slider. Step coarsened 0.01 -> 0.05 so a full sweep is still one
-//          drag rather than 800 of them. WIRE.ratio itself was never
-//          clamped in code — only the two UI widgets were.
-//
-// ============================================
-// v3.8.5 — THE TWO BLACK RIM TRIMS
-//
-//   PROBED FROM THE DEPLOYED GLB, not inferred. Three prims stack at the
-//   front face (metres):
-//
-//     Glass_Front        z -0.0051 (FLAT PLANE, 0 thick)   71 x 155 mm
-//     Glass_Bezel        z -0.0051 -> -0.0046  (0.5 mm)    75 x 159 mm
-//     Display_OLED.001   z -0.0042 -> -0.0038  (0.4 mm)    75 x 159 mm
-//
-//   The bezel and the OLED carry IDENTICAL footprints, both 2 mm larger
-//   per side than the front glass, and they sit 0.4 mm apart in Z. Neither
-//   is a plane — both are SLABS, so both have a side-wall RIM running the
-//   whole perimeter. Both rims render black (the bezel by design; the OLED
-//   rim because v3.8's two-way split sent everything that was not the
-//   front cap to the black material). Two black slab rims, 0.4 mm apart,
-//   only visible at a grazing angle. That is the doubled trim, exactly.
-//
-//   The BEZEL band is wanted — it is the phone's real black border, and
-//   2 mm is dimensionally right for a 14 Pro. The OLED rim is pure
-//   artefact: on a real panel that manufacturing edge is buried under the
-//   bezel, and here it is being drawn as a second line.
-//
-//   Fix: THREE-way split, not two.
-//     nz <  faceCut   -> screen  (front cap)
-//     nz > -faceCut   -> black   (back cap; still occludes from behind)
-//     otherwise       -> RIM     -> its own material, visible = false
-//
-//   The rim now renders nothing at all. The back cap survives, so the slab
-//   is still solid from the rear. Rim visibility is a dial ("show OLED
-//   rim") in case anything unexpected shows through, and there is a "hide
-//   bezel" toggle beside it so each trim can be isolated on demand and the
-//   attribution confirmed by eye rather than by argument.
-//
-// ============================================
-// v3.8.4 — OLED FACE-SPLIT THRESHOLD (the jagged corner lip)
-//
-//   The jagged, alternating rainbow edge on the OLED's top corners —
-//   visible ONLY from a grazing angle, never from above — was not the
-//   mesh. It was v3.8's own face classifier.
-//
-//   splitOledGeometry sorted the slab's triangles by the RAW SIGN of the
-//   face normal's Z:
-//
-//       front cap   nz ~ -1   -> screen      correct
-//       back cap    nz ~ +1   -> black       correct
-//       the RIM     nz ~  0   -> COIN TOSS   <-- the bug
-//
-//   The cut sat at exactly 0. The slab's rim is perpendicular to Z, so its
-//   normals land ON the boundary — and around a rounded corner the rim
-//   tilts, so half of those triangles wobble a hair negative and were
-//   handed the SCREEN TEXTURE. That is the jagged lip. It hides from a
-//   face-on view because the rim is the one surface you cannot see from
-//   straight on, and it concentrates at the corners because that is where
-//   the rim sweeps through the threshold.
-//
-//   Fix: normalise the face normal and cut in the EMPTY half of the
-//   distribution (OLED.faceCut = -0.5) instead of on the boundary. The cap
-//   clears it by 0.5; the rim misses it by 0.5. No rim triangle can take
-//   the screen material at any corner radius.
-//
-//   Live dial. The index buffer and groups are rebuilt in place from a
-//   cached per-triangle nz table — the scene graph is never re-traversed,
-//   so this is safe to drag at runtime. Slide it to 0 to reproduce the
-//   v3.8 bug on demand; that IS the proof. (?oled=-0.5)
-//
-//   RESIDUAL: if a stepped SILHOUETTE survives at faceCut -0.9, that part
-//   is the mesh's corner tessellation and no shader can fix it — that is a
-//   Blender bevel/segment-count job on the OLED slab, same drawer as the
-//   Glass_Bezel flank.
-//
-// ============================================
-// v3.8.3 — CONTACT SHADOW REMOVED
-//
-//   The horizontal line running clean across the screen AND out past the
-//   phone's silhouette on both sides was never a shadow ON the phone — it
-//   was ContactShadows itself. It is a ground plane at y = -0.7 and the
-//   camera sits at y = 0, so it was being viewed almost perfectly edge-on:
-//   a plane seen edge-on collapses to a line. Its opacity ran
-//   0.5 * (1 - rotate), so it was at FULL strength at the start of the
-//   timeline (the hero pose being captured) and faded out by the settle —
-//   which is why it only ever showed up here.
-//
-//   Nothing is lost by deleting it: the background is transparent, the
-//   phone is floating, and there is no ground for it to contact. The
-//   shadowRef and its per-frame opacity write go with it.
-//
-// ============================================
-// v3.8.2 — REVERT: PILL ROUTING + CAMERA HIDING
-//
-//   Two v3.8 interventions are withdrawn on request. Everything else
-//   from v3.8 / v3.8.1 stands untouched.
-//
-//   PILL ROUTING       WITHDRAWN. "Display Dynamic Island" no longer
-//     (reverted)       mounts in the glass group. It falls through the
-//                      traverse to body.push() exactly as it did before
-//                      v3.8 — so it carries NO GLASS_REG, NO 2.0×
-//                      explode, and sits in the body's frame. The
-//                      GLASS_GROUP_MATERIALS set and the 5b routing
-//                      block are gone.
-//
-//   STRAY CAMERA       WITHDRAWN. HIDDEN_MATERIALS and the hide branch
-//     (reverted)       are gone. "Front Camera (Center + Outer Ring)"
-//                      and "Display Camera Hole (Outer Bright)" render
-//                      again, in the body group, as they did before.
-//
-//   normMat            Removed with them — it existed only to feed those
-//     (removed)        two Sets and had no other caller.
-//
-//   Glass_Front cutout is UNAFFECTED by this revert. The pill hole is
-//   authored in the GLB geometry; no code path ever filled it, in any
-//   version. It stays hollow.
-//
-// ============================================
-// v3.8.1 — RETAINED
-//
-//   BEZEL DIALS        depthTest restored to true; anti-flicker handed to
-//                      polygonOffset. env / rough / offset are live dials
-//                      (?bezel=env,rough,offset).
-//
-//   TRANSLUCENT COATS  The old `opacity < 1 → paint it black` rule is gone.
-//                      Gloss coats (Rear Camera Island + Apple Logo, Flash
-//                      Bright, the camera-hole brights) render as AUTHORED
-//                      — real colour, real alpha, depthWrite off so they
-//                      cannot fight the surface they sit on. Only
-//                      alpha ≤ 0.05 films are still hidden.
-//
-// ============================================
-// v3.8 — RETAINED
-//
-//   LIGHTING RIG       Five stacked sources + NoToneMapping was the cream
-//                      blowout. Now one key, one fill, a low ambient, and
-//                      the IBL scaled by scene.environmentIntensity —
-//                      every one on a Leva dial, ACES Filmic tone mapping
-//                      with an exposure dial. (?light=amb,key,fill,env,exp)
-//
-//   OLED BACK FACE     Display_OLED is a SOLID SLAB (118.62 units of front-
-//                      facing area, 118.63 back-facing), so FrontSide drew
-//                      the UI on the phone's back too. Fixed by splitting
-//                      the index by face-normal Z into two geometry groups
-//                      and handing the mesh a MATERIAL ARRAY [screen, black].
-//                      Front is -Z (Glass_Front z -0.0051, Back Glass +0.005).
-//
-// ============================================
-// v3.7 — trackball ring (orientation-independent), 100 pose slots, labels.
-// v3.6 — timeline locks abolished, auto target routing, smooth square-up.
-// v3.5 — glass-reg baked (x -0.03, y 0.09, z 0.07), Leva reinstated.
-// v3.4 — sat-nav HUD, true square-up (quaternion), panel-aware gizmo.
-// v3.3 — glass registration folder, body emission kill.
-// v3.2 — hierarchy bake (anchored rebase).
-// v3.1 — proxy-anchored gizmo, fat handles, click-to-target.
-// v3.0 — world/local, wiring, snapshots. v2.9 — screen-space arrow drive.
+// ---- earlier ----
+// v3.9    Glass_Front -> MeshPhysicalMaterial (clearcoat). The hard circle
+//         was a REFLECTION of the studio HDRI's softbox in a roughness-0.04
+//         mirror, not a light. GLASS.rough spreads it; LIGHT.preset changes
+//         its shape outright.
+// v3.8.7  Arrow keys: tap = one exact grain step; hold = 60fps ramped glide.
+//         OS key-repeat discarded so the two cannot fight.
+// v3.8.6  Compound-motion ratio range widened to ±20.
+// v3.8.5  THREE-way OLED split. The doubled black trim was two slab side-
+//         walls 0.4mm apart (bezel + OLED). The OLED rim now renders nothing.
+// v3.8.4  OLED face-split cut normalised and moved to -0.5. v3.8 compared a
+//         RAW cross-product z against 0 — which is exactly where the rim's
+//         normals live. That was the jagged rainbow corner lip.
+// v3.8.3  ContactShadows deleted. A ground plane at y=-0.7 seen from a
+//         camera at y=0 is edge-on: a plane seen edge-on IS a line.
+// v3.8.2  Pill routing + camera hiding withdrawn.
+// v3.8.1  Bezel dials; translucent gloss coats render as authored.
+// v3.8    Lighting rig on dials + ACES tone mapping (the cream blowout was
+//         five stacked sources with no highlight rolloff). OLED back-face
+//         split via geometry groups + material array.
+// v3.7    Trackball ring, 100 pose slots.   v3.6  Auto target routing.
+// v3.5    Glass-reg baked.  v3.4  Sat-nav HUD.  v3.3  Body emission kill.
+// v3.2    Hierarchy bake.   v3.1  Proxy-anchored gizmo.  v3.0  Wiring.
 // ============================================
 let CAPTURE_SNAP = false;
 let SNAP_FRAMES = 0;
@@ -303,6 +99,8 @@ function wrapDeg(rad) {
   if (d === -180) d = 180;
   return Number(d.toFixed(2));
 }
+
+const DEG = Math.PI / 180;
 
 // ---------------------------------------------------------
 // TRUE SQUARE-UP maths — nearest axis-aligned ORIENTATION.
@@ -352,9 +150,7 @@ const TIMELINE = {
   reassembleEnd: 0.7,
 };
 
-const START = {
-  tilt: Math.PI / 10, // 18°
-};
+const START = { tilt: Math.PI / 10 }; // 18°
 
 const SETTLE = {
   targetEuler: [0, Math.PI, 0],
@@ -371,40 +167,32 @@ const STAGE = {
   scale: 1,
 };
 
-const MODEL = {
-  targetSize: 1.6,
-};
+const MODEL = { targetSize: 1.6 };
 
 const GLASS_REG = { x: -0.03, y: 0.09, z: 0.07 };
 
-// ============================================
-// LIGHT (v3.8) — the whole lighting rig as one tunable config.
-//
-// WHY THIS EXISTS: the old rig hard-coded ambient 0.8 + directional 1.5 +
-// directional 0.8 + point 0.5 + a studio IBL, then rendered with
-// NoToneMapping. That is five sources with no highlight rolloff — every
-// metal surface (chassis and buttons are metalness 1.0, i.e. mirrors)
-// clipped flat to white. The fix is not a magic number, it is a DIAL, so
-// the reference render can be matched by eye rather than by guess.
-//
+// ---------------------------------------------------------
+// LIGHT — the whole rig as dials.
 //   amb   ambient fill. The form-killer if pushed. Start LOW.
 //   key   main directional — this is what creates the gradient.
-//   fill  cool rim/fill directional from the opposite side.
-//   env   studio IBL contribution (scene.environmentIntensity).
-//         The IBL is *also* an ambient source — amb + env stack.
-//   exp   ACES tone-mapping exposure. Rolls highlights off instead of
-//         clipping them. This is what stops the blowout.
-//
-// Overridable: ?light=amb,key,fill,env,exp
-// ============================================
+//   fill  cool rim/fill from the opposite side.
+//   env   IBL contribution (scene.environmentIntensity).
+//   exp   ACES exposure — rolls highlights off instead of clipping them.
+//   preset  WHICH WORLD gets reflected. "studio" contains hard softbox
+//           panels; that circle in the glass IS this preset.
+//   blur    softens the IBL itself. Version-dependent on drei — if dragging
+//           it does nothing, the prop is being ignored. GLASS.rough is the
+//           guaranteed softener.
+// Overridable: ?light=amb,key,fill,env,exp  ?envp=studio  ?envb=0
+// ---------------------------------------------------------
 const LIGHT = {
   amb: 0.1,
   key: 1.2,
   fill: 0.35,
   env: 0.4,
   exp: 1.0,
-  preset: "studio", // the HDRI whose SHAPES get reflected in the glass
-  blur: 0.0, // blurs the IBL itself — softens every reflection at once
+  preset: "studio",
+  blur: 0.0,
 };
 
 const ENV_PRESETS = [
@@ -421,53 +209,23 @@ const ENV_PRESETS = [
 ];
 
 // ---------------------------------------------------------
-// BEZEL (v3.8.1) — dials, because the black-rim cause is UNRESOLVED.
-//
-// Two candidates for the faint black rim on the OLED edge and the front
-// outward edge, and a screenshot cannot separate them:
-//   (a) the bezel is now DEAD black (env 0, rough 1.0), so its rim
-//       geometry — which was always drawn — is finally conspicuous
-//   (b) offset -4 pushes it in front of the chassis edge at grazing
-//       angles, expanding its visible footprint
-//
-// Confidence is MEDIUM/MEDIUM, which is a hard stop. So: dials, not a
-// guess. Drag "depth push" toward 0 — if the rim goes, it was (b). If it
-// doesn't, raise "black level" off 0 until the rim reads as glossy trim
-// instead of an outline; that means it was (a).
-//
-// Overridable: ?bezel=env,rough,offset
-// ---------------------------------------------------------
-// ---------------------------------------------------------
-// OLED (v3.8.4) — the front/back face-split threshold.
-//
-// Each triangle of the Display_OLED slab is classified by its UNIT normal
-// Z. nz < faceCut takes the screen texture; everything else goes black.
-//
-//   front cap  nz ~ -1.0     back cap  nz ~ +1.0     rim  nz ~ 0.0
-//
-// -0.5 sits in the gap. -1.0 would starve the cap; 0.0 is the v3.8 bug.
-// Overridable: ?oled=-0.5
+// OLED — the front/back/rim face-split threshold.
+//   front cap nz ~ -1.0    back cap nz ~ +1.0    rim nz ~ 0.0
+// -0.5 sits in the gap. 0.0 is the v3.8 bug, reproducible on demand.
+// Overridable: ?oled=-0.5,0
 // ---------------------------------------------------------
 const OLED = {
   faceCut: -0.5,
-  showRim: false, // the slab's side wall — artefact, hidden by default
+  showRim: false, // the slab's side wall — artefact, hidden
 };
 
 // ---------------------------------------------------------
-// GLASS (v3.9) — the front pane's material, as dials.
-//
-//   rough      THE softness control for the studio-light circle. 0.04 is a
-//              mirror and reflects the HDRI's softbox as a hard shape.
-//              0.10-0.30 spreads it into a soft bloom. Costs nothing —
-//              roughness reads the env map's prefiltered mip chain.
-//   env        reflection BRIGHTNESS (envMapIntensity), independent of
-//              spread. Turn this down and up separately from rough and the
-//              two together give you the full highlight.
+// GLASS — the front pane's material.
+//   rough      softness of the reflected highlight. 0.04 is a MIRROR.
+//   env        reflection BRIGHTNESS, independent of spread.
 //   opacity    how much the pane darkens what is under it.
-//   clearcoat  the second specular layer — the lacquer coat. This is the
-//              "expensive glass" lever.
-//   ccRough    the clearcoat's OWN roughness. Lets the coat highlight stay
-//              tight while the base reflection goes soft, or vice versa.
+//   clearcoat  the second specular layer — the lacquer coat, the "shine".
+//   ccRough    the clearcoat's OWN roughness.
 // Overridable: ?glass=rough,env,opacity,clearcoat,ccRough
 // ---------------------------------------------------------
 const GLASS = {
@@ -479,38 +237,37 @@ const GLASS = {
 };
 
 // ---------------------------------------------------------
-// CRACK (v3.9) — the cracked pane that gets removed and replaced.
-//
-//   The cracked pane is a CLONE of Glass_Front's geometry (a flat plane,
-//   1216 verts, already UV'd) carrying a crack PNG. It is a sibling group
-//   of the glass, so by default it inherits the same GLASS_REG and the
-//   same explode multiplier and looks welded to the pane it sits on.
-//
-//   swap 0 -> 1 across the HOLD phase (TIMELINE.explodeEnd -> holdEnd).
-//     opacity  fades CRACK.opacity -> 0
-//     exit     an EXTRA translation, scaled by swap, that sends the broken
-//              pane off on its own path while the clean one stays put.
-//              Leave at 0,0,0 and it simply dissolves in place.
-// Overridable: ?crack=opacity,exitX,exitY,exitZ
+// CRACK — see the v3.10 header. Every value here is a dial.
+// Overridable:
+//   ?crack=opac,fade,mul,start,end,exX,exY,exZ,spinX,spinY,spinZ,fU,fV
 // ---------------------------------------------------------
 const CRACK = {
   opacity: 1.0,
+  fade: 1.0,
   explodeMul: 2.0, // 2.0 == the glass group's multiplier: welded
+  swapStart: 0.35,
+  swapEnd: 0.45,
   exit: [0, 0, 0],
+  spin: [0, 0, 0],
+  flipU: false,
+  flipV: false,
 };
 
-// 1x1 fully transparent PNG. useTexture cannot be called conditionally
-// (hooks rule), so when no crackTexture prop is supplied this loads
-// instead and the crack layer is simply never mounted.
+// 1x1 transparent PNG. useTexture cannot be called conditionally (hooks
+// rule), so with no crackTexture prop this loads instead and the crack
+// layer is simply never mounted.
 const BLANK_PX =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
 
+// ---------------------------------------------------------
+// BEZEL — dials, because the residual black-rim cause is UNRESOLVED.
+// Overridable: ?bezel=env,rough,offset
+// ---------------------------------------------------------
 const BEZEL = {
-  env: 0.0,     // envMapIntensity — 0 = dead black, no IBL reflection
-  rough: 1.0,   // roughness — 1.0 = no specular lobe at all
-  offset: -4,   // polygonOffset factor+units. Glass_Front sits at -2, so
-                // the bezel must be MORE negative to win where they are
-                // coplanar. 0 = no offset (chassis can occlude it).
+  env: 0.0,   // envMapIntensity — 0 = dead black, no IBL reflection
+  rough: 1.0, // roughness — 1.0 = no specular lobe at all
+  offset: -4, // polygonOffset. Glass_Front sits at -2, so the bezel must be
+              // MORE negative to win where they are coplanar.
 };
 
 // ============================================
@@ -521,7 +278,7 @@ const DEV = {
   dirtyQuat: false,
   dirtyFit: false,
   dirtyStage: true,
-  dirtyLight: true, // LIGHT changed → re-apply exposure + env intensity
+  dirtyLight: true,
   applyProgress: null,
   lastP: 0,
   gizmo: "off",
@@ -538,13 +295,13 @@ const DEV = {
   viewport: null,
   hudMode: "move",
   leftClampNDC: -0.85,
-  bezelMat: null, // live handle — the bezel Leva folder writes through it
-  bezelMeshes: [], // live handles — the "hide bezel" isolate toggle
-  oledRimMat: null, // live handle — the "show OLED rim" toggle
-  glassMat: null, // live handle — the front-glass folder
-  crackMat: null, // live handle — the cracked-pane folder
-  setEnv: null, // Scene's setter — preset/blur need a React re-render
-  pathPreview: false, // path engine already owns easing; bypass render damping
+  bezelMat: null,
+  bezelMeshes: [],
+  oledRimMat: null,
+  glassMat: null,
+  crackMat: null,
+  crackTex: null,
+  setEnv: null,
 };
 
 function atEndpoint() {
@@ -555,6 +312,16 @@ function effectiveTarget() {
   return DEV.gizmoTarget === "settle" && !atEndpoint()
     ? "stage"
     : DEV.gizmoTarget;
+}
+
+// wrapS/T are ClampToEdge, so a repeat of -1 with an offset of +1 folds the
+// UV to 1-u exactly, with no bleed at the border.
+function applyCrackFlip() {
+  const t = DEV.crackTex;
+  if (!t) return;
+  t.repeat.set(CRACK.flipU ? -1 : 1, CRACK.flipV ? -1 : 1);
+  t.offset.set(CRACK.flipU ? 1 : 0, CRACK.flipV ? 1 : 0);
+  t.needsUpdate = true;
 }
 
 // ---------------------------------------------------------
@@ -572,19 +339,7 @@ const GRAIN_STEPS = {
 };
 
 // HOLD curve. Taps do not touch any of this.
-//   delay  ms of continuous hold before the glide engages. Below this, a
-//          tap is still just a tap.
-//   ramp   ms to travel from the slow end of the glide to the fast end.
-//   min/max  per-FRAME step as a multiple of the grain step. At 60 fps,
-//          0.25x grain = 15 grain-steps/sec; 1.5x = 90/sec.
-//   gain   live multiplier on the whole glide ("hold speed" dial).
-const KEYS = {
-  delay: 200,
-  ramp: 900,
-  min: 0.25,
-  max: 1.5,
-  gain: 1.0,
-};
+const KEYS = { delay: 200, ramp: 900, min: 0.25, max: 1.5, gain: 1.0 };
 
 const HOLD = { keys: new Set(), raf: 0, t0: 0 };
 
@@ -640,6 +395,13 @@ const DRIVE_READERS = {
   tilt: () => (START.tilt * 180) / Math.PI,
   lift: () => SETTLE.arcLift,
   pscale: () => SETTLE.scale,
+  // v3.10 — the crack's departure is wireable like anything else.
+  crackExitX: () => CRACK.exit[0],
+  crackExitY: () => CRACK.exit[1],
+  crackExitZ: () => CRACK.exit[2],
+  crackSpinX: () => CRACK.spin[0],
+  crackSpinY: () => CRACK.spin[1],
+  crackSpinZ: () => CRACK.spin[2],
 };
 
 const DRIVE_CLAMPS = {
@@ -659,6 +421,12 @@ const DRIVE_CLAMPS = {
   tilt: [-45, 45],
   lift: [-0.5, 0.5],
   pscale: [0.2, 1.5],
+  crackExitX: [-4, 4],
+  crackExitY: [-4, 4],
+  crackExitZ: [-4, 4],
+  crackSpinX: [-720, 720],
+  crackSpinY: [-720, 720],
+  crackSpinZ: [-720, 720],
 };
 
 function changeGizmoContext(targetMode) {
@@ -679,6 +447,8 @@ const WIREABLE = [
   "sposX", "sposY", "sposZ", "srotX", "srotY", "srotZ", "sscale",
   "shift", "vshift", "lift", "pscale", "size",
   "settleX", "settleY", "settleZ", "tilt",
+  "crackExitX", "crackExitY", "crackExitZ",
+  "crackSpinX", "crackSpinY", "crackSpinZ",
 ];
 
 const WIRE = {
@@ -726,282 +496,6 @@ const SNAPSHOTS = { origin: null };
 
 const SLOT_KEY = "iglass_pose_slots_v1";
 const SLOT_COUNT = 100;
-const MOTION_PATH_KEY = "iglass_motion_path_v1";
-
-const MOTION_EASES = {
-  linear: (t) => t,
-  smooth: (t) => t * t * (3 - 2 * t),
-  cinematic: (t) => t * t * t * (t * (t * 6 - 15) + 10),
-  sine: (t) => 0.5 - 0.5 * Math.cos(Math.PI * t),
-  accelerate: (t) => t * t * t,
-  decelerate: (t) => 1 - Math.pow(1 - t, 3),
-};
-
-const MOTION_EASE_LABELS = {
-  linear: "linear",
-  smooth: "smooth",
-  cinematic: "cinematic",
-  sine: "sine",
-  accelerate: "accelerate",
-  decelerate: "decelerate",
-};
-
-const POSE_ROTATION_GROUPS = [
-  ["settleX", "settleY", "settleZ"],
-  ["srotX", "srotY", "srotZ"],
-];
-
-const POSE_ROTATION_KEYS = new Set(POSE_ROTATION_GROUPS.flat());
-
-function defaultMotionPath() {
-  return {
-    version: 1,
-    trajectory: "curve",
-    speed: 1,
-    loop: true,
-    nodes: [],
-  };
-}
-
-function loadMotionPath() {
-  try {
-    const raw = window.localStorage.getItem(MOTION_PATH_KEY);
-    const saved = raw ? JSON.parse(raw) : null;
-    if (saved && Array.isArray(saved.nodes)) {
-      return {
-        ...defaultMotionPath(),
-        ...saved,
-        trajectory: saved.trajectory === "line" ? "line" : "curve",
-        speed: Math.max(0.1, Number(saved.speed) || 1),
-        loop: saved.loop !== false,
-        nodes: saved.nodes
-          .filter((n) => Number.isInteger(n.slot))
-          .map((n, i) => ({
-            slot: n.slot,
-            duration: i === 0 ? 0 : Math.max(0.1, Number(n.duration) || 1.25),
-            hold: Math.max(0, Number(n.hold) || 0),
-            ease: MOTION_EASES[n.ease] ? n.ease : "cinematic",
-          })),
-      };
-    }
-  } catch (e) {
-    /* corrupted store -> fresh path */
-  }
-  return defaultMotionPath();
-}
-
-function persistMotionPath(path) {
-  try {
-    window.localStorage.setItem(MOTION_PATH_KEY, JSON.stringify(path));
-  } catch (e) {
-    /* storage blocked -> path remains session-only */
-  }
-}
-
-function compileMotionPath(path, slots) {
-  const nodes = path.nodes
-    .map((node) => ({ ...node, pose: slots[node.slot] || null }))
-    .filter((node) => node.pose);
-  return {
-    type: "iglass-motion-path",
-    version: 1,
-    trajectory: path.trajectory === "line" ? "line" : "curve",
-    speed: Math.max(0.1, Number(path.speed) || 1),
-    loop: path.loop !== false,
-    nodes,
-  };
-}
-
-function motionPathDuration(path) {
-  if (!path || !path.nodes || !path.nodes.length) return 0;
-  return path.nodes.reduce(
-    (sum, node, i) =>
-      sum + (i === 0 ? 0 : Math.max(0.1, Number(node.duration) || 0)) +
-      Math.max(0, Number(node.hold) || 0),
-    0
-  );
-}
-
-function catmullRom(p0, p1, p2, p3, t) {
-  const t2 = t * t;
-  const t3 = t2 * t;
-  return 0.5 * (
-    2 * p1 +
-    (-p0 + p2) * t +
-    (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 +
-    (-p0 + 3 * p1 - 3 * p2 + p3) * t3
-  );
-}
-
-function interpolateEulerGroup(a, b, keys, t, out) {
-  const rad = Math.PI / 180;
-  const qa = new THREE.Quaternion().setFromEuler(
-    new THREE.Euler(a[keys[0]] * rad, a[keys[1]] * rad, a[keys[2]] * rad)
-  );
-  const qb = new THREE.Quaternion().setFromEuler(
-    new THREE.Euler(b[keys[0]] * rad, b[keys[1]] * rad, b[keys[2]] * rad)
-  );
-  const q = new THREE.Quaternion().slerpQuaternions(qa, qb, t);
-  const e = new THREE.Euler().setFromQuaternion(q, "XYZ");
-  out[keys[0]] = wrapDeg(e.x);
-  out[keys[1]] = wrapDeg(e.y);
-  out[keys[2]] = wrapDeg(e.z);
-}
-
-function interpolateMotionPose(nodes, fromIndex, t, trajectory) {
-  const a = nodes[fromIndex].pose;
-  const b = nodes[fromIndex + 1].pose;
-  const out = {};
-
-  for (const key of Object.keys(a)) {
-    if (POSE_ROTATION_KEYS.has(key)) continue;
-    const av = a[key];
-    const bv = b[key];
-    if (typeof av === "number" && typeof bv === "number") {
-      out[key] = av + (bv - av) * t;
-    } else {
-      out[key] = t < 1 ? av : bv;
-    }
-  }
-
-  for (const keys of POSE_ROTATION_GROUPS) {
-    if (keys.every((key) => typeof a[key] === "number" && typeof b[key] === "number")) {
-      interpolateEulerGroup(a, b, keys, t, out);
-    }
-  }
-
-  if (trajectory === "curve") {
-    const p0 = nodes[Math.max(0, fromIndex - 1)].pose;
-    const p1 = a;
-    const p2 = b;
-    const p3 = nodes[Math.min(nodes.length - 1, fromIndex + 2)].pose;
-    for (const key of ["sposX", "sposY", "sposZ"]) {
-      if ([p0[key], p1[key], p2[key], p3[key]].every(Number.isFinite)) {
-        out[key] = catmullRom(p0[key], p1[key], p2[key], p3[key], t);
-      }
-    }
-  }
-
-  return out;
-}
-
-function sampleMotionPath(path, progress) {
-  if (!path || !path.nodes || !path.nodes.length) return null;
-  if (path.nodes.length === 1) return { ...path.nodes[0].pose };
-
-  const total = motionPathDuration(path);
-  if (total <= 0) return { ...path.nodes[path.nodes.length - 1].pose };
-
-  let time = Math.max(0, Math.min(1, progress)) * total;
-  const firstHold = Math.max(0, Number(path.nodes[0].hold) || 0);
-  if (time <= firstHold) return { ...path.nodes[0].pose };
-  time -= firstHold;
-
-  for (let i = 1; i < path.nodes.length; i++) {
-    const node = path.nodes[i];
-    const duration = Math.max(0.1, Number(node.duration) || 0);
-    if (time <= duration) {
-      const raw = Math.max(0, Math.min(1, time / duration));
-      const ease = MOTION_EASES[node.ease] || MOTION_EASES.cinematic;
-      return interpolateMotionPose(path.nodes, i - 1, ease(raw), path.trajectory);
-    }
-    time -= duration;
-
-    const hold = Math.max(0, Number(node.hold) || 0);
-    if (time <= hold) return { ...node.pose };
-    time -= hold;
-  }
-
-  return { ...path.nodes[path.nodes.length - 1].pose };
-}
-
-function applyPoseParamsDirect(pose) {
-  if (!pose) return;
-  const rad = Math.PI / 180;
-
-  if (Number.isFinite(pose.shift)) SETTLE.xShiftFraction = pose.shift;
-  if (Number.isFinite(pose.vshift)) SETTLE.yShiftFraction = pose.vshift;
-  if ([pose.settleX, pose.settleY, pose.settleZ].every(Number.isFinite)) {
-    SETTLE.targetEuler = [pose.settleX * rad, pose.settleY * rad, pose.settleZ * rad];
-    DEV.dirtyQuat = true;
-  }
-  if (Number.isFinite(pose.size) && pose.size > 0) {
-    MODEL.targetSize = pose.size;
-    DEV.dirtyFit = true;
-  }
-  if ([pose.sposX, pose.sposY, pose.sposZ].every(Number.isFinite)) {
-    STAGE.position = [pose.sposX, pose.sposY, pose.sposZ];
-    DEV.dirtyStage = true;
-  }
-  if ([pose.srotX, pose.srotY, pose.srotZ].every(Number.isFinite)) {
-    STAGE.rotationEuler = [pose.srotX * rad, pose.srotY * rad, pose.srotZ * rad];
-    DEV.dirtyStage = true;
-  }
-  if (Number.isFinite(pose.sscale) && pose.sscale > 0) {
-    STAGE.scale = pose.sscale;
-    DEV.dirtyStage = true;
-  }
-  if (Number.isFinite(pose.tilt)) {
-    START.tilt = pose.tilt * rad;
-    DEV.dirtyQuat = true;
-  }
-  if (Number.isFinite(pose.lift)) SETTLE.arcLift = pose.lift;
-  if (Number.isFinite(pose.pscale) && pose.pscale > 0) SETTLE.scale = pose.pscale;
-  if (Number.isFinite(pose.p)) {
-    const p = Math.max(0, Math.min(1, pose.p));
-    DEV.lastP = p;
-    if (DEV.applyProgress) DEV.applyProgress(p);
-  }
-
-  DEV.pathPreview = true;
-}
-
-function syncPoseControls(pose) {
-  if (!pose || !DEV.setLeva) return;
-  WIRE.suspended = true;
-  DEV.setLeva({ ...pose, drive: driveLabel() });
-  WIRE.suspended = false;
-}
-
-function encodeMotionPath(path) {
-  const json = JSON.stringify(path);
-  const bytes = new TextEncoder().encode(json);
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
-}
-
-function decodeMotionPath(value) {
-  try {
-    const base64 = value.replace(/-/g, "+").replace(/_/g, "/");
-    const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
-    const binary = atob(padded);
-    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
-    const parsed = JSON.parse(new TextDecoder().decode(bytes));
-    if (parsed && parsed.type === "iglass-motion-path" && Array.isArray(parsed.nodes)) {
-      const nodes = parsed.nodes
-        .filter((node) => node && node.pose && typeof node.pose === "object")
-        .map((node, i) => ({
-          duration: i === 0 ? 0 : Math.max(0.1, Number(node.duration) || 1.25),
-          hold: Math.max(0, Number(node.hold) || 0),
-          ease: MOTION_EASES[node.ease] ? node.ease : "cinematic",
-          pose: node.pose,
-        }));
-      if (!nodes.length) return null;
-      return {
-        type: "iglass-motion-path",
-        version: 1,
-        trajectory: parsed.trajectory === "line" ? "line" : "curve",
-        speed: Math.max(0.1, Number(parsed.speed) || 1),
-        loop: parsed.loop !== false,
-        nodes,
-      };
-    }
-  } catch (e) {
-    /* invalid motion payload -> fall back to the normal timeline */
-  }
-  return null;
-}
 
 function loadSlots() {
   try {
@@ -1175,8 +669,7 @@ function nudgeSettleMoveScreen(set, axis, dir, scale = 1) {
 }
 
 function nudgeRotateScreen(set, axis, dir, isRoll, scale = 1) {
-  const stepRad =
-    (GRAIN_STEPS.deg[DEV.driveGrain] * scale * Math.PI) / 180;
+  const stepRad = (GRAIN_STEPS.deg[DEV.driveGrain] * scale * Math.PI) / 180;
   let axisVec, sign;
   if (isRoll) {
     axisVec = new THREE.Vector3(0, 0, 1);
@@ -1253,8 +746,6 @@ function serialiseParams(params) {
     "glassreg",
     [GLASS_REG.x, GLASS_REG.y, GLASS_REG.z].map((v) => v.toFixed(3)).join(",")
   );
-  // v3.8 — lighting rides the URL so a dialled-in look is reproducible
-  // in the Playwright capture exactly like the pose is.
   params.set(
     "light",
     [LIGHT.amb, LIGHT.key, LIGHT.fill, LIGHT.env, LIGHT.exp]
@@ -1274,10 +765,25 @@ function serialiseParams(params) {
   );
   params.set("envp", LIGHT.preset);
   params.set("envb", LIGHT.blur.toFixed(2));
+  // The whole shatter choreography rides the URL.
   params.set(
     "crack",
-    [CRACK.opacity, CRACK.exit[0], CRACK.exit[1], CRACK.exit[2]]
-      .map((v) => v.toFixed(2))
+    [
+      CRACK.opacity,
+      CRACK.fade,
+      CRACK.explodeMul,
+      CRACK.swapStart,
+      CRACK.swapEnd,
+      CRACK.exit[0],
+      CRACK.exit[1],
+      CRACK.exit[2],
+      CRACK.spin[0],
+      CRACK.spin[1],
+      CRACK.spin[2],
+      CRACK.flipU ? 1 : 0,
+      CRACK.flipV ? 1 : 0,
+    ]
+      .map((v) => Number(v).toFixed(3))
       .join(",")
   );
 }
@@ -1312,44 +818,6 @@ function copyManifest() {
   if (navigator.clipboard) navigator.clipboard.writeText(json);
 }
 
-function buildMotionPathBaseURL(path, slots) {
-  const compiled = compileMotionPath(path, slots);
-  if (compiled.nodes.length < 2) return null;
-  const params = new URLSearchParams();
-  serialiseParams(params);
-  params.set("motion", encodeMotionPath(compiled));
-  return `${window.location.origin}${window.location.pathname}?${params.toString()}`;
-}
-
-function copyMotionPreviewURL(path, slots) {
-  const base = buildMotionPathBaseURL(path, slots);
-  if (!base) return false;
-  const url = new URL(base);
-  url.searchParams.set("mode", "autoplay");
-  if (navigator.clipboard) navigator.clipboard.writeText(url.toString());
-  return true;
-}
-
-function copyMotionManifest(path, slots) {
-  const baseURL = buildMotionPathBaseURL(path, slots);
-  if (!baseURL) return false;
-  const manifest = {
-    type: "iglass-capture-manifest",
-    version: 1,
-    baseURL,
-    sweepParam: "mp",
-    startValue: 0,
-    endValue: 1,
-    totalFrames: 90,
-    viewport: { width: 1600, height: 900, deviceScaleFactor: 2 },
-    captureSelector: "canvas",
-  };
-  if (navigator.clipboard) {
-    navigator.clipboard.writeText(JSON.stringify(manifest, null, 2));
-  }
-  return true;
-}
-
 // ---------------------------------------------------------
 // SAVE CARD
 // ---------------------------------------------------------
@@ -1371,11 +839,13 @@ function saveCard() {
     `light amb ${LIGHT.amb.toFixed(2)}  key ${LIGHT.key.toFixed(2)}  fill ${LIGHT.fill.toFixed(2)}  env ${LIGHT.env.toFixed(2)}  exp ${LIGHT.exp.toFixed(2)}`,
     `bezel env ${BEZEL.env.toFixed(2)}  rough ${BEZEL.rough.toFixed(2)}  offset ${BEZEL.offset.toFixed(2)}    oled cut ${OLED.faceCut.toFixed(2)}  rim ${OLED.showRim ? "on" : "off"}`,
     `glass rough ${GLASS.rough.toFixed(3)}  env ${GLASS.env.toFixed(2)}  opac ${GLASS.opacity.toFixed(2)}  clearcoat ${GLASS.clearcoat.toFixed(2)} / ${GLASS.ccRough.toFixed(3)}`,
-    `ibl ${LIGHT.preset}  blur ${LIGHT.blur.toFixed(2)}    crack ${CRACK.opacity.toFixed(2)}  exit ${CRACK.exit.map((v) => v.toFixed(2)).join(", ")}`,
+    `ibl ${LIGHT.preset}  blur ${LIGHT.blur.toFixed(2)}`,
+    `crack ${CRACK.opacity.toFixed(2)}  dissolve ${CRACK.fade.toFixed(2)}  swap ${CRACK.swapStart.toFixed(3)} → ${CRACK.swapEnd.toFixed(3)}  travel ×${CRACK.explodeMul.toFixed(2)}`,
+    `crack exit ${CRACK.exit.map((v) => v.toFixed(2)).join(", ")}    tumble ${CRACK.spin.map((v) => v.toFixed(0)).join(", ")}°    uv ${CRACK.flipU ? "U" : "-"}${CRACK.flipV ? "V" : "-"}`,
   ];
   const url = buildTuningURL();
 
-  const fsMono = Math.round(24 * k);
+  const fsMono = Math.round(22 * k);
   const fsSmall = Math.round(14 * k);
   const fsHead = Math.round(18 * k);
   const lh = Math.round(fsMono * 1.55);
@@ -1462,9 +932,7 @@ function captureSettleFromObject(viewport) {
   obj.scale.setScalar(obj.scale.x);
 
   SETTLE.scale = obj.scale.x;
-  SETTLE.xShiftFraction = viewport.width
-    ? obj.position.x / viewport.width
-    : 0;
+  SETTLE.xShiftFraction = viewport.width ? obj.position.x / viewport.width : 0;
   SETTLE.yShiftFraction = viewport.height
     ? obj.position.y / viewport.height
     : 0;
@@ -1541,10 +1009,149 @@ function DevControls({ initialP }) {
   const [, set] = useControls(() => ({
     drive: { value: driveLabel(), editable: false },
 
-    // ---- v3.8 LIGHTING — open by default. This is the dial set that
-    // replaces the hard-coded five-source blowout. Match the Blender
-    // reference by eye, then read the numbers off 📋 copy URL / 📸 save
-    // card and they get baked as the compiled LIGHT defaults. ----
+    // ---- v3.10 CRACKED PANE. The whole choreography. Nothing here is
+    // welded to the timeline: the swap window is free-range across the
+    // entire playhead, and reversible. ----
+    "💥 cracked pane": folder(
+      {
+        crackSwapStart: {
+          value: CRACK.swapStart,
+          min: 0,
+          max: 1,
+          step: 0.005,
+          label: "departs at p =",
+          onChange: (v) => {
+            CRACK.swapStart = v;
+            if (DEV.applyProgress) DEV.applyProgress(DEV.lastP);
+          },
+        },
+        crackSwapEnd: {
+          value: CRACK.swapEnd,
+          min: 0,
+          max: 1,
+          step: 0.005,
+          label: "…gone by p =",
+          onChange: (v) => {
+            CRACK.swapEnd = v;
+            if (DEV.applyProgress) DEV.applyProgress(DEV.lastP);
+          },
+        },
+        crackMul: {
+          value: CRACK.explodeMul,
+          min: 0,
+          max: 6,
+          step: 0.05,
+          label: "travel × (2.0 = welded to glass)",
+          onChange: (v) => {
+            CRACK.explodeMul = v;
+          },
+        },
+        crackOpacity: {
+          value: CRACK.opacity,
+          min: 0,
+          max: 1,
+          step: 0.01,
+          label: "crack strength",
+          onChange: (v) => {
+            CRACK.opacity = v;
+          },
+        },
+        crackFade: {
+          value: CRACK.fade,
+          min: 0,
+          max: 1,
+          step: 0.01,
+          label: "dissolve (0 = stays in shot)",
+          onChange: (v) => {
+            CRACK.fade = v;
+          },
+        },
+        crackExitX: {
+          value: CRACK.exit[0],
+          min: -4,
+          max: 4,
+          step: 0.01,
+          label: "discard ← → (X)",
+          onChange: (v) => {
+            CRACK.exit[0] = v;
+            wireTap("crackExitX", v);
+          },
+        },
+        crackExitY: {
+          value: CRACK.exit[1],
+          min: -4,
+          max: 4,
+          step: 0.01,
+          label: "discard ↑ ↓ (Y)",
+          onChange: (v) => {
+            CRACK.exit[1] = v;
+            wireTap("crackExitY", v);
+          },
+        },
+        crackExitZ: {
+          value: CRACK.exit[2],
+          min: -4,
+          max: 4,
+          step: 0.01,
+          label: "discard depth (Z)",
+          onChange: (v) => {
+            CRACK.exit[2] = v;
+            wireTap("crackExitZ", v);
+          },
+        },
+        crackSpinX: {
+          value: CRACK.spin[0],
+          min: -720,
+          max: 720,
+          step: 1,
+          label: "tumble pitch °",
+          onChange: (v) => {
+            CRACK.spin[0] = v;
+            wireTap("crackSpinX", v);
+          },
+        },
+        crackSpinY: {
+          value: CRACK.spin[1],
+          min: -720,
+          max: 720,
+          step: 1,
+          label: "tumble yaw °",
+          onChange: (v) => {
+            CRACK.spin[1] = v;
+            wireTap("crackSpinY", v);
+          },
+        },
+        crackSpinZ: {
+          value: CRACK.spin[2],
+          min: -720,
+          max: 720,
+          step: 1,
+          label: "tumble roll °",
+          onChange: (v) => {
+            CRACK.spin[2] = v;
+            wireTap("crackSpinZ", v);
+          },
+        },
+        crackFlipU: {
+          value: CRACK.flipU,
+          label: "mirror ← →",
+          onChange: (v) => {
+            CRACK.flipU = v;
+            applyCrackFlip();
+          },
+        },
+        crackFlipV: {
+          value: CRACK.flipV,
+          label: "flip ↑ ↓",
+          onChange: (v) => {
+            CRACK.flipV = v;
+            applyCrackFlip();
+          },
+        },
+      },
+      { collapsed: false }
+    ),
+
     "💡 lighting": folder(
       {
         amb: {
@@ -1623,9 +1230,6 @@ function DevControls({ initialP }) {
       { collapsed: false }
     ),
 
-    // ---- v3.9 FRONT GLASS. "spread" is the dial for the hard circle: it
-    // blurs the reflection instead of dimming it. "brightness" is separate.
-    // clearcoat is the shine — a second specular layer over the base. ----
     "✨ front glass": folder(
       {
         glassRough: {
@@ -1688,56 +1292,6 @@ function DevControls({ initialP }) {
       { collapsed: false }
     ),
 
-    // ---- v3.9 CRACKED PANE. Inert unless a crackTexture prop is passed. ----
-    "💥 cracked pane": folder(
-      {
-        crackOpacity: {
-          value: CRACK.opacity,
-          min: 0,
-          max: 1,
-          step: 0.01,
-          label: "crack strength",
-          onChange: (v) => {
-            CRACK.opacity = v;
-          },
-        },
-        crackExitX: {
-          value: CRACK.exit[0],
-          min: -3,
-          max: 3,
-          step: 0.01,
-          label: "discard ← → (X)",
-          onChange: (v) => {
-            CRACK.exit[0] = v;
-          },
-        },
-        crackExitY: {
-          value: CRACK.exit[1],
-          min: -3,
-          max: 3,
-          step: 0.01,
-          label: "discard ↑ ↓ (Y)",
-          onChange: (v) => {
-            CRACK.exit[1] = v;
-          },
-        },
-        crackExitZ: {
-          value: CRACK.exit[2],
-          min: -3,
-          max: 3,
-          step: 0.01,
-          label: "discard depth (Z)",
-          onChange: (v) => {
-            CRACK.exit[2] = v;
-          },
-        },
-      },
-      { collapsed: true }
-    ),
-
-    // ---- v3.8.1 BEZEL — the black-rim cause is UNRESOLVED, so this is a
-    // dial set, not a guess. depth push -> 0 tests one hypothesis;
-    // black level off 0 tests the other. ----
     "🖤 bezel": folder(
       {
         bezelEnv: {
@@ -1779,12 +1333,9 @@ function DevControls({ initialP }) {
           },
         },
       },
-      { collapsed: false }
+      { collapsed: true }
     ),
 
-    // ---- v3.8.4 OLED — the face-split cut. Drag toward 0 and the jagged
-    // rainbow lip returns at the corners: that IS the v3.8 bug, on demand.
-    // Drag toward -1 and the rim goes black long before the cap starves. ----
     "📺 oled": folder(
       {
         oledCut: {
@@ -1798,8 +1349,6 @@ function DevControls({ initialP }) {
             applyOledCut(v);
           },
         },
-        // The OLED slab's side wall. This is the INNER of the two black
-        // trims. Off = gone. On = v3.8.4 behaviour, for comparison.
         oledRim: {
           value: OLED.showRim,
           label: "show OLED rim (trim 2)",
@@ -1808,8 +1357,6 @@ function DevControls({ initialP }) {
             if (DEV.oledRimMat) DEV.oledRimMat.visible = v;
           },
         },
-        // The OUTER trim. Toggle it to confirm the attribution by eye:
-        // whichever black line vanishes is the one this owns.
         hideBezel: {
           value: false,
           label: "hide bezel (trim 1) — isolate",
@@ -1818,11 +1365,9 @@ function DevControls({ initialP }) {
           },
         },
       },
-      { collapsed: false }
+      { collapsed: true }
     ),
 
-    // ---- v3.8.7 KEYBOARD — this dial scales the HOLD glide only. A tap is
-    // always one exact grain step and is never affected by it. ----
     "⌨ keyboard": folder(
       {
         holdGain: {
@@ -1888,6 +1433,7 @@ function DevControls({ initialP }) {
       },
       { collapsed: true }
     ),
+
     "⏱ timeline": folder(
       {
         p: {
@@ -1905,6 +1451,7 @@ function DevControls({ initialP }) {
       },
       { collapsed: false }
     ),
+
     "📐 phone final pose (end of timeline)": folder(
       {
         tilt: {
@@ -2002,6 +1549,7 @@ function DevControls({ initialP }) {
       },
       { collapsed: false }
     ),
+
     "🎬 stage (whole scene, works at any time)": folder(
       {
         sposX: {
@@ -2091,6 +1639,7 @@ function DevControls({ initialP }) {
       },
       { collapsed: true }
     ),
+
     "📦 model": folder(
       {
         size: {
@@ -2108,6 +1657,7 @@ function DevControls({ initialP }) {
       },
       { collapsed: true }
     ),
+
     "🔲 glass registration": folder(
       {
         glassRegY: {
@@ -2164,6 +1714,7 @@ function DevControls({ initialP }) {
         set({ drive: driveLabel() });
         return;
       }
+
       // ---- ARROWS: tap = one exact step, hold = 60 fps ramped glide ----
       if (ARROWS[ev.key]) {
         ev.preventDefault();
@@ -2209,7 +1760,6 @@ function DevControls({ initialP }) {
         jumpToP(Math.min(1, Math.max(0, DEV.lastP + step)));
         return;
       }
-
       if (k === "t") {
         changeGizmoContext(DEV.gizmoTarget === "settle" ? "stage" : "settle");
         return;
@@ -2217,6 +1767,7 @@ function DevControls({ initialP }) {
       const map = { w: "translate", e: "rotate", r: "scale", q: "off" };
       if (map[k]) setGizmoMode(map[k]);
     };
+
     const onKeyUp = (ev) => {
       if (!ARROWS[ev.key]) return;
       HOLD.keys.delete(ev.key);
@@ -2308,6 +1859,12 @@ const HUMAN_LABELS = {
   settleY: "Phone yaw °",
   settleZ: "Phone roll °",
   tilt: "Start tilt °",
+  crackExitX: "Crack discard ← →",
+  crackExitY: "Crack discard ↑ ↓",
+  crackExitZ: "Crack discard depth",
+  crackSpinX: "Crack tumble pitch °",
+  crackSpinY: "Crack tumble yaw °",
+  crackSpinZ: "Crack tumble roll °",
 };
 
 const chipStyle = (active, wide) => ({
@@ -2348,16 +1905,76 @@ const slotStyle = (filled) => ({
   cursor: "pointer",
 });
 
+// The crack's departure window drawn ON the playhead — the one piece of
+// state that is far easier to SEE than to read. Green band = the window.
+// Faint ticks = explode / hold / seat. Black line = where you are now.
+function CrackTrack() {
+  const w = 236;
+  const lo = Math.min(CRACK.swapStart, CRACK.swapEnd);
+  const hi = Math.max(CRACK.swapStart, CRACK.swapEnd);
+  const marks = [
+    ["explode", TIMELINE.explodeEnd],
+    ["hold", TIMELINE.holdEnd],
+    ["seat", TIMELINE.reassembleEnd],
+  ];
+  return (
+    <div style={{ position: "relative", height: 24, marginTop: 2 }}>
+      <div
+        style={{
+          position: "absolute",
+          top: 8,
+          left: 0,
+          width: w,
+          height: 6,
+          borderRadius: 3,
+          background: "#e7efe9",
+        }}
+      />
+      <div
+        style={{
+          position: "absolute",
+          top: 8,
+          left: lo * w,
+          width: Math.max(2, (hi - lo) * w),
+          height: 6,
+          borderRadius: 3,
+          background: "#3c9a68",
+        }}
+        title={`crack departs ${lo.toFixed(2)} → ${hi.toFixed(2)}`}
+      />
+      {marks.map(([label, v]) => (
+        <div
+          key={label}
+          title={label}
+          style={{
+            position: "absolute",
+            top: 5,
+            left: v * w,
+            width: 1,
+            height: 12,
+            background: "#b9cbbf",
+          }}
+        />
+      ))}
+      <div
+        style={{
+          position: "absolute",
+          top: 3,
+          left: DEV.lastP * w - 1,
+          width: 2,
+          height: 16,
+          background: "#0d1512",
+        }}
+        title={`p = ${DEV.lastP.toFixed(3)}`}
+      />
+    </div>
+  );
+}
+
 function DevDashboard() {
   const [, force] = useState(0);
   const panelRef = useRef(null);
   const [collapsed, setCollapsed] = useState(false);
-  const [motionPath, setMotionPath] = useState(loadMotionPath);
-  const [selectedPathNode, setSelectedPathNode] = useState(-1);
-  const [pathProgress, setPathProgress] = useState(0);
-  const [pathPlaying, setPathPlaying] = useState(false);
-  const pathProgressRef = useRef(0);
-  const pathPlaybackRef = useRef({ raf: 0 });
 
   useEffect(() => {
     const id = setInterval(() => force((n) => n + 1), 150);
@@ -2365,18 +1982,6 @@ function DevDashboard() {
   }, []);
 
   const [slots, setSlots] = useState(loadSlots);
-
-  useEffect(() => {
-    persistMotionPath(motionPath);
-  }, [motionPath]);
-
-  useEffect(() => {
-    return () => {
-      if (pathPlaybackRef.current.raf) {
-        cancelAnimationFrame(pathPlaybackRef.current.raf);
-      }
-    };
-  }, []);
 
   const isStage = DEV.gizmoTarget === "stage";
   const routed = effectiveTarget() !== DEV.gizmoTarget;
@@ -2394,132 +1999,13 @@ function DevDashboard() {
     DEV.leftClampNDC = Math.max(-0.9, Math.min(-0.15, ndc));
   });
 
-  const applyPathAt = (progress, syncControls = false, sourcePath = motionPath) => {
-    const compiled = compileMotionPath(sourcePath, slots);
-    const pose = sampleMotionPath(compiled, progress);
-    if (!pose) return false;
-    const p = Math.max(0, Math.min(1, progress));
-    pathProgressRef.current = p;
-    setPathProgress(p);
-    applyPoseParamsDirect(pose);
-    if (syncControls) syncPoseControls(pose);
-    return true;
-  };
-
-  const pauseMotionPath = (syncControls = true) => {
-    if (pathPlaybackRef.current.raf) {
-      cancelAnimationFrame(pathPlaybackRef.current.raf);
-      pathPlaybackRef.current.raf = 0;
-    }
-    setPathPlaying(false);
-    if (syncControls) {
-      const compiled = compileMotionPath(motionPath, slots);
-      syncPoseControls(sampleMotionPath(compiled, pathProgressRef.current));
-    }
-  };
-
-  const playMotionPath = () => {
-    pauseMotionPath(false);
-    const compiled = compileMotionPath(motionPath, slots);
-    const total = motionPathDuration(compiled);
-    if (compiled.nodes.length < 2 || total <= 0) return;
-
-    let startProgress = pathProgressRef.current;
-    if (startProgress >= 0.999) startProgress = 0;
-    const startSeconds = startProgress * total;
-    const startedAt = performance.now();
-    const speed = Math.max(0.1, Number(motionPath.speed) || 1);
-    setPathPlaying(true);
-
-    const tick = (now) => {
-      const seconds = startSeconds + ((now - startedAt) / 1000) * speed;
-      const done = seconds >= total;
-      const progress = motionPath.loop
-        ? (seconds % total) / total
-        : Math.min(1, seconds / total);
-
-      const pose = sampleMotionPath(compiled, progress);
-      if (pose) {
-        pathProgressRef.current = progress;
-        setPathProgress(progress);
-        applyPoseParamsDirect(pose);
-      }
-
-      if (done && !motionPath.loop) {
-        pathPlaybackRef.current.raf = 0;
-        setPathPlaying(false);
-        syncPoseControls(sampleMotionPath(compiled, 1));
-        return;
-      }
-      pathPlaybackRef.current.raf = requestAnimationFrame(tick);
-    };
-
-    pathPlaybackRef.current.raf = requestAnimationFrame(tick);
-  };
-
-  const commitMotionPath = (next) => {
-    pauseMotionPath(false);
-    setMotionPath(next);
-  };
-
-  const addPathNode = (slot) => {
-    if (!slots[slot]) return;
-    const index = motionPath.nodes.length;
-    const next = {
-      ...motionPath,
-      nodes: [
-        ...motionPath.nodes,
-        {
-          slot,
-          duration: index === 0 ? 0 : 1.25,
-          hold: index === 0 ? 0.35 : 0.2,
-          ease: "cinematic",
-        },
-      ],
-    };
-    commitMotionPath(next);
-    setSelectedPathNode(index);
-  };
-
-  const updateSelectedPathNode = (patch) => {
-    if (selectedPathNode < 0 || !motionPath.nodes[selectedPathNode]) return;
-    const nodes = motionPath.nodes.map((node, i) =>
-      i === selectedPathNode ? { ...node, ...patch } : node
-    );
-    if (nodes[0]) nodes[0] = { ...nodes[0], duration: 0 };
-    commitMotionPath({ ...motionPath, nodes });
-  };
-
-  const removeSelectedPathNode = () => {
-    if (selectedPathNode < 0) return;
-    const nodes = motionPath.nodes.filter((_, i) => i !== selectedPathNode);
-    if (nodes[0]) nodes[0] = { ...nodes[0], duration: 0 };
-    commitMotionPath({ ...motionPath, nodes });
-    setSelectedPathNode(Math.min(selectedPathNode, nodes.length - 1));
-  };
-
-  const moveSelectedPathNode = (direction) => {
-    const to = selectedPathNode + direction;
-    if (selectedPathNode < 0 || to < 0 || to >= motionPath.nodes.length) return;
-    const nodes = [...motionPath.nodes];
-    [nodes[selectedPathNode], nodes[to]] = [nodes[to], nodes[selectedPathNode]];
-    if (nodes[0]) nodes[0] = { ...nodes[0], duration: 0 };
-    if (nodes[1] && nodes[1].duration <= 0) nodes[1] = { ...nodes[1], duration: 1.25 };
-    commitMotionPath({ ...motionPath, nodes });
-    setSelectedPathNode(to);
-  };
-
   const slotClick = (i, ev) => {
     if (ev.shiftKey) {
-      pauseMotionPath(false);
       const next = [...slots];
       next[i] = readPoseParams();
       setSlots(next);
       persistSlots(next);
-    } else if ((ev.ctrlKey || ev.metaKey) && slots[i]) {
-      addPathNode(i);
     } else if (slots[i]) {
-      pauseMotionPath(false);
       warpToParams(slots[i]);
     }
   };
@@ -2527,7 +2013,6 @@ function DevDashboard() {
   const slotClear = (i, ev) => {
     ev.preventDefault();
     if (!slots[i]) return;
-    pauseMotionPath(false);
     const next = [...slots];
     next[i] = null;
     setSlots(next);
@@ -2535,10 +2020,6 @@ function DevDashboard() {
   };
 
   const filledCount = slots.filter(Boolean).length;
-  const compiledPath = compileMotionPath(motionPath, slots);
-  const pathReady = compiledPath.nodes.length >= 2;
-  const pathDuration = motionPathDuration(compiledPath);
-  const selectedNode = motionPath.nodes[selectedPathNode] || null;
 
   if (collapsed) {
     return (
@@ -2592,6 +2073,9 @@ function DevDashboard() {
           ▾ hide
         </span>
       </div>
+
+      <div style={UI.head}>💥 crack departure window</div>
+      <CrackTrack />
 
       <div style={UI.head}>target</div>
       <div style={UI.row}>
@@ -2800,7 +2284,7 @@ function DevDashboard() {
             style={slotStyle(!!s)}
             title={
               s
-                ? `slot ${i + 1} — click: warp · Ctrl/Cmd-click: add to path · right-click: clear`
+                ? `slot ${i + 1} — click: warp · right-click: clear`
                 : `slot ${i + 1} — shift+click: save`
             }
             onClick={(ev) => slotClick(i, ev)}
@@ -2809,194 +2293,6 @@ function DevDashboard() {
             {i + 1}
           </div>
         ))}
-      </div>
-
-      <div style={UI.head}>
-        🎬 motion path ({compiledPath.nodes.length}/{motionPath.nodes.length}) · {pathDuration.toFixed(2)}s
-      </div>
-      <div style={{ ...UI.row, minHeight: 24 }}>
-        {motionPath.nodes.length === 0 && (
-          <span style={UI.hint}>Ctrl/Cmd-click filled pose slots in travel order.</span>
-        )}
-        {motionPath.nodes.map((node, i) => {
-          const valid = !!slots[node.slot];
-          return (
-            <span
-              key={`${node.slot}-${i}`}
-              style={{
-                ...chipStyle(i === selectedPathNode),
-                borderColor: valid ? undefined : "#bd3f3f",
-                background: valid
-                  ? chipStyle(i === selectedPathNode).background
-                  : "#fff0f0",
-                color: valid
-                  ? chipStyle(i === selectedPathNode).color
-                  : "#8b2020",
-              }}
-              title={valid ? `path node ${i + 1} = pose slot ${node.slot + 1}` : "source pose was cleared"}
-              onClick={() => setSelectedPathNode(i)}
-            >
-              {i + 1}:S{node.slot + 1}
-            </span>
-          );
-        })}
-      </div>
-
-      {selectedNode && (
-        <div style={{ marginTop: 4, padding: 5, border: "1px solid #d5e2d9", borderRadius: 6 }}>
-          <div style={{ ...UI.row, justifyContent: "space-between" }}>
-            <span style={{ fontSize: 10, color: "#25332b" }}>
-              node {selectedPathNode + 1} · slot {selectedNode.slot + 1}
-            </span>
-            <span>
-              <span style={chipStyle(false)} onClick={() => moveSelectedPathNode(-1)}>←</span>
-              <span style={chipStyle(false)} onClick={() => moveSelectedPathNode(1)}>→</span>
-              <span style={chipStyle(false)} onClick={removeSelectedPathNode}>×</span>
-            </span>
-          </div>
-
-          {selectedPathNode > 0 && (
-            <>
-              <div style={{ ...UI.row, marginTop: 4, alignItems: "center" }}>
-                <span style={{ width: 42, fontSize: 9, color: "#5a6b60" }}>travel</span>
-                <input
-                  type="range"
-                  min={0.1}
-                  max={5}
-                  step={0.05}
-                  value={selectedNode.duration}
-                  style={{ width: 125, accentColor: "#2e7d52" }}
-                  onChange={(ev) => updateSelectedPathNode({ duration: parseFloat(ev.target.value) })}
-                />
-                <span style={{ fontSize: 9, minWidth: 34 }}>{selectedNode.duration.toFixed(2)}s</span>
-              </div>
-              <div style={{ ...UI.row, marginTop: 3, alignItems: "center" }}>
-                <span style={{ width: 42, fontSize: 9, color: "#5a6b60" }}>ease</span>
-                <select
-                  style={{ ...SEL_STYLE, maxWidth: 120 }}
-                  value={selectedNode.ease}
-                  onChange={(ev) => updateSelectedPathNode({ ease: ev.target.value })}
-                >
-                  {Object.entries(MOTION_EASE_LABELS).map(([value, label]) => (
-                    <option key={value} value={value}>{label}</option>
-                  ))}
-                </select>
-              </div>
-            </>
-          )}
-
-          <div style={{ ...UI.row, marginTop: 3, alignItems: "center" }}>
-            <span style={{ width: 42, fontSize: 9, color: "#5a6b60" }}>hold</span>
-            <input
-              type="range"
-              min={0}
-              max={3}
-              step={0.05}
-              value={selectedNode.hold}
-              style={{ width: 125, accentColor: "#2e7d52" }}
-              onChange={(ev) => updateSelectedPathNode({ hold: parseFloat(ev.target.value) })}
-            />
-            <span style={{ fontSize: 9, minWidth: 34 }}>{selectedNode.hold.toFixed(2)}s</span>
-          </div>
-        </div>
-      )}
-
-      <div style={{ ...UI.row, marginTop: 5, alignItems: "center" }}>
-        <select
-          style={SEL_STYLE}
-          value={motionPath.trajectory}
-          title="stage translation between poses"
-          onChange={(ev) => commitMotionPath({ ...motionPath, trajectory: ev.target.value })}
-        >
-          <option value="curve">curved path</option>
-          <option value="line">straight path</option>
-        </select>
-        <span
-          style={chipStyle(motionPath.loop, true)}
-          onClick={() => commitMotionPath({ ...motionPath, loop: !motionPath.loop })}
-        >
-          {motionPath.loop ? "loop on" : "loop off"}
-        </span>
-      </div>
-
-      <div style={{ ...UI.row, marginTop: 3, alignItems: "center" }}>
-        <span style={{ width: 36, fontSize: 9, color: "#5a6b60" }}>speed</span>
-        <input
-          type="range"
-          min={0.25}
-          max={2.5}
-          step={0.05}
-          value={motionPath.speed}
-          style={{ width: 135, accentColor: "#2e7d52" }}
-          onChange={(ev) => commitMotionPath({ ...motionPath, speed: parseFloat(ev.target.value) })}
-        />
-        <span style={{ fontSize: 9 }}>×{motionPath.speed.toFixed(2)}</span>
-      </div>
-
-      <input
-        type="range"
-        min={0}
-        max={1}
-        step={0.001}
-        value={pathProgress}
-        disabled={!pathReady}
-        style={{ width: "100%", marginTop: 5, accentColor: "#2e7d52" }}
-        title={`motion path progress ${pathProgress.toFixed(3)}`}
-        onChange={(ev) => {
-          pauseMotionPath(false);
-          applyPathAt(parseFloat(ev.target.value));
-        }}
-        onPointerUp={() => {
-          const pose = sampleMotionPath(compileMotionPath(motionPath, slots), pathProgressRef.current);
-          syncPoseControls(pose);
-        }}
-      />
-
-      <div style={UI.row}>
-        <span
-          style={chipStyle(pathPlaying, true)}
-          onClick={() => (pathPlaying ? pauseMotionPath(true) : playMotionPath())}
-        >
-          {pathPlaying ? "❚❚ pause" : "▶ preview"}
-        </span>
-        <span
-          style={chipStyle(false, true)}
-          onClick={() => {
-            pauseMotionPath(false);
-            applyPathAt(0, true);
-          }}
-        >
-          ↺ start
-        </span>
-        <span
-          style={chipStyle(false)}
-          onClick={() => {
-            pauseMotionPath(false);
-            commitMotionPath(defaultMotionPath());
-            setSelectedPathNode(-1);
-            pathProgressRef.current = 0;
-            setPathProgress(0);
-          }}
-        >
-          clear
-        </span>
-      </div>
-
-      <div style={UI.row}>
-        <span
-          style={chipStyle(false, true)}
-          title="copy a self-contained Vercel autoplay URL"
-          onClick={() => copyMotionPreviewURL(motionPath, slots)}
-        >
-          🔗 preview URL
-        </span>
-        <span
-          style={chipStyle(false, true)}
-          title="copy a capture manifest that sweeps mp from 0 to 1"
-          onClick={() => copyMotionManifest(motionPath, slots)}
-        >
-          🎞 path manifest
-        </span>
       </div>
 
       <div style={UI.head}>🛠 actions</div>
@@ -3028,7 +2324,7 @@ function DevDashboard() {
       </div>
 
       <div style={UI.hint}>
-        lighting folder (top right) = the look — match your Blender reference
+        cracked pane folder = the shatter · the swap window is free-range
         <br />
         the playhead NEVER moves unless you move it
         <br />
@@ -3039,8 +2335,6 @@ function DevDashboard() {
         gizmo (W/E/R/Q) overrides the sat-nav
         <br />
         arrows: tap = one exact step · hold = accelerating glide
-        <br />
-        path: Ctrl/Cmd-click filled slots in travel order
       </div>
     </div>
   );
@@ -3305,9 +2599,10 @@ function DevGizmo() {
   useFrame(() => {
     DEV.viewport = { width: viewport.width, height: viewport.height };
 
-    const eff = DEV.gizmoDragging && dragRef.current
-      ? dragRef.current.eff
-      : effectiveTarget();
+    const eff =
+      DEV.gizmoDragging && dragRef.current
+        ? dragRef.current.eff
+        : effectiveTarget();
     DEV.gizmoSpace = eff === "stage" ? "world" : "local";
 
     if (DEV.gizmo !== mode) setMode(DEV.gizmo);
@@ -3353,8 +2648,7 @@ function DevGizmo() {
   useEffect(() => {
     const ctrl = ctrlRef.current;
     if (!ctrl) return;
-    const root =
-      typeof ctrl.getHelper === "function" ? ctrl.getHelper() : ctrl;
+    const root = typeof ctrl.getHelper === "function" ? ctrl.getHelper() : ctrl;
     if (!root || typeof root.traverse !== "function") return;
     root.traverse((child) => {
       child.frustumCulled = false;
@@ -3391,9 +2685,7 @@ function DevGizmo() {
     if (DEV.gizmo === "translate") {
       const delta = proxy.position.clone().sub(d.proxyPos);
       if (d.eff === "settle") {
-        delta
-          .applyQuaternion(d.stageQuatInv)
-          .divideScalar(d.stageScale || 1);
+        delta.applyQuaternion(d.stageQuatInv).divideScalar(d.stageScale || 1);
       }
       obj.position.copy(d.targetPos).add(delta);
     } else if (DEV.gizmo === "rotate") {
@@ -3475,19 +2767,15 @@ function DevGizmo() {
 //   ?p=0.85                    freeze the timeline at a fixed progress
 //   ?settle=0,180,0            SETTLE.targetEuler, degrees
 //   ?tilt=18                   START.tilt, degrees
-//   ?lift=0.08                 SETTLE.arcLift
-//   ?size=1.6                  MODEL.targetSize
-//   ?pscale=0.8                SETTLE.scale
+//   ?lift / ?shift / ?vshift / ?size / ?pscale
 //   ?spos / ?srot / ?sscale    STAGE transform
 //   ?glassreg=x,y,z            whole-glass-unit registration
-//   ?light=amb,key,fill,env,exp   v3.8 lighting rig
-//   ?bezel=env,rough,offset       v3.8.1 bezel dials
-//   ?oled=-0.5,0                  OLED face-split cut, rim on/off
-//   ?glass=rough,env,opac,cc,ccr  v3.9 front-glass material
-//   ?envp=studio   ?envb=0        reflected world + IBL blur
-//   ?crack=opac,exX,exY,exZ       cracked-pane strength + discard path
-//   ?motion=<base64url-json>       self-contained slot-based motion path
-//   ?mp=0.5                       freeze motion-path progress for capture
+//   ?light=amb,key,fill,env,exp
+//   ?bezel=env,rough,offset
+//   ?oled=-0.5,0               face-split cut, rim on/off
+//   ?glass=rough,env,opac,cc,ccr
+//   ?envp=studio   ?envb=0     reflected world + IBL blur
+//   ?crack=opac,fade,mul,start,end,exX,exY,exZ,spinX,spinY,spinZ,fU,fV
 //   ?snap=1                    deterministic capture (Playwright)
 //   ?dev=1                     Pose Studio
 // ============================================
@@ -3511,29 +2799,22 @@ function resolveRuntimeConfig() {
     }
   }
   const tiltParam = parseFloat(params.get("tilt"));
-  if (!isNaN(tiltParam)) {
-    START.tilt = (tiltParam * Math.PI) / 180;
-  }
+  if (!isNaN(tiltParam)) START.tilt = (tiltParam * Math.PI) / 180;
+
   const liftParam = parseFloat(params.get("lift"));
-  if (!isNaN(liftParam)) {
-    SETTLE.arcLift = liftParam;
-  }
+  if (!isNaN(liftParam)) SETTLE.arcLift = liftParam;
+
   const shiftParam = parseFloat(params.get("shift"));
-  if (!isNaN(shiftParam)) {
-    SETTLE.xShiftFraction = shiftParam;
-  }
+  if (!isNaN(shiftParam)) SETTLE.xShiftFraction = shiftParam;
+
   const vShiftParam = parseFloat(params.get("vshift"));
-  if (!isNaN(vShiftParam)) {
-    SETTLE.yShiftFraction = vShiftParam;
-  }
+  if (!isNaN(vShiftParam)) SETTLE.yShiftFraction = vShiftParam;
+
   const sizeParam = parseFloat(params.get("size"));
-  if (!isNaN(sizeParam) && sizeParam > 0) {
-    MODEL.targetSize = sizeParam;
-  }
+  if (!isNaN(sizeParam) && sizeParam > 0) MODEL.targetSize = sizeParam;
+
   const pscaleParam = parseFloat(params.get("pscale"));
-  if (!isNaN(pscaleParam) && pscaleParam > 0) {
-    SETTLE.scale = pscaleParam;
-  }
+  if (!isNaN(pscaleParam) && pscaleParam > 0) SETTLE.scale = pscaleParam;
 
   const sposParam = params.get("spos");
   if (sposParam) {
@@ -3550,9 +2831,7 @@ function resolveRuntimeConfig() {
     }
   }
   const sscaleParam = parseFloat(params.get("sscale"));
-  if (!isNaN(sscaleParam) && sscaleParam > 0) {
-    STAGE.scale = sscaleParam;
-  }
+  if (!isNaN(sscaleParam) && sscaleParam > 0) STAGE.scale = sscaleParam;
   DEV.dirtyStage = true;
 
   const glassregParam = params.get("glassreg");
@@ -3565,7 +2844,6 @@ function resolveRuntimeConfig() {
     }
   }
 
-  // ---- BEZEL channel (v3.8.1) ----
   const bezelParam = params.get("bezel");
   if (bezelParam) {
     const parts = bezelParam.split(",").map((v) => parseFloat(v));
@@ -3576,19 +2854,15 @@ function resolveRuntimeConfig() {
     }
   }
 
-  // ---- OLED channel (v3.8.4) ----
   const oledParam = params.get("oled");
   if (oledParam) {
     const parts = oledParam.split(",").map((v) => parseFloat(v));
     if (!isNaN(parts[0]) && parts[0] >= -1 && parts[0] <= 0) {
       OLED.faceCut = parts[0];
     }
-    if (parts.length > 1 && !isNaN(parts[1])) {
-      OLED.showRim = parts[1] === 1;
-    }
+    if (parts.length > 1 && !isNaN(parts[1])) OLED.showRim = parts[1] === 1;
   }
 
-  // ---- GLASS / ENV / CRACK channels (v3.9) ----
   const glassParam = params.get("glass");
   if (glassParam) {
     const q = glassParam.split(",").map((v) => parseFloat(v));
@@ -3601,23 +2875,32 @@ function resolveRuntimeConfig() {
     }
   }
   const envpParam = params.get("envp");
-  if (envpParam && ENV_PRESETS.includes(envpParam)) {
-    LIGHT.preset = envpParam;
-  }
+  if (envpParam && ENV_PRESETS.includes(envpParam)) LIGHT.preset = envpParam;
+
   const envbParam = parseFloat(params.get("envb"));
   if (!isNaN(envbParam) && envbParam >= 0 && envbParam <= 1) {
     LIGHT.blur = envbParam;
   }
+
+  // ---- CRACK channel — 13 values. Tolerant of shorter lists so an old
+  // 4-value ?crack= URL still loads without throwing the whole pose away.
   const crackParam = params.get("crack");
   if (crackParam) {
     const q = crackParam.split(",").map((v) => parseFloat(v));
-    if (q.length === 4 && q.every((v) => !isNaN(v))) {
-      CRACK.opacity = q[0];
-      CRACK.exit = [q[1], q[2], q[3]];
+    const at = (i, fb) => (isNaN(q[i]) ? fb : q[i]);
+    if (q.length >= 4) {
+      CRACK.opacity = at(0, CRACK.opacity);
+      CRACK.fade = at(1, CRACK.fade);
+      CRACK.explodeMul = at(2, CRACK.explodeMul);
+      CRACK.swapStart = Math.max(0, Math.min(1, at(3, CRACK.swapStart)));
+      CRACK.swapEnd = Math.max(0, Math.min(1, at(4, CRACK.swapEnd)));
+      CRACK.exit = [at(5, 0), at(6, 0), at(7, 0)];
+      CRACK.spin = [at(8, 0), at(9, 0), at(10, 0)];
+      CRACK.flipU = at(11, 0) === 1;
+      CRACK.flipV = at(12, 0) === 1;
     }
   }
 
-  // ---- LIGHT channel (v3.8) — applies in production too ----
   const lightParam = params.get("light");
   if (lightParam) {
     const parts = lightParam.split(",").map((v) => parseFloat(v));
@@ -3637,20 +2920,11 @@ function resolveRuntimeConfig() {
 
   CAPTURE_SNAP = params.get("snap") === "1" || params.get("snap") === "true";
 
-  const motionPath = params.get("motion")
-    ? decodeMotionPath(params.get("motion"))
-    : null;
-  const mpParam = parseFloat(params.get("mp"));
-  const motionFreezeP =
-    motionPath && !isNaN(mpParam)
-      ? Math.max(0, Math.min(1, mpParam))
-      : null;
-
   const pParam = parseFloat(params.get("p"));
   let freezeP = !isNaN(pParam) ? Math.max(0, Math.min(1, pParam)) : null;
   if (dev && freezeP === null) freezeP = 0.5;
 
-  return { mode, bg, freezeP, dev, motionPath, motionFreezeP };
+  return { mode, bg, freezeP, dev };
 }
 
 function phaseMap(p) {
@@ -3670,14 +2944,24 @@ function phaseMap(p) {
       ? 0
       : smoothstep((p - reassembleEnd) / (1 - reassembleEnd));
 
-  // The cracked pane is discarded across the HOLD — the beat where the
-  // phone is already open. 0 = still cracked, 1 = clean pane only.
-  const swap =
-    p <= explodeEnd
-      ? 0
-      : p >= holdEnd
-      ? 1
-      : smoothstep((p - explodeEnd) / (holdEnd - explodeEnd));
+  // ---- CRACK SWAP (v3.10) ----
+  // No longer welded to the HOLD phase. The window is CRACK.swapStart ->
+  // CRACK.swapEnd, free-range across the whole playhead.
+  //   equal      -> zero-width window -> a HARD CUT at that point
+  //   end < start-> the window runs BACKWARDS: the pane ARRIVES rather than
+  //                 leaves. Deliberate. It is a free consequence of not
+  //                 clamping, and occasionally it is exactly what you want.
+  const a = CRACK.swapStart;
+  const b = CRACK.swapEnd;
+  const lo = Math.min(a, b);
+  const hi = Math.max(a, b);
+  let swap;
+  if (hi - lo < 1e-6) {
+    swap = p >= lo ? 1 : 0;
+  } else {
+    swap = p <= lo ? 0 : p >= hi ? 1 : smoothstep((p - lo) / (hi - lo));
+  }
+  if (b < a) swap = 1 - swap;
 
   return { explode, rotate, swap };
 }
@@ -3694,9 +2978,10 @@ const defaultProps = {
   modelPath: "/14 pro.glb",
   screenTexture: screenImg,
   internalsTexture: internalsImg,
-  // OPTIONAL. White/grey crack lines on a TRANSPARENT background, same
-  // aspect as the screen. Absent -> the crack layer never mounts.
-  crackTexture: null,
+  // WHITE crack lines on a TRANSPARENT background, pane aspect (71:155).
+  // A fracture SCATTERS light — it reads bright, not dark. Black cracks on
+  // a near-black glass pane are invisible.
+  crackTexture: crackImg,
 };
 
 // ============================================
@@ -3712,42 +2997,30 @@ const scrollState = {
 };
 
 // ---------------------------------------------------------
-// OLED BACK-FACE SPLIT (v3.8)
+// OLED FRONT / BACK / RIM SPLIT
 //
-// Display_OLED is a solid slab: the GLB carries 118.62 units of face area
-// pointing at the phone's FRONT and 118.63 pointing at its BACK. Both caps
-// are front-facing when viewed from their own side, so THREE.FrontSide
-// renders both of them — which is why the single screen material painted
-// the UI on the back of the phone.
+// Display_OLED is a solid slab: ~118.6 units of face area pointing at the
+// phone's FRONT and ~118.6 at its BACK. Both caps are front-facing when
+// viewed from their own side, so THREE.FrontSide renders both — which is
+// why one screen material painted the UI on the back of the phone.
 //
-// You cannot solve this with `side`. FrontSide/BackSide select by facing
-// relative to the CAMERA, and each cap is "front" from where it's seen.
-// The split has to be by GEOMETRY.
-//
-// So: partition the index by the sign of each triangle's winding-normal Z,
-// reorder it front-first, and declare two geometry GROUPS. three.js then
-// accepts a MATERIAL ARRAY — [screen, black] — and shades each group with
-// its own material in a single draw pair, no extra mesh, no extra memory.
-//
-// Front is -Z. Verified against the deployed GLB: Glass_Front sits at
-// z = -0.0051 and Back Glass at z = +0.005, so the phone faces -Z, and the
-// screen is therefore the cap whose normals point that way (nz < 0).
+// `side` cannot fix this: FrontSide/BackSide select by facing relative to
+// the CAMERA, and each cap is "front" from where it is seen. The split has
+// to be by GEOMETRY. So: partition the index by each triangle's UNIT normal
+// Z, reorder it, declare three geometry GROUPS, and hand the mesh a
+// MATERIAL ARRAY — [screen, black, rim]. One draw per group, no extra mesh.
 // ---------------------------------------------------------
 const OLED_SCREEN_GROUP = 0;
 const OLED_BLACK_GROUP = 1;
 const OLED_RIM_GROUP = 2;
 
-// Cached per-triangle classification data. Filled once by splitOledGeometry;
-// applyOledCut then rebuilds ONLY the index buffer + groups from it. This is
+// Cached per-triangle classification. Filled once by splitOledGeometry;
+// applyOledCut then rebuilds ONLY the index buffer + groups from it. That is
 // why the dial is live: nothing re-traverses the scene graph, and the meshes
 // have already been re-parented out of clonedScene by <primitive>, so a
 // second traverse would find nothing and destroy the model.
 const OLED_CACHE = { geo: null, tri: null, nz: null };
 
-// THREE-way partition (v3.8.5). The cut is symmetric: faceCut for the front
-// cap, -faceCut for the back cap, and everything in between is the slab's
-// side wall — the rim — which gets its own group so it can be switched off
-// without taking the back cap (and the slab's solidity) with it.
 function applyOledCut(cut) {
   const { geo, tri, nz } = OLED_CACHE;
   if (!geo || !tri || !nz) return;
@@ -3804,10 +3077,10 @@ function splitOledGeometry(geometry) {
     n.crossVectors(ab, ac);
 
     // NORMALISE. v3.8 compared the RAW cross product's z against 0, which
-    // made the classification a function of triangle AREA as well as
-    // facing — and put the threshold exactly where the rim's normals live.
-    // A unit normal puts the front cap at nz ~ -1 and the rim at nz ~ 0,
-    // so a cut at -0.5 has half a unit of margin on both sides.
+    // made the classification a function of triangle AREA as well as facing
+    // — and put the threshold exactly where the rim's normals live. A unit
+    // normal puts the front cap at nz ~ -1 and the rim at nz ~ 0, so a cut
+    // at -0.5 has half a unit of margin on both sides.
     const len2 = n.lengthSq();
     nz[t] = len2 > 1e-20 ? n.z / Math.sqrt(len2) : 0; // degenerate -> black
   }
@@ -3848,17 +3121,20 @@ function IPhoneExploded({
   oledTexture.wrapT = THREE.ClampToEdgeWrapping;
   oledTexture.needsUpdate = true;
 
-  // Hooks cannot be conditional — BLANK_PX stands in when there is no
-  // crack PNG, and hasCrack gates the mount instead.
+  // The crack map. wrapS/T stay ClampToEdge so the flip toggles (repeat -1,
+  // offset +1) fold the UV cleanly with no bleed at the border.
   const crackTex = useTexture(crackTexture || BLANK_PX);
   crackTex.flipY = false; // matches the OLED/UV convention for this asset
   crackTex.colorSpace = THREE.SRGBColorSpace;
   crackTex.anisotropy = maxAniso;
   crackTex.generateMipmaps = true;
   crackTex.minFilter = THREE.LinearMipmapLinearFilter;
+  crackTex.magFilter = THREE.LinearFilter;
   crackTex.wrapS = THREE.ClampToEdgeWrapping;
   crackTex.wrapT = THREE.ClampToEdgeWrapping;
   crackTex.needsUpdate = true;
+  DEV.crackTex = crackTex;
+  applyCrackFlip();
 
   const internTex = useTexture(internalsTexture);
   internTex.colorSpace = THREE.SRGBColorSpace;
@@ -3909,12 +3185,11 @@ function IPhoneExploded({
   // ---------------------------------------------------------
   // SORTING + HIERARCHY BAKE
   //
-  // Selection is by MESH NAME for the glass/OLED families. The pill and
-  // the camera prims get NO special handling — they fall through to the
-  // body group, which is where they lived before v3.8 and where they
-  // belong again (v3.8.2 revert).
+  // Selection is by MESH NAME for the glass/OLED families. The pill and the
+  // camera prims get NO special handling — they fall through to the body
+  // group, where they belong.
   //
-  // Render order: Body 0 → coats 1 → OLED 1 → Glass Front 3 → Bezel 4
+  // Render order: Body 0 → coats 1 → OLED 1 → Glass 3 → CRACK 4 → Bezel 5
   // ---------------------------------------------------------
   const { glassMeshes, oledMeshes, bodyMeshes, crackGeo } = useMemo(() => {
     const glass = [];
@@ -3933,11 +3208,9 @@ function IPhoneExploded({
       const name = child.name.toLowerCase();
 
       // ---- 1. BEZEL ----
-      // depthTest:true is RESTORED and non-negotiable: depthTest:false made
-      // the bezel draw through the body from behind, exactly as the v3.2
-      // comment predicted once the choreography showed the phone's back.
-      // Everything else here is a live dial (BEZEL) because the residual
-      // black-rim cause is unresolved — see the BEZEL block at the top.
+      // depthTest:true is non-negotiable: depthTest:false made the bezel
+      // draw through the body from behind once the choreography showed the
+      // phone's back.
       if (name.includes("bezel") || name.includes("glass_bezel")) {
         const bezelMat = new THREE.MeshStandardMaterial({
           color: new THREE.Color(0x000000),
@@ -3952,8 +3225,8 @@ function IPhoneExploded({
           polygonOffsetUnits: BEZEL.offset,
         });
         child.material = bezelMat;
-        DEV.bezelMat = bezelMat; // live handle for the Leva folder
-        DEV.bezelMeshes.push(child); // live handle for the isolate toggle
+        DEV.bezelMat = bezelMat;
+        DEV.bezelMeshes.push(child);
         child.renderOrder = 5; // above the crack overlay (4)
         glass.push(child);
         return;
@@ -3967,10 +3240,10 @@ function IPhoneExploded({
         name.includes("glass front") ||
         (name.includes("glass") && !name.includes("bezel"))
       ) {
-        // MeshPHYSICAL, not Standard. The clearcoat is the whole point: a
-        // second specular layer with its own roughness. Constructed with a
-        // non-zero clearcoat so the shader compiles the chunk in — dialling
-        // it to 0 later is then a uniform write, not a recompile.
+        // MeshPHYSICAL, not Standard. The clearcoat is the point: a second
+        // specular layer with its own roughness. Constructed with a non-zero
+        // clearcoat so the shader compiles the chunk in — dialling it to 0
+        // later is then a uniform write, not a recompile.
         const glassMat = new THREE.MeshPhysicalMaterial({
           color: new THREE.Color(0x000000),
           roughness: GLASS.rough,
@@ -3998,10 +3271,13 @@ function IPhoneExploded({
         const cg = child.geometry.clone();
         const cpos = cg.attributes.position;
         if (cpos) {
-          let minX = Infinity, maxX = -Infinity;
-          let minY = Infinity, maxY = -Infinity;
+          let minX = Infinity,
+            maxX = -Infinity;
+          let minY = Infinity,
+            maxY = -Infinity;
           for (let i = 0; i < cpos.count; i++) {
-            const x = cpos.getX(i), y = cpos.getY(i);
+            const x = cpos.getX(i),
+              y = cpos.getY(i);
             if (x < minX) minX = x;
             if (x > maxX) maxX = x;
             if (y < minY) minY = y;
@@ -4020,7 +3296,7 @@ function IPhoneExploded({
         return;
       }
 
-      // ---- 3. OLED — solid slab, split front/back ----
+      // ---- 3. OLED — solid slab, split front / back / rim ----
       if (name.includes("display") || name.includes("oled")) {
         child.geometry = splitOledGeometry(child.geometry);
 
@@ -4055,7 +3331,6 @@ function IPhoneExploded({
 
         // Material ARRAY — index matches the geometry groups declared in
         // splitOledGeometry. [0] screen, [1] back cap, [2] the slab RIM.
-        // The rim is the second of the two black trims; it is off.
         const oledRimMat = new THREE.MeshBasicMaterial({
           color: new THREE.Color(0x000000),
           toneMapped: false,
@@ -4064,10 +3339,7 @@ function IPhoneExploded({
         DEV.oledRimMat = oledRimMat;
 
         child.material = [
-          new THREE.MeshBasicMaterial({
-            map: oledTexture,
-            toneMapped: false,
-          }),
+          new THREE.MeshBasicMaterial({ map: oledTexture, toneMapped: false }),
           new THREE.MeshBasicMaterial({
             color: new THREE.Color(0x000000),
             toneMapped: false,
@@ -4080,8 +3352,6 @@ function IPhoneExploded({
       }
 
       // ---- 4. BODY ----
-      // Includes the Dynamic Island pill and the front-camera prims. No
-      // special routing, no hiding — v3.8.2 reverts both.
       child.material = child.material.clone();
       const mat = child.material;
 
@@ -4091,19 +3361,13 @@ function IPhoneExploded({
       if ("emissiveIntensity" in mat) mat.emissiveIntensity = 0;
       mat.emissiveMap = null;
 
-      // ---- TRANSLUCENT COATS (v3.8.1 — RETAINED) ----
-      //
+      // ---- TRANSLUCENT COATS ----
       // The old rule was `if (opacity < 1) color.setHex(0x0a0a0a)` — it
-      // painted EVERY translucent body material near-black. That is why the
-      // Rear Camera Island rendered black: the island itself is opaque white
-      // and perfectly fine, but "Rear Camera Island + Apple Logo" is a
-      // 10%-alpha WHITE gloss coat lying on top of it, and the rule turned
-      // that coat into an opaque black slab. Same for "Display Camera Hole
-      // (Center Bright)" (white, alpha 0.175) and "Flash Bright" (alpha 0.20
-      // — a FLASH, painted black).
-      //
-      // Coats now render as AUTHORED — real colour, real alpha — with
-      // depthWrite off so they cannot fight the surface they sit on.
+      // painted EVERY translucent body material near-black, which is why the
+      // Rear Camera Island rendered black: the island is opaque and fine,
+      // but "Rear Camera Island + Apple Logo" is a 10%-alpha WHITE gloss
+      // coat lying on top of it. Same for "Flash Bright" (alpha 0.20 — a
+      // FLASH, painted black).
       //
       //   alpha ≤ 0.05 — effectively-invisible film → still hidden
       //   alpha <  1   — gloss coat → keep colour, keep transparency
@@ -4117,22 +3381,17 @@ function IPhoneExploded({
         mat.depthWrite = true;
       }
 
-      [
-        mat.map,
-        mat.normalMap,
-        mat.roughnessMap,
-        mat.metalnessMap,
-        mat.aoMap,
-      ].forEach((tex) => {
-        if (tex) {
-          tex.anisotropy = maxAniso;
-          tex.generateMipmaps = true;
-          tex.minFilter = THREE.LinearMipmapLinearFilter;
-          tex.needsUpdate = true;
+      [mat.map, mat.normalMap, mat.roughnessMap, mat.metalnessMap, mat.aoMap].forEach(
+        (tex) => {
+          if (tex) {
+            tex.anisotropy = maxAniso;
+            tex.generateMipmaps = true;
+            tex.minFilter = THREE.LinearMipmapLinearFilter;
+            tex.needsUpdate = true;
+          }
         }
-      });
+      );
 
-      // Coats draw after the opaque body they sit on.
       const isCoat = mat.transparent && child.visible;
       child.renderOrder = isCoat ? 1 : 0;
       body.push(child);
@@ -4166,14 +3425,17 @@ function IPhoneExploded({
   }, [clonedScene, oledTexture, maxAniso]);
 
   // ---------------------------------------------------------
-  // CRACKED-PANE MATERIAL (v3.9)
+  // CRACKED-PANE MATERIAL
   //
-  // The PNG is white/grey crack lines on TRANSPARENT. transparent:true
-  // means the PNG's own alpha carves the shape, so the pane is invisible
-  // everywhere except along the fractures — which sit ON TOP of the clean
-  // glass beneath. depthWrite off so it cannot fight the pane it lies on;
+  // The PNG is WHITE crack lines on TRANSPARENT. transparent:true means the
+  // PNG's own alpha carves the shape, so the pane is invisible everywhere
+  // except along the fractures — which sit ON TOP of the clean glass
+  // beneath. depthWrite off so it cannot fight the pane it lies on;
   // polygonOffset -3 so it wins over the glass's -2 where they are exactly
   // coplanar (they are — it is the same geometry).
+  //
+  // DoubleSide because it TUMBLES: once it spins it will be seen from
+  // behind, and a single-sided pane would vanish mid-flip.
   // ---------------------------------------------------------
   const crackMat = useMemo(() => {
     const m = new THREE.MeshPhysicalMaterial({
@@ -4186,6 +3448,7 @@ function IPhoneExploded({
       envMapIntensity: GLASS.env,
       clearcoat: 1.0,
       clearcoatRoughness: 0.04,
+      side: THREE.DoubleSide,
       polygonOffset: true,
       polygonOffsetFactor: -3,
       polygonOffsetUnits: -3,
@@ -4263,12 +3526,11 @@ function IPhoneExploded({
   // ANIMATION
   // ---------------------------------------------------------
   useFrame((state) => {
-    const damp = CAPTURE_SNAP || DEV.pathPreview ? 1 : 0.1;
+    const damp = CAPTURE_SNAP ? 1 : 0.1;
 
-    // ---- v3.8 LIGHT apply. Runs in production too (URL-driven look
-    // channel). scene.environmentIntensity scales the IBL contribution;
-    // toneMappingExposure scales everything BEFORE the ACES curve, which
-    // is what actually rolls the highlights off instead of clipping. ----
+    // LIGHT apply. Runs in production too (URL-driven look channel).
+    // toneMappingExposure scales everything BEFORE the ACES curve, which is
+    // what rolls the highlights off instead of clipping them.
     if (DEV.dirtyLight) {
       gl.toneMappingExposure = LIGHT.exp;
       if ("environmentIntensity" in rootScene) {
@@ -4296,10 +3558,7 @@ function IPhoneExploded({
     if (
       DEV.dirtyStage &&
       stageGroupRef.current &&
-      !(
-        DEV.gizmoDragging &&
-        (DEV.gizmoTarget === "stage" || !atEndpoint())
-      )
+      !(DEV.gizmoDragging && (DEV.gizmoTarget === "stage" || !atEndpoint()))
     ) {
       const g = stageGroupRef.current;
       g.position.set(STAGE.position[0], STAGE.position[1], STAGE.position[2]);
@@ -4324,11 +3583,11 @@ function IPhoneExploded({
       glassGroupRef.current.position.y = GLASS_REG.y;
     }
 
-    // ---- CRACKED PANE ----
-    // Rides the glass's GLASS_REG and explode by default (explodeMul 2.0 ==
-    // the glass group's), so it looks welded to the pane. CRACK.exit then
-    // adds its OWN departure, scaled by swap, so the broken glass can be
-    // thrown clear while the clean pane stays on its path.
+    // ---- CRACKED PANE (v3.10) ----
+    // Rides GLASS_REG and the explode at CRACK.explodeMul (2.0 == the glass
+    // group's, i.e. welded). Across the swap window it then adds its OWN
+    // departure — translation, tumble, and an optional dissolve — so the
+    // broken glass is REMOVED rather than evaporated in place.
     if (crackGroupRef.current && hasCrack) {
       const sw = scrollState.swap;
       const g = crackGroupRef.current;
@@ -4345,9 +3604,18 @@ function IPhoneExploded({
       g.position.x = GLASS_REG.x + CRACK.exit[0] * sw;
       g.position.y = GLASS_REG.y + CRACK.exit[1] * sw;
 
+      g.rotation.set(
+        CRACK.spin[0] * DEG * sw,
+        CRACK.spin[1] * DEG * sw,
+        CRACK.spin[2] * DEG * sw
+      );
+
       if (DEV.crackMat) {
-        DEV.crackMat.opacity = CRACK.opacity * (1 - sw);
-        DEV.crackMat.visible = sw < 0.999; // stop drawing it once it is gone
+        // dissolve = 0 → the pane never fades. It is thrown clear and STAYS
+        // in shot: a real object that was removed, not a ghost.
+        const o = CRACK.opacity * (1 - CRACK.fade * sw);
+        DEV.crackMat.opacity = o;
+        DEV.crackMat.visible = o > 0.003;
       }
     }
 
@@ -4369,7 +3637,11 @@ function IPhoneExploded({
     if (modelGroupRef.current && !settleDrag) {
       const t = scrollState.rotate;
 
-      qTarget.slerpQuaternions(quatsRef.current.qStart, quatsRef.current.qEnd, t);
+      qTarget.slerpQuaternions(
+        quatsRef.current.qStart,
+        quatsRef.current.qEnd,
+        t
+      );
       modelGroupRef.current.quaternion.slerp(qTarget, damp);
 
       const targetScale = 1 - (1 - SETTLE.scale) * t;
@@ -4423,16 +3695,13 @@ function IPhoneExploded({
             ))}
           </group>
 
-          {/* CRACKED PANE — sibling of the glass, its own transform, so it
-              can be thrown clear independently. Never mounts without a
+          {/* CRACKED PANE — a SEPARATE OBJECT, sibling of the glass, with
+              its own transform, so it can be thrown clear independently.
+              Same source geometry, cloned in code. Never mounts without a
               crackTexture prop. */}
           {hasCrack && crackGeo && (
             <group ref={crackGroupRef}>
-              <mesh
-                geometry={crackGeo}
-                material={crackMat}
-                renderOrder={4}
-              />
+              <mesh geometry={crackGeo} material={crackMat} renderOrder={4} />
             </group>
           )}
 
@@ -4471,12 +3740,12 @@ function IPhoneExploded({
 // ============================================
 // Scene
 //
-// LIGHTING (v3.8). The old rig ran FIVE sources at once — ambient 0.8, two
-// directionals, a point light, AND a studio IBL, which is itself an
-// ambient source. Ambient light has no direction, so stacking it is what
-// destroyed the form gradient. Then NoToneMapping clipped everything over
-// 1.0 flat to white, and the chassis and buttons are metalness 1.0, i.e.
-// mirrors of all of it. Result: the cream blowout.
+// LIGHTING. The old rig ran FIVE sources at once — ambient 0.8, two
+// directionals, a point light, AND a studio IBL, which is itself an ambient
+// source. Ambient light has no direction, so stacking it is what destroyed
+// the form gradient. Then NoToneMapping clipped everything over 1.0 flat to
+// white, and the chassis and buttons are metalness 1.0 — mirrors of all of
+// it. That was the cream blowout.
 //
 // Now: one key (the gradient), one fill (the rim), a low ambient, and the
 // IBL scaled by scene.environmentIntensity — every one of them on a dial.
@@ -4510,8 +3779,8 @@ function Scene({
   const fillRef = useRef();
 
   useFrame(() => {
-    // Lights read LIGHT live — no dirty flag needed, these are 3 float
-    // writes per frame and it keeps the Leva drag perfectly smooth.
+    // Lights read LIGHT live — three float writes per frame, and it keeps
+    // the Leva drag perfectly smooth.
     if (ambRef.current) ambRef.current.intensity = LIGHT.amb;
     if (keyRef.current) keyRef.current.intensity = LIGHT.key;
     if (fillRef.current) fillRef.current.intensity = LIGHT.fill;
@@ -4574,14 +3843,7 @@ export default function CrossSection3DScrollGLB(props) {
     crackTexture,
   } = merged;
 
-  const {
-    mode,
-    bg,
-    freezeP,
-    dev,
-    motionPath: runtimeMotionPath,
-    motionFreezeP,
-  } = useMemo(resolveRuntimeConfig, []);
+  const { mode, bg, freezeP, dev } = useMemo(resolveRuntimeConfig, []);
 
   const containerRef = useRef(null);
   const stickyRef = useRef(null);
@@ -4617,31 +3879,13 @@ export default function CrossSection3DScrollGLB(props) {
 
     DEV.applyProgress = applyProgress;
 
-    const applyRuntimeProgress = (progress) => {
-      if (runtimeMotionPath) {
-        const pose = sampleMotionPath(runtimeMotionPath, progress);
-        if (pose) applyPoseParamsDirect(pose);
-      } else {
-        applyProgress(progress);
-      }
-    };
-
-    if (runtimeMotionPath && motionFreezeP !== null) {
-      document.documentElement.style.overflow = "hidden";
-      document.body.style.overflow = "hidden";
-      applyRuntimeProgress(motionFreezeP);
-      return;
-    }
-
-    if (!runtimeMotionPath && freezeP !== null) {
+    if (freezeP !== null) {
       document.documentElement.style.overflow = "hidden";
       document.body.style.overflow = "hidden";
       DEV.lastP = freezeP;
       applyProgress(freezeP);
       return;
     }
-
-    if (runtimeMotionPath) applyRuntimeProgress(0);
 
     if (mode === "scroll") {
       document.documentElement.style.overflow = "hidden";
@@ -4653,7 +3897,7 @@ export default function CrossSection3DScrollGLB(props) {
           event.data.type === "scroll-progress" &&
           typeof event.data.progress === "number"
         ) {
-          applyRuntimeProgress(Math.max(0, Math.min(1, event.data.progress)));
+          applyProgress(Math.max(0, Math.min(1, event.data.progress)));
         }
       };
 
@@ -4669,26 +3913,15 @@ export default function CrossSection3DScrollGLB(props) {
       document.body.style.overflow = "hidden";
 
       const proxy = { p: 0 };
-      const runtimeDuration = runtimeMotionPath
-        ? Math.max(
-            0.1,
-            motionPathDuration(runtimeMotionPath) /
-              Math.max(0.1, Number(runtimeMotionPath.speed) || 1)
-          )
-        : 7;
       const tween = gsap.to(proxy, {
         p: 1,
-        duration: runtimeDuration,
-        ease: runtimeMotionPath ? "none" : "power2.inOut",
+        duration: 7,
+        ease: "power2.inOut",
         delay: 1,
-        repeat: runtimeMotionPath
-          ? runtimeMotionPath.loop === false
-            ? 0
-            : -1
-          : -1,
-        yoyo: runtimeMotionPath ? false : true,
-        repeatDelay: runtimeMotionPath ? 0 : 1.2,
-        onUpdate: () => applyRuntimeProgress(proxy.p),
+        repeat: -1,
+        yoyo: true,
+        repeatDelay: 1.2,
+        onUpdate: () => applyProgress(proxy.p),
       });
       return () => tween.kill();
     }
@@ -4702,25 +3935,17 @@ export default function CrossSection3DScrollGLB(props) {
         end: `+=${scrollDistance * 100}vh`,
         pin: stickyRef.current,
         scrub: 1,
-        onUpdate: (self) => applyRuntimeProgress(self.progress),
+        onUpdate: (self) => applyProgress(self.progress),
       });
     }, containerRef);
 
     return () => ctx.revert();
-  }, [
-    mode,
-    freezeP,
-    runtimeMotionPath,
-    motionFreezeP,
-    scrollDistance,
-    glassStagger,
-    oledStagger,
-    phoneStagger,
-  ]);
+  }, [mode, freezeP, scrollDistance, glassStagger, oledStagger, phoneStagger]);
 
   const onWrapPointerDown = (e) => {
     if (!dev || !DEV.setLeva) return;
-    if (DEV.hudMode !== "move" || DEV.gizmo !== "off" || DEV.gizmoDragging) return;
+    if (DEV.hudMode !== "move" || DEV.gizmo !== "off" || DEV.gizmoDragging)
+      return;
 
     cancelSquareAnim();
 
@@ -4825,9 +4050,9 @@ export default function CrossSection3DScrollGLB(props) {
             preserveDrawingBuffer: dev,
           }}
           onCreated={({ gl, scene }) => {
-            // v3.8: ACES Filmic, NOT NoToneMapping. Without a tone curve,
-            // every value over 1.0 clips flat to white — which is exactly
-            // what the metal chassis and the studio IBL were doing.
+            // ACES Filmic, NOT NoToneMapping. Without a tone curve, every
+            // value over 1.0 clips flat to white — which is exactly what the
+            // metal chassis and the studio IBL were doing.
             gl.toneMapping = THREE.ACESFilmicToneMapping;
             gl.toneMappingExposure = LIGHT.exp;
             if ("environmentIntensity" in scene) {
@@ -4838,10 +4063,7 @@ export default function CrossSection3DScrollGLB(props) {
           }}
           onPointerMissed={() => {
             if (!DEV.enabled) return;
-            if (
-              DEV.gizmoDragging ||
-              performance.now() - DEV.lastDragEnd < 250
-            )
+            if (DEV.gizmoDragging || performance.now() - DEV.lastDragEnd < 250)
               return;
             changeGizmoContext("stage");
           }}
@@ -4864,3 +4086,4 @@ export default function CrossSection3DScrollGLB(props) {
 useGLTF.preload(defaultProps.modelPath);
 useTexture.preload(defaultProps.screenTexture);
 useTexture.preload(defaultProps.internalsTexture);
+useTexture.preload(defaultProps.crackTexture);
