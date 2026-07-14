@@ -1,5 +1,6 @@
 import screenImg from "./Screen.png";
 import internalsImg from "./internals.jpg";
+import crackImg from "./Crack.png";
 import { useRef, useMemo, useEffect, useLayoutEffect, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import {
@@ -7,7 +8,6 @@ import {
   useGLTF,
   useTexture,
   TransformControls,
-  Html,
 } from "@react-three/drei";
 import * as THREE from "three";
 import { gsap } from "gsap";
@@ -17,284 +17,58 @@ import { Leva, useControls, button, folder } from "leva";
 gsap.registerPlugin(ScrollTrigger);
 
 // ============================================
-// v5.0 — CREATIVE MOTION STUDIO
+// v3.11 — THE CRACK IS THE GLASS
 //
-//   150 named pose slots with thumbnails, safe move/copy/swap, search and
-//   automatic path-reference remapping. Existing v4 100-slot stores migrate.
+//   v3.10 treated the cracked pane as an independent object that could
+//   outrun, lag, tumble away from and dissolve out of the pane it is a
+//   fracture IN. That is ontologically wrong. A crack has no velocity of
+//   its own. It goes where the glass goes, because it IS the glass.
 //
-//   Centripetal Catmull-Rom, optional arc-length timing, continuous global
-//   easing, independent quaternion/tangent/look-at orientation, banking,
-//   editable spatial handles, visible path/node/playhead/ghost overlays,
-//   bridge generation, bulk timing tools, diagnostics, undo/redo, JSON
-//   import/export, and named/versioned path presets.
+//   So the cracked pane is now a CHILD of the glass group. Not a sibling
+//   with a matching multiplier — a child. It cannot travel independently
+//   because there is no longer any code that could make it. Deleted:
 //
-//   Triple compound motion: one master drives two independent parameters.
+//     travel ×        — welded. There is no multiplier to get wrong.
+//     tumble X/Y/Z    — a crack does not somersault off the phone.
+//     discard depth   — nor does it fly toward the camera.
+//     departs / gone  — no swap window. The crack is ON or it is OFF.
+//     dissolve        — see above.
+//     mirror / flip   — discard X/Y repositions the pattern with more
+//                       granularity than a 2-state UV fold ever could.
 //
-// ============================================
-// v4.0 — SLOT-BASED MOTION PATH STUDIO
+//   What remains is the whole honest surface of the thing:
 //
-//   POSE SLOTS -> PATH   Ctrl/Cmd-click filled slots to append them to an
-//                        ordered path. Each incoming leg owns its duration,
-//                        arrival hold, and easing. Paths persist locally.
+//     crack ON/OFF    A boolean, saved into the pose slot with everything
+//         else. THAT is the swap: pose A wears the crack, pose B does not.
 //
-//   MOTION TESTING       Preview, pause, restart, loop, scrub, switch between
-//                        straight and Catmull-Rom stage travel, and compare
-//                        easing curves without changing the saved poses.
+//     discard X / Y   Where on the pane the fracture pattern sits.
+//         Registration, not choreography.
 //
-//   CAPTURE CONTRACT     "copy preview URL" embeds every pose into the URL;
-//                        "path manifest" emits the existing capture manifest
-//                        with sweepParam "mp". Therefore ?snap=1&mp=0.5000
-//                        renders one exact path pose in a fresh browser with
-//                        no dependency on localStorage.
+//   THE GLASS SWAP. Glass Registration X/Y/Z now runs to ±25, not ±1.
+//   One slider unit is ~0.1 world units and the visible frame is ~3.1
+//   world across, so ±1 could never have taken the pane out of shot — it
+//   moved it a quarter of a phone-width. At ±25 the glass unit (Front
+//   Window + Bezel + the crack riding on it) leaves the frame entirely.
+//   Drive it out, flip crack OFF, drive it back in clean. That is the
+//   repair, told in one continuous shot with no cut.
 //
-// ============================================
-// v3.9 — GLASS MATERIAL, IBL SOFTNESS, AND THE CRACKED-GLASS LAYER
+//   Glass Reg X/Y/Z are also wireable now — with a ±25 range you want the
+//   compound-motion rig and the number field, not a 50-unit slider drag.
 //
-//   THE HARD CIRCLE     It is not a light. It is a REFLECTION. Glass_Front
-//                       ran roughness 0.04 — that is a mirror — and
-//                       Environment preset="studio" is a virtual photo
-//                       studio whose HDRI contains actual softbox panels.
-//                       A mirror reflects a softbox as a hard-edged bright
-//                       shape. That is the circle.
-//
-//                       Two independent softeners, both now dials:
-//                         GLASS.rough   blurs what the GLASS reflects.
-//                                       This is the local one. Roughness
-//                                       convolves the env map through its
-//                                       prefiltered mips, so raising it
-//                                       spreads the highlight instead of
-//                                       dimming it. THE dial for this.
-//                         LIGHT.blur    blurs the IBL ITSELF, so every
-//                                       reflective surface softens at
-//                                       once. Version-dependent: drei's
-//                                       Environment gained `blur` at some
-//                                       point; on an older build the prop
-//                                       is simply ignored, no error. If
-//                                       nothing happens when you drag it,
-//                                       that is why — use GLASS.rough.
-//                         LIGHT.preset  changes the reflected SHAPES
-//                                       outright. "studio" has the hard
-//                                       boxes; "apartment"/"city"/"lobby"
-//                                       reflect softer, messier worlds.
-//
-//   SHINIER GLASS       Glass_Front is now MeshPhysicalMaterial, not
-//                       MeshStandardMaterial. That buys a CLEARCOAT: a
-//                       second specular layer over the base, with its own
-//                       roughness. It is the lacquer-over-paint model, and
-//                       it is what separates "a dark surface" from "glass".
-//                       clearcoat is constructed non-zero so the shader
-//                       compiles the chunk in; dialling it afterwards is a
-//                       free uniform write, not a recompile.
-//
-//   CRACKED GLASS       No Blender. No second GLB. Probed the deployed
-//                       asset: Glass_Front is a FLAT 1216-vert plane and
-//                       it already carries TEXCOORD_0. So the cracked pane
-//                       is its geometry, cloned in code, with a crack PNG
-//                       on it — the identical pattern to Screen.png and
-//                       internals.jpg, which already work.
-//
-//                       Coexistence, which you flagged as the hard part,
-//                       is not a problem at all: it is just a third group
-//                       under the pivot. It rides GLASS_REG and the glass
-//                       explode by default, so it looks welded to the
-//                       pane; CRACK.exit then sends it off on its OWN path
-//                       as it goes. The crossfade is scrollState.swap,
-//                       which runs across the existing HOLD phase — so the
-//                       choreography is already the repair story: the
-//                       cracked pane lifts off during the explode, is
-//                       discarded across the hold, and the clean pane
-//                       re-seats on the reassemble. No new timeline.
-//
-//                       crackTexture is an OPTIONAL prop. Absent, the
-//                       whole layer costs nothing and renders nothing.
-//
-// ============================================
-// v3.8.7 — KEYBOARD DRIVE: TAP vs HOLD
-//
-//   The arrow keys felt slow because the repeat was coming from the
-//   OPERATING SYSTEM: a ~500 ms dead pause, then a fixed ~30/sec chatter,
-//   every step the same size. That is a text-entry repeat curve, not a
-//   navigation one.
-//
-//   Split the two gestures, because they want opposite things:
-//
-//     TAP   one keydown -> exactly ONE nudge at the full grain step.
-//           Unchanged. This is the precision gesture and it stays exact.
-//
-//     HOLD  after KEYS.delay ms, a rAF loop takes over at 60 fps and
-//           ramps the per-frame step from 0.25x grain up to 1.5x grain
-//           over KEYS.ramp ms. No OS pause, no chatter, and it lands
-//           roughly 3-6x faster than the old repeat at full glide while
-//           still starting gently enough to stop where you meant to.
-//
-//   OS key-repeat events (ev.repeat) are now DISCARDED — the rAF loop owns
-//   the hold, so the two cannot fight each other.
-//
-//   Speed is therefore controlled on two axes, both of them reachable:
-//     GRAIN  fine / mid / coarse — the size of one tap. G key, and now
-//            three clickable chips in the dashboard.
-//     GAIN   the "hold speed" dial — scales the hold ramp only. Taps are
-//            untouched by it.
-//
-// ============================================
-// v3.8.6 — compound-motion ratio range widened to +/-20 (was +/-5), in
-//          BOTH clamps: the Leva "ratio" control and the dashboard's range
-//          slider. Step coarsened 0.01 -> 0.05 so a full sweep is still one
-//          drag rather than 800 of them. WIRE.ratio itself was never
-//          clamped in code — only the two UI widgets were.
-//
-// ============================================
-// v3.8.5 — THE TWO BLACK RIM TRIMS
-//
-//   PROBED FROM THE DEPLOYED GLB, not inferred. Three prims stack at the
-//   front face (metres):
-//
-//     Glass_Front        z -0.0051 (FLAT PLANE, 0 thick)   71 x 155 mm
-//     Glass_Bezel        z -0.0051 -> -0.0046  (0.5 mm)    75 x 159 mm
-//     Display_OLED.001   z -0.0042 -> -0.0038  (0.4 mm)    75 x 159 mm
-//
-//   The bezel and the OLED carry IDENTICAL footprints, both 2 mm larger
-//   per side than the front glass, and they sit 0.4 mm apart in Z. Neither
-//   is a plane — both are SLABS, so both have a side-wall RIM running the
-//   whole perimeter. Both rims render black (the bezel by design; the OLED
-//   rim because v3.8's two-way split sent everything that was not the
-//   front cap to the black material). Two black slab rims, 0.4 mm apart,
-//   only visible at a grazing angle. That is the doubled trim, exactly.
-//
-//   The BEZEL band is wanted — it is the phone's real black border, and
-//   2 mm is dimensionally right for a 14 Pro. The OLED rim is pure
-//   artefact: on a real panel that manufacturing edge is buried under the
-//   bezel, and here it is being drawn as a second line.
-//
-//   Fix: THREE-way split, not two.
-//     nz <  faceCut   -> screen  (front cap)
-//     nz > -faceCut   -> black   (back cap; still occludes from behind)
-//     otherwise       -> RIM     -> its own material, visible = false
-//
-//   The rim now renders nothing at all. The back cap survives, so the slab
-//   is still solid from the rear. Rim visibility is a dial ("show OLED
-//   rim") in case anything unexpected shows through, and there is a "hide
-//   bezel" toggle beside it so each trim can be isolated on demand and the
-//   attribution confirmed by eye rather than by argument.
-//
-// ============================================
-// v3.8.4 — OLED FACE-SPLIT THRESHOLD (the jagged corner lip)
-//
-//   The jagged, alternating rainbow edge on the OLED's top corners —
-//   visible ONLY from a grazing angle, never from above — was not the
-//   mesh. It was v3.8's own face classifier.
-//
-//   splitOledGeometry sorted the slab's triangles by the RAW SIGN of the
-//   face normal's Z:
-//
-//       front cap   nz ~ -1   -> screen      correct
-//       back cap    nz ~ +1   -> black       correct
-//       the RIM     nz ~  0   -> COIN TOSS   <-- the bug
-//
-//   The cut sat at exactly 0. The slab's rim is perpendicular to Z, so its
-//   normals land ON the boundary — and around a rounded corner the rim
-//   tilts, so half of those triangles wobble a hair negative and were
-//   handed the SCREEN TEXTURE. That is the jagged lip. It hides from a
-//   face-on view because the rim is the one surface you cannot see from
-//   straight on, and it concentrates at the corners because that is where
-//   the rim sweeps through the threshold.
-//
-//   Fix: normalise the face normal and cut in the EMPTY half of the
-//   distribution (OLED.faceCut = -0.5) instead of on the boundary. The cap
-//   clears it by 0.5; the rim misses it by 0.5. No rim triangle can take
-//   the screen material at any corner radius.
-//
-//   Live dial. The index buffer and groups are rebuilt in place from a
-//   cached per-triangle nz table — the scene graph is never re-traversed,
-//   so this is safe to drag at runtime. Slide it to 0 to reproduce the
-//   v3.8 bug on demand; that IS the proof. (?oled=-0.5)
-//
-//   RESIDUAL: if a stepped SILHOUETTE survives at faceCut -0.9, that part
-//   is the mesh's corner tessellation and no shader can fix it — that is a
-//   Blender bevel/segment-count job on the OLED slab, same drawer as the
-//   Glass_Bezel flank.
-//
-// ============================================
-// v3.8.3 — CONTACT SHADOW REMOVED
-//
-//   The horizontal line running clean across the screen AND out past the
-//   phone's silhouette on both sides was never a shadow ON the phone — it
-//   was ContactShadows itself. It is a ground plane at y = -0.7 and the
-//   camera sits at y = 0, so it was being viewed almost perfectly edge-on:
-//   a plane seen edge-on collapses to a line. Its opacity ran
-//   0.5 * (1 - rotate), so it was at FULL strength at the start of the
-//   timeline (the hero pose being captured) and faded out by the settle —
-//   which is why it only ever showed up here.
-//
-//   Nothing is lost by deleting it: the background is transparent, the
-//   phone is floating, and there is no ground for it to contact. The
-//   shadowRef and its per-frame opacity write go with it.
-//
-// ============================================
-// v3.8.2 — REVERT: PILL ROUTING + CAMERA HIDING
-//
-//   Two v3.8 interventions are withdrawn on request. Everything else
-//   from v3.8 / v3.8.1 stands untouched.
-//
-//   PILL ROUTING       WITHDRAWN. "Display Dynamic Island" no longer
-//     (reverted)       mounts in the glass group. It falls through the
-//                      traverse to body.push() exactly as it did before
-//                      v3.8 — so it carries NO GLASS_REG, NO 2.0×
-//                      explode, and sits in the body's frame. The
-//                      GLASS_GROUP_MATERIALS set and the 5b routing
-//                      block are gone.
-//
-//   STRAY CAMERA       WITHDRAWN. HIDDEN_MATERIALS and the hide branch
-//     (reverted)       are gone. "Front Camera (Center + Outer Ring)"
-//                      and "Display Camera Hole (Outer Bright)" render
-//                      again, in the body group, as they did before.
-//
-//   normMat            Removed with them — it existed only to feed those
-//     (removed)        two Sets and had no other caller.
-//
-//   Glass_Front cutout is UNAFFECTED by this revert. The pill hole is
-//   authored in the GLB geometry; no code path ever filled it, in any
-//   version. It stays hollow.
-//
-// ============================================
-// v3.8.1 — RETAINED
-//
-//   BEZEL DIALS        depthTest restored to true; anti-flicker handed to
-//                      polygonOffset. env / rough / offset are live dials
-//                      (?bezel=env,rough,offset).
-//
-//   TRANSLUCENT COATS  The old `opacity < 1 → paint it black` rule is gone.
-//                      Gloss coats (Rear Camera Island + Apple Logo, Flash
-//                      Bright, the camera-hole brights) render as AUTHORED
-//                      — real colour, real alpha, depthWrite off so they
-//                      cannot fight the surface they sit on. Only
-//                      alpha ≤ 0.05 films are still hidden.
-//
-// ============================================
-// v3.8 — RETAINED
-//
-//   LIGHTING RIG       Five stacked sources + NoToneMapping was the cream
-//                      blowout. Now one key, one fill, a low ambient, and
-//                      the IBL scaled by scene.environmentIntensity —
-//                      every one on a Leva dial, ACES Filmic tone mapping
-//                      with an exposure dial. (?light=amb,key,fill,env,exp)
-//
-//   OLED BACK FACE     Display_OLED is a SOLID SLAB (118.62 units of front-
-//                      facing area, 118.63 back-facing), so FrontSide drew
-//                      the UI on the phone's back too. Fixed by splitting
-//                      the index by face-normal Z into two geometry groups
-//                      and handing the mesh a MATERIAL ARRAY [screen, black].
-//                      Front is -Z (Glass_Front z -0.0051, Back Glass +0.005).
-//
-// ============================================
-// v3.7 — trackball ring (orientation-independent), 100 pose slots, labels.
-// v3.6 — timeline locks abolished, auto target routing, smooth square-up.
-// v3.5 — glass-reg baked (x -0.03, y 0.09, z 0.07), Leva reinstated.
-// v3.4 — sat-nav HUD, true square-up (quaternion), panel-aware gizmo.
-// v3.3 — glass registration folder, body emission kill.
-// v3.2 — hierarchy bake (anchored rebase).
-// v3.1 — proxy-anchored gizmo, fat handles, click-to-target.
-// v3.0 — world/local, wiring, snapshots. v2.9 — screen-space arrow drive.
+// ---- earlier ----
+// v3.9    Glass_Front -> MeshPhysicalMaterial (clearcoat). The hard circle
+//         was a REFLECTION of the studio HDRI's softbox in a roughness-0.04
+//         mirror, not a light. GLASS.rough spreads it; LIGHT.preset changes
+//         its shape outright.
+// v3.8.7  Arrow keys: tap = one exact grain step; hold = 60fps ramped glide.
+// v3.8.5  THREE-way OLED split. The doubled black trim was two slab side-
+//         walls 0.4mm apart (bezel + OLED). The OLED rim now renders nothing.
+// v3.8.4  OLED face-split cut normalised and moved to -0.5.
+// v3.8.3  ContactShadows deleted (ground plane seen edge-on IS a line).
+// v3.8    Lighting rig on dials + ACES tone mapping.
+// v3.7    Trackball ring, 100 pose slots.   v3.6  Auto target routing.
+// v3.5    Glass-reg baked.  v3.4  Sat-nav HUD.  v3.3  Body emission kill.
+// v3.2    Hierarchy bake.   v3.1  Proxy-anchored gizmo.  v3.0  Wiring.
 // ============================================
 let CAPTURE_SNAP = false;
 let SNAP_FRAMES = 0;
@@ -367,9 +141,7 @@ const TIMELINE = {
   reassembleEnd: 0.7,
 };
 
-const START = {
-  tilt: Math.PI / 10, // 18°
-};
+const START = { tilt: Math.PI / 10 }; // 18°
 
 const SETTLE = {
   targetEuler: [0, Math.PI, 0],
@@ -386,40 +158,38 @@ const STAGE = {
   scale: 1,
 };
 
-const MODEL = {
-  targetSize: 1.6,
-};
+const MODEL = { targetSize: 1.6 };
+
+// ---------------------------------------------------------
+// GLASS_REG — the registration of the ENTIRE glass unit:
+// Front Window + Bezel + the crack riding on it.
+//
+// SCALE NOTE. These are MODEL-LOCAL units. The model measures ~15.7 local
+// units tall and is fitted to MODEL.targetSize (1.6) world units, so
+//
+//        1 local unit  ≈  0.1 world units
+//        visible frame ≈  3.1 world units across
+//
+// which means a ±1 range moved the pane a quarter of a phone-width and
+// could never take it out of shot. To clear the frame you need ≈19 local
+// units. The range is ±25 — the glass leaves, completely.
+// ---------------------------------------------------------
+const GLASS_REG_RANGE = 25;
 
 const GLASS_REG = { x: -0.03, y: 0.09, z: 0.07 };
 
-// ============================================
-// LIGHT (v3.8) — the whole lighting rig as one tunable config.
-//
-// WHY THIS EXISTS: the old rig hard-coded ambient 0.8 + directional 1.5 +
-// directional 0.8 + point 0.5 + a studio IBL, then rendered with
-// NoToneMapping. That is five sources with no highlight rolloff — every
-// metal surface (chassis and buttons are metalness 1.0, i.e. mirrors)
-// clipped flat to white. The fix is not a magic number, it is a DIAL, so
-// the reference render can be matched by eye rather than by guess.
-//
-//   amb   ambient fill. The form-killer if pushed. Start LOW.
-//   key   main directional — this is what creates the gradient.
-//   fill  cool rim/fill directional from the opposite side.
-//   env   studio IBL contribution (scene.environmentIntensity).
-//         The IBL is *also* an ambient source — amb + env stack.
-//   exp   ACES tone-mapping exposure. Rolls highlights off instead of
-//         clipping them. This is what stops the blowout.
-//
-// Overridable: ?light=amb,key,fill,env,exp
-// ============================================
+// ---------------------------------------------------------
+// LIGHT — the whole rig as dials.
+// Overridable: ?light=amb,key,fill,env,exp  ?envp=studio  ?envb=0
+// ---------------------------------------------------------
 const LIGHT = {
   amb: 0.1,
   key: 1.2,
   fill: 0.35,
   env: 0.4,
   exp: 1.0,
-  preset: "studio", // the HDRI whose SHAPES get reflected in the glass
-  blur: 0.0, // blurs the IBL itself — softens every reflection at once
+  preset: "studio",
+  blur: 0.0,
 };
 
 const ENV_PRESETS = [
@@ -436,53 +206,17 @@ const ENV_PRESETS = [
 ];
 
 // ---------------------------------------------------------
-// BEZEL (v3.8.1) — dials, because the black-rim cause is UNRESOLVED.
-//
-// Two candidates for the faint black rim on the OLED edge and the front
-// outward edge, and a screenshot cannot separate them:
-//   (a) the bezel is now DEAD black (env 0, rough 1.0), so its rim
-//       geometry — which was always drawn — is finally conspicuous
-//   (b) offset -4 pushes it in front of the chassis edge at grazing
-//       angles, expanding its visible footprint
-//
-// Confidence is MEDIUM/MEDIUM, which is a hard stop. So: dials, not a
-// guess. Drag "depth push" toward 0 — if the rim goes, it was (b). If it
-// doesn't, raise "black level" off 0 until the rim reads as glossy trim
-// instead of an outline; that means it was (a).
-//
-// Overridable: ?bezel=env,rough,offset
-// ---------------------------------------------------------
-// ---------------------------------------------------------
-// OLED (v3.8.4) — the front/back face-split threshold.
-//
-// Each triangle of the Display_OLED slab is classified by its UNIT normal
-// Z. nz < faceCut takes the screen texture; everything else goes black.
-//
-//   front cap  nz ~ -1.0     back cap  nz ~ +1.0     rim  nz ~ 0.0
-//
-// -0.5 sits in the gap. -1.0 would starve the cap; 0.0 is the v3.8 bug.
-// Overridable: ?oled=-0.5
+// OLED — the front/back/rim face-split threshold.
+//   front cap nz ~ -1.0    back cap nz ~ +1.0    rim nz ~ 0.0
+// Overridable: ?oled=-0.5,0
 // ---------------------------------------------------------
 const OLED = {
   faceCut: -0.5,
-  showRim: false, // the slab's side wall — artefact, hidden by default
+  showRim: false,
 };
 
 // ---------------------------------------------------------
-// GLASS (v3.9) — the front pane's material, as dials.
-//
-//   rough      THE softness control for the studio-light circle. 0.04 is a
-//              mirror and reflects the HDRI's softbox as a hard shape.
-//              0.10-0.30 spreads it into a soft bloom. Costs nothing —
-//              roughness reads the env map's prefiltered mip chain.
-//   env        reflection BRIGHTNESS (envMapIntensity), independent of
-//              spread. Turn this down and up separately from rough and the
-//              two together give you the full highlight.
-//   opacity    how much the pane darkens what is under it.
-//   clearcoat  the second specular layer — the lacquer coat. This is the
-//              "expensive glass" lever.
-//   ccRough    the clearcoat's OWN roughness. Lets the coat highlight stay
-//              tight while the base reflection goes soft, or vice versa.
+// GLASS — the front pane's material.
 // Overridable: ?glass=rough,env,opacity,clearcoat,ccRough
 // ---------------------------------------------------------
 const GLASS = {
@@ -494,38 +228,29 @@ const GLASS = {
 };
 
 // ---------------------------------------------------------
-// CRACK (v3.9) — the cracked pane that gets removed and replaced.
-//
-//   The cracked pane is a CLONE of Glass_Front's geometry (a flat plane,
-//   1216 verts, already UV'd) carrying a crack PNG. It is a sibling group
-//   of the glass, so by default it inherits the same GLASS_REG and the
-//   same explode multiplier and looks welded to the pane it sits on.
-//
-//   swap 0 -> 1 across the HOLD phase (TIMELINE.explodeEnd -> holdEnd).
-//     opacity  fades CRACK.opacity -> 0
-//     exit     an EXTRA translation, scaled by swap, that sends the broken
-//              pane off on its own path while the clean one stays put.
-//              Leave at 0,0,0 and it simply dissolves in place.
-// Overridable: ?crack=opacity,exitX,exitY,exitZ
+// CRACK — a boolean and a registration. Nothing else.
+// `on` is saved into the pose slot, so the swap IS the pose change.
+// Overridable: ?crack=on,exitX,exitY
 // ---------------------------------------------------------
 const CRACK = {
-  opacity: 1.0,
-  explodeMul: 2.0, // 2.0 == the glass group's multiplier: welded
-  exit: [0, 0, 0],
+  on: true,
+  exit: [0, 0],
 };
 
-// 1x1 fully transparent PNG. useTexture cannot be called conditionally
-// (hooks rule), so when no crackTexture prop is supplied this loads
-// instead and the crack layer is simply never mounted.
+// 1x1 transparent PNG. useTexture cannot be called conditionally (hooks
+// rule), so with no crackTexture prop this loads instead and the crack
+// layer is simply never mounted.
 const BLANK_PX =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
 
+// ---------------------------------------------------------
+// BEZEL
+// Overridable: ?bezel=env,rough,offset
+// ---------------------------------------------------------
 const BEZEL = {
-  env: 0.0,     // envMapIntensity — 0 = dead black, no IBL reflection
-  rough: 1.0,   // roughness — 1.0 = no specular lobe at all
-  offset: -4,   // polygonOffset factor+units. Glass_Front sits at -2, so
-                // the bezel must be MORE negative to win where they are
-                // coplanar. 0 = no offset (chassis can occlude it).
+  env: 0.0,
+  rough: 1.0,
+  offset: -4,
 };
 
 // ============================================
@@ -536,7 +261,7 @@ const DEV = {
   dirtyQuat: false,
   dirtyFit: false,
   dirtyStage: true,
-  dirtyLight: true, // LIGHT changed → re-apply exposure + env intensity
+  dirtyLight: true,
   applyProgress: null,
   lastP: 0,
   gizmo: "off",
@@ -553,28 +278,12 @@ const DEV = {
   viewport: null,
   hudMode: "move",
   leftClampNDC: -0.85,
-  bezelMat: null, // live handle — the bezel Leva folder writes through it
-  bezelMeshes: [], // live handles — the "hide bezel" isolate toggle
-  oledRimMat: null, // live handle — the "show OLED rim" toggle
-  glassMat: null, // live handle — the front-glass folder
-  crackMat: null, // live handle — the cracked-pane folder
-  setEnv: null, // Scene's setter — preset/blur need a React re-render
-  pathPreview: false, // path engine already owns easing; bypass render damping
-};
-
-// The dashboard and R3F scene deliberately meet through one tiny live bridge.
-// Path data remains React state; the overlay only receives a compiled snapshot.
-const MOTION_DEV = {
-  path: null,
-  progress: 0,
-  selectedNode: -1,
-  showPath: true,
-  showGhosts: true,
-  editHandles: false,
-  diagnostics: null,
-  version: 0,
-  moveHandle: null,
-  selectNode: null,
+  bezelMat: null,
+  bezelMeshes: [],
+  oledRimMat: null,
+  glassMat: null,
+  crackMat: null,
+  setEnv: null,
 };
 
 function atEndpoint() {
@@ -602,19 +311,7 @@ const GRAIN_STEPS = {
 };
 
 // HOLD curve. Taps do not touch any of this.
-//   delay  ms of continuous hold before the glide engages. Below this, a
-//          tap is still just a tap.
-//   ramp   ms to travel from the slow end of the glide to the fast end.
-//   min/max  per-FRAME step as a multiple of the grain step. At 60 fps,
-//          0.25x grain = 15 grain-steps/sec; 1.5x = 90/sec.
-//   gain   live multiplier on the whole glide ("hold speed" dial).
-const KEYS = {
-  delay: 200,
-  ramp: 900,
-  min: 0.25,
-  max: 1.5,
-  gain: 1.0,
-};
+const KEYS = { delay: 200, ramp: 900, min: 0.25, max: 1.5, gain: 1.0 };
 
 const HOLD = { keys: new Set(), raf: 0, t0: 0 };
 
@@ -670,6 +367,14 @@ const DRIVE_READERS = {
   tilt: () => (START.tilt * 180) / Math.PI,
   lift: () => SETTLE.arcLift,
   pscale: () => SETTLE.scale,
+  // The glass unit's registration — the whole point of the ±25 range is
+  // that it is now a MOVE, so it belongs on the wiring rig.
+  glassRegX: () => GLASS_REG.x,
+  glassRegY: () => GLASS_REG.y,
+  glassRegZ: () => GLASS_REG.z,
+  // Where the fracture sits ON the pane. Registration, not choreography.
+  crackExitX: () => CRACK.exit[0],
+  crackExitY: () => CRACK.exit[1],
 };
 
 const DRIVE_CLAMPS = {
@@ -689,7 +394,17 @@ const DRIVE_CLAMPS = {
   tilt: [-45, 45],
   lift: [-0.5, 0.5],
   pscale: [0.2, 1.5],
+  glassRegX: [-GLASS_REG_RANGE, GLASS_REG_RANGE],
+  glassRegY: [-GLASS_REG_RANGE, GLASS_REG_RANGE],
+  glassRegZ: [-GLASS_REG_RANGE, GLASS_REG_RANGE],
+  crackExitX: [-4, 4],
+  crackExitY: [-4, 4],
 };
+
+// Every key Leva actually owns. Pose slots written by an older build carry
+// keys that no longer exist (crackSpinX, crackFade …) — they are filtered
+// here rather than handed to Leva, which would warn on every warp.
+const LEVA_KEYS = new Set([...Object.keys(DRIVE_READERS), "crackOn"]);
 
 function changeGizmoContext(targetMode) {
   if (DEV.gizmoDragging) return;
@@ -709,630 +424,59 @@ const WIREABLE = [
   "sposX", "sposY", "sposZ", "srotX", "srotY", "srotZ", "sscale",
   "shift", "vshift", "lift", "pscale", "size",
   "settleX", "settleY", "settleZ", "tilt",
+  "glassRegX", "glassRegY", "glassRegZ",
+  "crackExitX", "crackExitY",
 ];
 
 const WIRE = {
   enabled: false,
   master: "sposZ",
-  drivenA: "sposY",
-  drivenB: "srotY",
-  ratioA: 1.0,
-  ratioB: 45.0,
+  driven: "sposY",
+  ratio: 1.0,
   masterAnchor: 0,
-  drivenAnchorA: 0,
-  drivenAnchorB: 0,
+  drivenAnchor: 0,
   suspended: false,
 };
 
 function wireAnchors() {
   WIRE.masterAnchor = DRIVE_READERS[WIRE.master]();
-  WIRE.drivenAnchorA = DRIVE_READERS[WIRE.drivenA]();
-  WIRE.drivenAnchorB = DRIVE_READERS[WIRE.drivenB]();
+  WIRE.drivenAnchor = DRIVE_READERS[WIRE.driven]();
 }
 
 function wireTap(param, value) {
   if (!WIRE.enabled || WIRE.suspended) return;
-  if (param !== WIRE.master) return;
+  if (param !== WIRE.master || WIRE.master === WIRE.driven) return;
   if (!DEV.setLeva) return;
-  const delta = value - WIRE.masterAnchor;
-  const writes = {};
-  const drive = (key, anchor, ratio) => {
-    if (key === WIRE.master || Object.prototype.hasOwnProperty.call(writes, key)) return;
-    const [lo, hi] = DRIVE_CLAMPS[key] || [-Infinity, Infinity];
-    const next = anchor + delta * ratio;
-    writes[key] = Number(Math.min(hi, Math.max(lo, next)).toFixed(4));
-  };
-  drive(WIRE.drivenA, WIRE.drivenAnchorA, WIRE.ratioA);
-  drive(WIRE.drivenB, WIRE.drivenAnchorB, WIRE.ratioB);
-  if (!Object.keys(writes).length) return;
+  const t = WIRE.drivenAnchor + (value - WIRE.masterAnchor) * WIRE.ratio;
+  const [lo, hi] = DRIVE_CLAMPS[WIRE.driven] || [-Infinity, Infinity];
   WIRE.suspended = true;
-  DEV.setLeva(writes);
+  DEV.setLeva({
+    [WIRE.driven]: Number(Math.min(hi, Math.max(lo, t)).toFixed(4)),
+  });
   WIRE.suspended = false;
 }
 
 function wireResetRun() {
   if (!DEV.setLeva) return;
-  const writes = {
-    [WIRE.master]: Number(WIRE.masterAnchor.toFixed(4)),
-  };
-  if (WIRE.drivenA !== WIRE.master) {
-    writes[WIRE.drivenA] = Number(WIRE.drivenAnchorA.toFixed(4));
-  }
-  if (WIRE.drivenB !== WIRE.master && WIRE.drivenB !== WIRE.drivenA) {
-    writes[WIRE.drivenB] = Number(WIRE.drivenAnchorB.toFixed(4));
-  }
   WIRE.suspended = true;
-  DEV.setLeva(writes);
+  DEV.setLeva({
+    [WIRE.master]: Number(WIRE.masterAnchor.toFixed(4)),
+    [WIRE.driven]: Number(WIRE.drivenAnchor.toFixed(4)),
+  });
   WIRE.suspended = false;
 }
 
 // ---------------------------------------------------------
 // SNAPSHOT / SLOT ENGINE
+//
+// crackOn rides in the slot with everything else. THAT is the glass swap:
+// slot 3 = cracked pane, docked. slot 4 = same pose, crack off. Warp
+// between them and the screen is replaced.
 // ---------------------------------------------------------
 const SNAPSHOTS = { origin: null };
 
 const SLOT_KEY = "iglass_pose_slots_v1";
-const SLOT_META_KEY = "iglass_pose_slot_meta_v1";
-const SLOT_THUMB_KEY = "iglass_pose_slot_thumbs_v1";
-const SLOT_COUNT = 150;
-const MOTION_PATH_KEY = "iglass_motion_path_v1";
-const MOTION_LIBRARY_KEY = "iglass_motion_path_library_v1";
-
-const MOTION_EASES = {
-  linear: (t) => t,
-  smooth: (t) => t * t * (3 - 2 * t),
-  cinematic: (t) => t * t * t * (t * (t * 6 - 15) + 10),
-  sine: (t) => 0.5 - 0.5 * Math.cos(Math.PI * t),
-  accelerate: (t) => t * t * t,
-  decelerate: (t) => 1 - Math.pow(1 - t, 3),
-};
-
-const MOTION_EASE_LABELS = {
-  linear: "linear",
-  smooth: "smooth",
-  cinematic: "cinematic",
-  sine: "sine",
-  accelerate: "accelerate",
-  decelerate: "decelerate",
-};
-
-const POSE_ROTATION_GROUPS = [
-  ["settleX", "settleY", "settleZ"],
-  ["srotX", "srotY", "srotZ"],
-];
-
-const POSE_ROTATION_KEYS = new Set(POSE_ROTATION_GROUPS.flat());
-
-function defaultMotionPath() {
-  return {
-    version: 2,
-    name: "Untitled path",
-    trajectory: "curve",
-    curveType: "centripetal",
-    tension: 0.5,
-    arcLength: true,
-    continuous: true,
-    globalEase: "linear",
-    orientationMode: "quaternion",
-    lookAt: [0, 0, 0],
-    orientationOffset: [0, 0, 0],
-    bank: 0,
-    showPath: true,
-    showGhosts: true,
-    editHandles: false,
-    speed: 1,
-    loop: true,
-    nodes: [],
-  };
-}
-
-function normaliseMotionPath(saved) {
-  const base = defaultMotionPath();
-  const legacy = !saved || Number(saved.version) < 2;
-  const source = saved && typeof saved === "object" ? saved : {};
-  const nodes = Array.isArray(source.nodes)
-    ? source.nodes
-        .filter((n) => Number.isInteger(n.slot))
-        .map((n, i) => ({
-          slot: n.slot,
-          duration: i === 0 ? 0 : Math.max(0.1, Number(n.duration) || 1.25),
-          hold: Math.max(0, Number(n.hold) || 0),
-          ease: MOTION_EASES[n.ease] ? n.ease : "cinematic",
-          position:
-            Array.isArray(n.position) && n.position.length === 3 && n.position.every(Number.isFinite)
-              ? n.position.map(Number)
-              : null,
-        }))
-    : [];
-  return {
-    ...base,
-    ...source,
-    version: 2,
-    trajectory: source.trajectory === "line" ? "line" : "curve",
-    curveType: ["centripetal", "chordal", "catmullrom"].includes(source.curveType)
-      ? source.curveType
-      : legacy
-      ? "catmullrom"
-      : "centripetal",
-    tension: Math.max(0, Math.min(1, Number(source.tension) || 0.5)),
-    arcLength: legacy ? false : source.arcLength !== false,
-    continuous: legacy ? false : source.continuous !== false,
-    globalEase: MOTION_EASES[source.globalEase] ? source.globalEase : "linear",
-    orientationMode: ["quaternion", "tangent", "lookAt"].includes(source.orientationMode)
-      ? source.orientationMode
-      : "quaternion",
-    lookAt:
-      Array.isArray(source.lookAt) && source.lookAt.length === 3
-        ? source.lookAt.map((v) => Number(v) || 0)
-        : [0, 0, 0],
-    orientationOffset:
-      Array.isArray(source.orientationOffset) && source.orientationOffset.length === 3
-        ? source.orientationOffset.map((v) => Number(v) || 0)
-        : [0, 0, 0],
-    bank: Number(source.bank) || 0,
-    speed: Math.max(0.1, Number(source.speed) || 1),
-    loop: source.loop !== false,
-    showPath: source.showPath !== false,
-    showGhosts: source.showGhosts !== false,
-    editHandles: source.editHandles === true,
-    nodes,
-  };
-}
-
-function loadMotionPath() {
-  try {
-    const raw = window.localStorage.getItem(MOTION_PATH_KEY);
-    const saved = raw ? JSON.parse(raw) : null;
-    if (saved && Array.isArray(saved.nodes)) return normaliseMotionPath(saved);
-  } catch (e) {
-    /* corrupted store -> fresh path */
-  }
-  return defaultMotionPath();
-}
-
-function persistMotionPath(path) {
-  try {
-    window.localStorage.setItem(MOTION_PATH_KEY, JSON.stringify(path));
-  } catch (e) {
-    /* storage blocked -> path remains session-only */
-  }
-}
-
-function compileMotionPath(path, slots) {
-  const nodes = path.nodes
-    .map((node) => {
-      const pose = slots[node.slot] || null;
-      const position =
-        Array.isArray(node.position) && node.position.every(Number.isFinite)
-          ? node.position.map(Number)
-          : pose && [pose.sposX, pose.sposY, pose.sposZ].every(Number.isFinite)
-          ? [pose.sposX, pose.sposY, pose.sposZ]
-          : null;
-      return { ...node, position, pose };
-    })
-    .filter((node) => node.pose);
-  const compiled = {
-    type: "iglass-motion-path",
-    version: 2,
-    name: path.name || "Untitled path",
-    trajectory: path.trajectory === "line" ? "line" : "curve",
-    curveType: path.curveType || "centripetal",
-    tension: Number(path.tension) || 0.5,
-    arcLength: path.arcLength !== false,
-    continuous: path.continuous !== false,
-    globalEase: MOTION_EASES[path.globalEase] ? path.globalEase : "linear",
-    orientationMode: path.orientationMode || "quaternion",
-    lookAt: Array.isArray(path.lookAt) ? path.lookAt : [0, 0, 0],
-    orientationOffset: Array.isArray(path.orientationOffset)
-      ? path.orientationOffset
-      : [0, 0, 0],
-    bank: Number(path.bank) || 0,
-    speed: Math.max(0.1, Number(path.speed) || 1),
-    loop: path.loop !== false,
-    nodes,
-  };
-  return attachMotionCurve(compiled);
-}
-
-function motionPathDuration(path) {
-  if (!path || !path.nodes || !path.nodes.length) return 0;
-  return path.nodes.reduce(
-    (sum, node, i) =>
-      sum + (i === 0 ? 0 : Math.max(0.1, Number(node.duration) || 0)) +
-      (path.continuous ? 0 : Math.max(0, Number(node.hold) || 0)),
-    0
-  );
-}
-
-function attachMotionCurve(path) {
-  const points = path.nodes
-    .map((node) => node.position)
-    .filter((p) => Array.isArray(p) && p.length === 3 && p.every(Number.isFinite))
-    .map((p) => new THREE.Vector3(p[0], p[1], p[2]));
-  const curve =
-    path.trajectory === "curve" && points.length > 1
-      ? new THREE.CatmullRomCurve3(
-          points,
-          false,
-          path.curveType || "centripetal",
-          Number(path.tension) || 0.5
-        )
-      : null;
-  Object.defineProperty(path, "_curve", { value: curve, writable: true, enumerable: false });
-  return path;
-}
-
-function poseQuaternion(pose, keys) {
-  const rad = Math.PI / 180;
-  return new THREE.Quaternion().setFromEuler(
-    new THREE.Euler(
-      (Number(pose[keys[0]]) || 0) * rad,
-      (Number(pose[keys[1]]) || 0) * rad,
-      (Number(pose[keys[2]]) || 0) * rad,
-      "XYZ"
-    )
-  );
-}
-
-function alignQuaternion(q, reference) {
-  if (reference.dot(q) >= 0) return q;
-  return new THREE.Quaternion(-q.x, -q.y, -q.z, -q.w);
-}
-
-function quaternionLog(q) {
-  const w = Math.max(-1, Math.min(1, q.w));
-  const a = Math.acos(w);
-  const s = Math.sin(a);
-  return Math.abs(s) < 1e-7
-    ? new THREE.Vector3()
-    : new THREE.Vector3(q.x, q.y, q.z).multiplyScalar(a / s);
-}
-
-function quaternionExp(v) {
-  const a = v.length();
-  if (a < 1e-7) return new THREE.Quaternion(0, 0, 0, 1);
-  const s = Math.sin(a) / a;
-  return new THREE.Quaternion(v.x * s, v.y * s, v.z * s, Math.cos(a)).normalize();
-}
-
-function squadControl(prev, q, next) {
-  const inv = q.clone().invert();
-  const a = quaternionLog(inv.clone().multiply(prev));
-  const b = quaternionLog(inv.clone().multiply(next));
-  return q.clone().multiply(quaternionExp(a.add(b).multiplyScalar(-0.25))).normalize();
-}
-
-function sampleQuaternionTrack(nodes, keys, trackT) {
-  if (nodes.length === 1) return poseQuaternion(nodes[0].pose, keys);
-  const scaled = Math.max(0, Math.min(1, trackT)) * (nodes.length - 1);
-  const i = Math.min(nodes.length - 2, Math.floor(scaled));
-  const t = scaled - i;
-  const q0 = poseQuaternion(nodes[i].pose, keys);
-  const q1 = alignQuaternion(poseQuaternion(nodes[i + 1].pose, keys), q0);
-  const qm = alignQuaternion(poseQuaternion(nodes[Math.max(0, i - 1)].pose, keys), q0);
-  const q2 = alignQuaternion(
-    poseQuaternion(nodes[Math.min(nodes.length - 1, i + 2)].pose, keys),
-    q1
-  );
-  const s0 = squadControl(qm, q0, q1);
-  const s1 = squadControl(q0, q1, q2);
-  const a = new THREE.Quaternion().slerpQuaternions(q0, q1, t);
-  const b = new THREE.Quaternion().slerpQuaternions(s0, s1, t);
-  return new THREE.Quaternion().slerpQuaternions(a, b, 2 * t * (1 - t)).normalize();
-}
-
-function lineTrackSample(path, u) {
-  const pts = path.nodes.map((n) => new THREE.Vector3(...n.position));
-  const n = pts.length;
-  if (n < 2) return { point: pts[0] || new THREE.Vector3(), tangent: new THREE.Vector3(1, 0, 0), trackT: 0 };
-  let scaled;
-  if (path.arcLength) {
-    const lengths = [];
-    let total = 0;
-    for (let i = 0; i < n - 1; i++) {
-      const d = pts[i].distanceTo(pts[i + 1]);
-      lengths.push(d);
-      total += d;
-    }
-    let target = Math.max(0, Math.min(1, u)) * (total || 1);
-    let segment = 0;
-    while (segment < lengths.length - 1 && target > lengths[segment]) {
-      target -= lengths[segment];
-      segment++;
-    }
-    scaled = segment + (lengths[segment] ? target / lengths[segment] : 0);
-  } else {
-    scaled = Math.max(0, Math.min(1, u)) * (n - 1);
-  }
-  const i = Math.min(n - 2, Math.floor(scaled));
-  const local = scaled - i;
-  return {
-    point: pts[i].clone().lerp(pts[i + 1], local),
-    tangent: pts[i + 1].clone().sub(pts[i]).normalize(),
-    trackT: scaled / (n - 1),
-  };
-}
-
-function positionTrackSample(path, u) {
-  if (!path._curve) return lineTrackSample(path, u);
-  const safe = Math.max(0, Math.min(1, u));
-  const trackT = path.arcLength ? path._curve.getUtoTmapping(safe) : safe;
-  return {
-    point: path.arcLength ? path._curve.getPointAt(safe) : path._curve.getPoint(safe),
-    tangent: path.arcLength ? path._curve.getTangentAt(safe) : path._curve.getTangent(trackT),
-    trackT,
-  };
-}
-
-function positionTrackSampleRaw(path, trackT) {
-  const safe = Math.max(0, Math.min(1, trackT));
-  if (path._curve) {
-    return {
-      point: path._curve.getPoint(safe),
-      tangent: path._curve.getTangent(safe),
-      trackT: safe,
-    };
-  }
-  const points = path.nodes.map((node) => new THREE.Vector3(...node.position));
-  const scaled = safe * (points.length - 1);
-  const i = Math.min(points.length - 2, Math.floor(scaled));
-  const local = scaled - i;
-  return {
-    point: points[i].clone().lerp(points[i + 1], local),
-    tangent: points[i + 1].clone().sub(points[i]).normalize(),
-    trackT: safe,
-  };
-}
-
-function writeQuaternionToPose(q, keys, out) {
-  const e = new THREE.Euler().setFromQuaternion(q, "XYZ");
-  out[keys[0]] = wrapDeg(e.x);
-  out[keys[1]] = wrapDeg(e.y);
-  out[keys[2]] = wrapDeg(e.z);
-}
-
-function orientStage(path, spatial, out) {
-  if (path.orientationMode === "quaternion") return;
-  const point = spatial.point;
-  const target =
-    path.orientationMode === "lookAt"
-      ? new THREE.Vector3(...(path.lookAt || [0, 0, 0]))
-      : point.clone().add(spatial.tangent.lengthSq() ? spatial.tangent : new THREE.Vector3(0, 0, -1));
-  if (point.distanceToSquared(target) < 1e-10) return;
-  const m = new THREE.Matrix4().lookAt(point, target, new THREE.Vector3(0, 1, 0));
-  const q = new THREE.Quaternion().setFromRotationMatrix(m);
-  const off = path.orientationOffset || [0, 0, 0];
-  q.multiply(
-    new THREE.Quaternion().setFromEuler(
-      new THREE.Euler(
-        (Number(off[0]) || 0) * Math.PI / 180,
-        (Number(off[1]) || 0) * Math.PI / 180,
-        (Number(off[2]) || 0) * Math.PI / 180
-      )
-    )
-  );
-  q.multiply(
-    new THREE.Quaternion().setFromAxisAngle(
-      new THREE.Vector3(0, 0, 1),
-      (Number(path.bank) || 0) * Math.PI / 180
-    )
-  );
-  writeQuaternionToPose(q, ["srotX", "srotY", "srotZ"], out);
-}
-
-function interpolateMotionPose(path, trackT, spatial) {
-  const nodes = path.nodes;
-  const scaled = Math.max(0, Math.min(1, trackT)) * (nodes.length - 1);
-  const fromIndex = Math.min(nodes.length - 2, Math.floor(scaled));
-  const t = scaled - fromIndex;
-  const a = nodes[fromIndex].pose;
-  const b = nodes[fromIndex + 1].pose;
-  const out = {};
-
-  for (const key of Object.keys(a)) {
-    if (POSE_ROTATION_KEYS.has(key) || ["sposX", "sposY", "sposZ"].includes(key)) continue;
-    const av = a[key];
-    const bv = b[key];
-    if (typeof av === "number" && typeof bv === "number") {
-      out[key] = av + (bv - av) * t;
-    } else {
-      out[key] = t < 1 ? av : bv;
-    }
-  }
-
-  for (const keys of POSE_ROTATION_GROUPS) {
-    writeQuaternionToPose(sampleQuaternionTrack(nodes, keys, trackT), keys, out);
-  }
-  out.sposX = spatial.point.x;
-  out.sposY = spatial.point.y;
-  out.sposZ = spatial.point.z;
-  orientStage(path, spatial, out);
-  return out;
-}
-
-function sampleAtTrack(path, trackT) {
-  const spatial = positionTrackSampleRaw(path, trackT);
-  return interpolateMotionPose(path, spatial.trackT, spatial);
-}
-
-function sampleMotionPath(path, progress) {
-  if (!path || !path.nodes || !path.nodes.length) return null;
-  if (path.nodes.length === 1) return { ...path.nodes[0].pose };
-  if (!Object.prototype.hasOwnProperty.call(path, "_curve")) attachMotionCurve(path);
-
-  const clamped = Math.max(0, Math.min(1, progress));
-  if (path.continuous) {
-    const ease = MOTION_EASES[path.globalEase] || MOTION_EASES.linear;
-    const spatial = positionTrackSample(path, ease(clamped));
-    return interpolateMotionPose(path, spatial.trackT, spatial);
-  }
-
-  const total = motionPathDuration(path);
-  if (total <= 0) return sampleAtTrack(path, 1);
-
-  let time = clamped * total;
-  const firstHold = Math.max(0, Number(path.nodes[0].hold) || 0);
-  if (time <= firstHold) return sampleAtTrack(path, 0);
-  time -= firstHold;
-
-  for (let i = 1; i < path.nodes.length; i++) {
-    const node = path.nodes[i];
-    const duration = Math.max(0.1, Number(node.duration) || 0);
-    if (time <= duration) {
-      const raw = Math.max(0, Math.min(1, time / duration));
-      const ease = MOTION_EASES[node.ease] || MOTION_EASES.cinematic;
-      const trackT = (i - 1 + ease(raw)) / (path.nodes.length - 1);
-      return sampleAtTrack(path, trackT);
-    }
-    time -= duration;
-
-    const hold = Math.max(0, Number(node.hold) || 0);
-    if (time <= hold) return sampleAtTrack(path, i / (path.nodes.length - 1));
-    time -= hold;
-  }
-
-  return sampleAtTrack(path, 1);
-}
-
-function poseStageQuaternion(pose) {
-  return poseQuaternion(pose, ["srotX", "srotY", "srotZ"]);
-}
-
-function motionDiagnostics(path, samples = 96) {
-  if (!path || path.nodes.length < 2) return null;
-  const duration = Math.max(0.001, motionPathDuration(path));
-  const dt = duration / samples;
-  const poses = Array.from({ length: samples + 1 }, (_, i) => sampleMotionPath(path, i / samples));
-  const speed = [];
-  const angular = [];
-  for (let i = 1; i < poses.length; i++) {
-    const a = poses[i - 1];
-    const b = poses[i];
-    speed.push(
-      new THREE.Vector3(a.sposX, a.sposY, a.sposZ).distanceTo(
-        new THREE.Vector3(b.sposX, b.sposY, b.sposZ)
-      ) / dt
-    );
-    angular.push((poseStageQuaternion(a).angleTo(poseStageQuaternion(b)) * 180 / Math.PI) / dt);
-  }
-  const acceleration = speed.slice(1).map((v, i) => Math.abs(v - speed[i]) / dt);
-  const jerk = acceleration.slice(1).map((v, i) => Math.abs(v - acceleration[i]) / dt);
-  const max = (arr) => (arr.length ? Math.max(...arr) : 0);
-  const mean = (arr) => (arr.length ? arr.reduce((s, v) => s + v, 0) / arr.length : 0);
-  const discontinuities = jerk
-    .map((v, i) => ({ v, progress: (i + 2) / samples }))
-    .filter(({ v }) => v > Math.max(1e-6, mean(jerk) * 4))
-    .slice(0, 12);
-  return {
-    speed,
-    angular,
-    acceleration,
-    jerk,
-    maxSpeed: max(speed),
-    maxAngular: max(angular),
-    maxAcceleration: max(acceleration),
-    maxJerk: max(jerk),
-    discontinuities,
-  };
-}
-
-function applyPoseParamsDirect(pose) {
-  if (!pose) return;
-  const rad = Math.PI / 180;
-
-  if (Number.isFinite(pose.shift)) SETTLE.xShiftFraction = pose.shift;
-  if (Number.isFinite(pose.vshift)) SETTLE.yShiftFraction = pose.vshift;
-  if ([pose.settleX, pose.settleY, pose.settleZ].every(Number.isFinite)) {
-    SETTLE.targetEuler = [pose.settleX * rad, pose.settleY * rad, pose.settleZ * rad];
-    DEV.dirtyQuat = true;
-  }
-  if (Number.isFinite(pose.size) && pose.size > 0) {
-    MODEL.targetSize = pose.size;
-    DEV.dirtyFit = true;
-  }
-  if ([pose.sposX, pose.sposY, pose.sposZ].every(Number.isFinite)) {
-    STAGE.position = [pose.sposX, pose.sposY, pose.sposZ];
-    DEV.dirtyStage = true;
-  }
-  if ([pose.srotX, pose.srotY, pose.srotZ].every(Number.isFinite)) {
-    STAGE.rotationEuler = [pose.srotX * rad, pose.srotY * rad, pose.srotZ * rad];
-    DEV.dirtyStage = true;
-  }
-  if (Number.isFinite(pose.sscale) && pose.sscale > 0) {
-    STAGE.scale = pose.sscale;
-    DEV.dirtyStage = true;
-  }
-  if (Number.isFinite(pose.tilt)) {
-    START.tilt = pose.tilt * rad;
-    DEV.dirtyQuat = true;
-  }
-  if (Number.isFinite(pose.lift)) SETTLE.arcLift = pose.lift;
-  if (Number.isFinite(pose.pscale) && pose.pscale > 0) SETTLE.scale = pose.pscale;
-  if (Number.isFinite(pose.p)) {
-    const p = Math.max(0, Math.min(1, pose.p));
-    DEV.lastP = p;
-    if (DEV.applyProgress) DEV.applyProgress(p);
-  }
-
-  DEV.pathPreview = true;
-}
-
-function syncPoseControls(pose) {
-  if (!pose || !DEV.setLeva) return;
-  WIRE.suspended = true;
-  DEV.setLeva({ ...pose, drive: driveLabel() });
-  WIRE.suspended = false;
-}
-
-function encodeMotionPath(path) {
-  const json = JSON.stringify(path);
-  const bytes = new TextEncoder().encode(json);
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
-}
-
-function decodeMotionPath(value) {
-  try {
-    const base64 = value.replace(/-/g, "+").replace(/_/g, "/");
-    const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
-    const binary = atob(padded);
-    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
-    const parsed = JSON.parse(new TextDecoder().decode(bytes));
-    if (parsed && parsed.type === "iglass-motion-path" && Array.isArray(parsed.nodes)) {
-      const nodes = parsed.nodes
-        .filter((node) => node && node.pose && typeof node.pose === "object")
-        .map((node, i) => ({
-          duration: i === 0 ? 0 : Math.max(0.1, Number(node.duration) || 1.25),
-          hold: Math.max(0, Number(node.hold) || 0),
-          ease: MOTION_EASES[node.ease] ? node.ease : "cinematic",
-          position:
-            Array.isArray(node.position) && node.position.length === 3
-              ? node.position.map(Number)
-              : [node.pose.sposX, node.pose.sposY, node.pose.sposZ],
-          pose: node.pose,
-        }));
-      if (!nodes.length) return null;
-      const legacy = Number(parsed.version) < 2;
-      return attachMotionCurve({
-        ...defaultMotionPath(),
-        ...parsed,
-        type: "iglass-motion-path",
-        version: 2,
-        trajectory: parsed.trajectory === "line" ? "line" : "curve",
-        curveType: legacy ? "catmullrom" : parsed.curveType || "centripetal",
-        arcLength: legacy ? false : parsed.arcLength !== false,
-        continuous: legacy ? false : parsed.continuous !== false,
-        speed: Math.max(0.1, Number(parsed.speed) || 1),
-        loop: parsed.loop !== false,
-        nodes,
-      });
-    }
-  } catch (e) {
-    /* invalid motion payload -> fall back to the normal timeline */
-  }
-  return null;
-}
+const SLOT_COUNT = 100;
 
 function loadSlots() {
   try {
@@ -1358,59 +502,10 @@ function persistSlots(slots) {
   }
 }
 
-function loadSlotRecord(key, fallback) {
-  try {
-    const raw = window.localStorage.getItem(key);
-    const parsed = raw ? JSON.parse(raw) : null;
-    return parsed && typeof parsed === "object" ? parsed : fallback;
-  } catch (e) {
-    return fallback;
-  }
-}
-
-function persistSlotRecord(key, value) {
-  try {
-    window.localStorage.setItem(key, JSON.stringify(value));
-  } catch (e) {
-    /* metadata/thumbnails stay session-only if storage is unavailable */
-  }
-}
-
-function loadMotionLibrary() {
-  const saved = loadSlotRecord(MOTION_LIBRARY_KEY, []);
-  return Array.isArray(saved) ? saved : [];
-}
-
-function capturePoseThumbnail() {
-  const src = DEV.canvasEl;
-  if (!src) return null;
-  try {
-    const canvas = document.createElement("canvas");
-    canvas.width = 120;
-    canvas.height = 68;
-    const ctx = canvas.getContext("2d");
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(src, 0, 0, canvas.width, canvas.height);
-    return canvas.toDataURL("image/jpeg", 0.5);
-  } catch (e) {
-    return null;
-  }
-}
-
-function downloadJSON(filename, value) {
-  const blob = new Blob([JSON.stringify(value, null, 2)], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 0);
-}
-
 function readPoseParams() {
   const o = {};
   for (const k of Object.keys(DRIVE_READERS)) o[k] = DRIVE_READERS[k]();
+  o.crackOn = CRACK.on;
   o.p = DEV.lastP;
   return o;
 }
@@ -1423,7 +518,11 @@ function warpToParams(snap) {
   if (!snap || !DEV.setLeva) return;
   WIRE.suspended = true;
   const { p, ...rest } = snap;
-  DEV.setLeva(rest);
+  const clean = {};
+  for (const k of Object.keys(rest)) {
+    if (LEVA_KEYS.has(k)) clean[k] = rest[k];
+  }
+  DEV.setLeva(clean);
   if (typeof p === "number") jumpToP(p);
   WIRE.suspended = false;
 }
@@ -1556,8 +655,7 @@ function nudgeSettleMoveScreen(set, axis, dir, scale = 1) {
 }
 
 function nudgeRotateScreen(set, axis, dir, isRoll, scale = 1) {
-  const stepRad =
-    (GRAIN_STEPS.deg[DEV.driveGrain] * scale * Math.PI) / 180;
+  const stepRad = (GRAIN_STEPS.deg[DEV.driveGrain] * scale * Math.PI) / 180;
   let axisVec, sign;
   if (isRoll) {
     axisVec = new THREE.Vector3(0, 0, 1);
@@ -1634,8 +732,6 @@ function serialiseParams(params) {
     "glassreg",
     [GLASS_REG.x, GLASS_REG.y, GLASS_REG.z].map((v) => v.toFixed(3)).join(",")
   );
-  // v3.8 — lighting rides the URL so a dialled-in look is reproducible
-  // in the Playwright capture exactly like the pose is.
   params.set(
     "light",
     [LIGHT.amb, LIGHT.key, LIGHT.fill, LIGHT.env, LIGHT.exp]
@@ -1655,10 +751,11 @@ function serialiseParams(params) {
   );
   params.set("envp", LIGHT.preset);
   params.set("envb", LIGHT.blur.toFixed(2));
+  // on, exitX, exitY. That is the entire crack channel now.
   params.set(
     "crack",
-    [CRACK.opacity, CRACK.exit[0], CRACK.exit[1], CRACK.exit[2]]
-      .map((v) => v.toFixed(2))
+    [CRACK.on ? 1 : 0, CRACK.exit[0], CRACK.exit[1]]
+      .map((v) => Number(v).toFixed(3))
       .join(",")
   );
 }
@@ -1693,52 +790,6 @@ function copyManifest() {
   if (navigator.clipboard) navigator.clipboard.writeText(json);
 }
 
-function buildMotionPathBaseURL(path, slots) {
-  const compiled = compileMotionPath(path, slots);
-  if (compiled.nodes.length < 2) return null;
-  const params = new URLSearchParams();
-  serialiseParams(params);
-  params.set("motion", encodeMotionPath(compiled));
-  return `${window.location.origin}${window.location.pathname}?${params.toString()}`;
-}
-
-async function copyMotionPreviewURL(path, slots) {
-  const base = buildMotionPathBaseURL(path, slots);
-  if (!base) return false;
-  const url = new URL(base);
-  url.searchParams.set("mode", "autoplay");
-  if (!navigator.clipboard) return false;
-  try {
-    await navigator.clipboard.writeText(url.toString());
-    return true;
-  } catch (e) {
-    return false;
-  }
-}
-
-async function copyMotionManifest(path, slots) {
-  const baseURL = buildMotionPathBaseURL(path, slots);
-  if (!baseURL) return false;
-  const manifest = {
-    type: "iglass-capture-manifest",
-    version: 1,
-    baseURL,
-    sweepParam: "mp",
-    startValue: 0,
-    endValue: 1,
-    totalFrames: 90,
-    viewport: { width: 1600, height: 900, deviceScaleFactor: 2 },
-    captureSelector: "canvas",
-  };
-  if (!navigator.clipboard) return false;
-  try {
-    await navigator.clipboard.writeText(JSON.stringify(manifest, null, 2));
-    return true;
-  } catch (e) {
-    return false;
-  }
-}
-
 // ---------------------------------------------------------
 // SAVE CARD
 // ---------------------------------------------------------
@@ -1760,11 +811,12 @@ function saveCard() {
     `light amb ${LIGHT.amb.toFixed(2)}  key ${LIGHT.key.toFixed(2)}  fill ${LIGHT.fill.toFixed(2)}  env ${LIGHT.env.toFixed(2)}  exp ${LIGHT.exp.toFixed(2)}`,
     `bezel env ${BEZEL.env.toFixed(2)}  rough ${BEZEL.rough.toFixed(2)}  offset ${BEZEL.offset.toFixed(2)}    oled cut ${OLED.faceCut.toFixed(2)}  rim ${OLED.showRim ? "on" : "off"}`,
     `glass rough ${GLASS.rough.toFixed(3)}  env ${GLASS.env.toFixed(2)}  opac ${GLASS.opacity.toFixed(2)}  clearcoat ${GLASS.clearcoat.toFixed(2)} / ${GLASS.ccRough.toFixed(3)}`,
-    `ibl ${LIGHT.preset}  blur ${LIGHT.blur.toFixed(2)}    crack ${CRACK.opacity.toFixed(2)}  exit ${CRACK.exit.map((v) => v.toFixed(2)).join(", ")}`,
+    `ibl ${LIGHT.preset}  blur ${LIGHT.blur.toFixed(2)}`,
+    `crack ${CRACK.on ? "ON" : "OFF"}    reg ${CRACK.exit.map((v) => v.toFixed(2)).join(", ")}`,
   ];
   const url = buildTuningURL();
 
-  const fsMono = Math.round(24 * k);
+  const fsMono = Math.round(22 * k);
   const fsSmall = Math.round(14 * k);
   const fsHead = Math.round(18 * k);
   const lh = Math.round(fsMono * 1.55);
@@ -1851,9 +903,7 @@ function captureSettleFromObject(viewport) {
   obj.scale.setScalar(obj.scale.x);
 
   SETTLE.scale = obj.scale.x;
-  SETTLE.xShiftFraction = viewport.width
-    ? obj.position.x / viewport.width
-    : 0;
+  SETTLE.xShiftFraction = viewport.width ? obj.position.x / viewport.width : 0;
   SETTLE.yShiftFraction = viewport.height
     ? obj.position.y / viewport.height
     : 0;
@@ -1930,10 +980,97 @@ function DevControls({ initialP }) {
   const [, set] = useControls(() => ({
     drive: { value: driveLabel(), editable: false },
 
-    // ---- v3.8 LIGHTING — open by default. This is the dial set that
-    // replaces the hard-coded five-source blowout. Match the Blender
-    // reference by eye, then read the numbers off 📋 copy URL / 📸 save
-    // card and they get baked as the compiled LIGHT defaults. ----
+    // ---- v3.11 CRACKED PANE. Playhead first, then the two things that
+    // are actually true about a crack: it exists or it doesn't, and it
+    // sits somewhere on the pane. ----
+    "💥 cracked pane": folder(
+      {
+        p: {
+          value: initialP,
+          min: 0,
+          max: 1,
+          step: 0.001,
+          label: "playhead  p =",
+          onChange: (v) => {
+            DEV.lastP = v;
+            if (DEV.applyProgress) DEV.applyProgress(v);
+            if (DEV.setLeva) DEV.setLeva({ drive: driveLabel() });
+          },
+        },
+        crackOn: {
+          value: CRACK.on,
+          label: "CRACK  (saved in the pose slot)",
+          onChange: (v) => {
+            CRACK.on = v;
+          },
+        },
+        crackExitX: {
+          value: CRACK.exit[0],
+          min: -4,
+          max: 4,
+          step: 0.01,
+          label: "crack ← → (X)",
+          onChange: (v) => {
+            CRACK.exit[0] = v;
+            wireTap("crackExitX", v);
+          },
+        },
+        crackExitY: {
+          value: CRACK.exit[1],
+          min: -4,
+          max: 4,
+          step: 0.01,
+          label: "crack ↑ ↓ (Y)",
+          onChange: (v) => {
+            CRACK.exit[1] = v;
+            wireTap("crackExitY", v);
+          },
+        },
+      },
+      { collapsed: false }
+    ),
+
+    // ---- THE GLASS SWAP lives here now. ±25 drives the whole glass unit
+    // clean out of frame; crack OFF; drive it back in. ----
+    "🔲 glass registration  (±25 — drives the pane OUT of shot)": folder(
+      {
+        glassRegX: {
+          value: GLASS_REG.x,
+          min: -GLASS_REG_RANGE,
+          max: GLASS_REG_RANGE,
+          step: 0.05,
+          label: "glass ← → (X)",
+          onChange: (v) => {
+            GLASS_REG.x = v;
+            wireTap("glassRegX", v);
+          },
+        },
+        glassRegY: {
+          value: GLASS_REG.y,
+          min: -GLASS_REG_RANGE,
+          max: GLASS_REG_RANGE,
+          step: 0.05,
+          label: "glass ↑ ↓ (Y)",
+          onChange: (v) => {
+            GLASS_REG.y = v;
+            wireTap("glassRegY", v);
+          },
+        },
+        glassRegZ: {
+          value: GLASS_REG.z,
+          min: -GLASS_REG_RANGE,
+          max: GLASS_REG_RANGE,
+          step: 0.05,
+          label: "glass depth (Z)",
+          onChange: (v) => {
+            GLASS_REG.z = v;
+            wireTap("glassRegZ", v);
+          },
+        },
+      },
+      { collapsed: false }
+    ),
+
     "💡 lighting": folder(
       {
         amb: {
@@ -2009,12 +1146,9 @@ function DevControls({ initialP }) {
           },
         },
       },
-      { collapsed: false }
+      { collapsed: true }
     ),
 
-    // ---- v3.9 FRONT GLASS. "spread" is the dial for the hard circle: it
-    // blurs the reflection instead of dimming it. "brightness" is separate.
-    // clearcoat is the shine — a second specular layer over the base. ----
     "✨ front glass": folder(
       {
         glassRough: {
@@ -2074,59 +1208,9 @@ function DevControls({ initialP }) {
           },
         },
       },
-      { collapsed: false }
-    ),
-
-    // ---- v3.9 CRACKED PANE. Inert unless a crackTexture prop is passed. ----
-    "💥 cracked pane": folder(
-      {
-        crackOpacity: {
-          value: CRACK.opacity,
-          min: 0,
-          max: 1,
-          step: 0.01,
-          label: "crack strength",
-          onChange: (v) => {
-            CRACK.opacity = v;
-          },
-        },
-        crackExitX: {
-          value: CRACK.exit[0],
-          min: -3,
-          max: 3,
-          step: 0.01,
-          label: "discard ← → (X)",
-          onChange: (v) => {
-            CRACK.exit[0] = v;
-          },
-        },
-        crackExitY: {
-          value: CRACK.exit[1],
-          min: -3,
-          max: 3,
-          step: 0.01,
-          label: "discard ↑ ↓ (Y)",
-          onChange: (v) => {
-            CRACK.exit[1] = v;
-          },
-        },
-        crackExitZ: {
-          value: CRACK.exit[2],
-          min: -3,
-          max: 3,
-          step: 0.01,
-          label: "discard depth (Z)",
-          onChange: (v) => {
-            CRACK.exit[2] = v;
-          },
-        },
-      },
       { collapsed: true }
     ),
 
-    // ---- v3.8.1 BEZEL — the black-rim cause is UNRESOLVED, so this is a
-    // dial set, not a guess. depth push -> 0 tests one hypothesis;
-    // black level off 0 tests the other. ----
     "🖤 bezel": folder(
       {
         bezelEnv: {
@@ -2168,12 +1252,9 @@ function DevControls({ initialP }) {
           },
         },
       },
-      { collapsed: false }
+      { collapsed: true }
     ),
 
-    // ---- v3.8.4 OLED — the face-split cut. Drag toward 0 and the jagged
-    // rainbow lip returns at the corners: that IS the v3.8 bug, on demand.
-    // Drag toward -1 and the rim goes black long before the cap starves. ----
     "📺 oled": folder(
       {
         oledCut: {
@@ -2187,8 +1268,6 @@ function DevControls({ initialP }) {
             applyOledCut(v);
           },
         },
-        // The OLED slab's side wall. This is the INNER of the two black
-        // trims. Off = gone. On = v3.8.4 behaviour, for comparison.
         oledRim: {
           value: OLED.showRim,
           label: "show OLED rim (trim 2)",
@@ -2197,8 +1276,6 @@ function DevControls({ initialP }) {
             if (DEV.oledRimMat) DEV.oledRimMat.visible = v;
           },
         },
-        // The OUTER trim. Toggle it to confirm the attribution by eye:
-        // whichever black line vanishes is the one this owns.
         hideBezel: {
           value: false,
           label: "hide bezel (trim 1) — isolate",
@@ -2207,11 +1284,9 @@ function DevControls({ initialP }) {
           },
         },
       },
-      { collapsed: false }
+      { collapsed: true }
     ),
 
-    // ---- v3.8.7 KEYBOARD — this dial scales the HOLD glide only. A tap is
-    // always one exact grain step and is never affected by it. ----
     "⌨ keyboard": folder(
       {
         holdGain: {
@@ -2256,65 +1331,28 @@ function DevControls({ initialP }) {
             if (WIRE.enabled) wireAnchors();
           },
         },
-        drivenA: {
-          value: WIRE.drivenA,
+        driven: {
+          value: WIRE.driven,
           options: WIREABLE,
-          label: "driven A",
           onChange: (v) => {
-            WIRE.drivenA = v;
+            WIRE.driven = v;
             if (WIRE.enabled) wireAnchors();
           },
         },
-        ratioA: {
+        ratio: {
           value: 1.0,
           min: -20,
           max: 20,
           step: 0.05,
-          label: "ratio A",
           onChange: (v) => {
-            WIRE.ratioA = v;
-          },
-        },
-        drivenB: {
-          value: WIRE.drivenB,
-          options: WIREABLE,
-          label: "driven B",
-          onChange: (v) => {
-            WIRE.drivenB = v;
-            if (WIRE.enabled) wireAnchors();
-          },
-        },
-        ratioB: {
-          value: WIRE.ratioB,
-          min: -180,
-          max: 180,
-          step: 0.05,
-          label: "ratio B",
-          onChange: (v) => {
-            WIRE.ratioB = v;
+            WIRE.ratio = v;
           },
         },
         "↺ reset run": button(wireResetRun),
       },
       { collapsed: true }
     ),
-    "⏱ timeline": folder(
-      {
-        p: {
-          value: initialP,
-          min: 0,
-          max: 1,
-          step: 0.001,
-          label: "playhead p",
-          onChange: (v) => {
-            DEV.lastP = v;
-            if (DEV.applyProgress) DEV.applyProgress(v);
-            if (DEV.setLeva) DEV.setLeva({ drive: driveLabel() });
-          },
-        },
-      },
-      { collapsed: false }
-    ),
+
     "📐 phone final pose (end of timeline)": folder(
       {
         tilt: {
@@ -2412,6 +1450,7 @@ function DevControls({ initialP }) {
       },
       { collapsed: false }
     ),
+
     "🎬 stage (whole scene, works at any time)": folder(
       {
         sposX: {
@@ -2501,6 +1540,7 @@ function DevControls({ initialP }) {
       },
       { collapsed: true }
     ),
+
     "📦 model": folder(
       {
         size: {
@@ -2513,41 +1553,6 @@ function DevControls({ initialP }) {
             MODEL.targetSize = v;
             DEV.dirtyFit = true;
             wireTap("size", v);
-          },
-        },
-      },
-      { collapsed: true }
-    ),
-    "🔲 glass registration": folder(
-      {
-        glassRegY: {
-          value: GLASS_REG.y,
-          min: -1,
-          max: 1,
-          step: 0.005,
-          label: "up / down (Y)",
-          onChange: (v) => {
-            GLASS_REG.y = v;
-          },
-        },
-        glassRegX: {
-          value: GLASS_REG.x,
-          min: -1,
-          max: 1,
-          step: 0.005,
-          label: "across (X)",
-          onChange: (v) => {
-            GLASS_REG.x = v;
-          },
-        },
-        glassRegZ: {
-          value: GLASS_REG.z,
-          min: -1,
-          max: 1,
-          step: 0.005,
-          label: "depth (Z)",
-          onChange: (v) => {
-            GLASS_REG.z = v;
           },
         },
       },
@@ -2574,6 +1579,7 @@ function DevControls({ initialP }) {
         set({ drive: driveLabel() });
         return;
       }
+
       // ---- ARROWS: tap = one exact step, hold = 60 fps ramped glide ----
       if (ARROWS[ev.key]) {
         ev.preventDefault();
@@ -2614,12 +1620,16 @@ function DevControls({ initialP }) {
         set({ drive: driveLabel() });
         return;
       }
+      if (k === "c") {
+        // The swap, on one key.
+        set({ crackOn: !CRACK.on });
+        return;
+      }
       if (k === "[" || k === "]") {
         const step = GRAIN_STEPS.p[DEV.driveGrain] * (k === "]" ? 1 : -1);
         jumpToP(Math.min(1, Math.max(0, DEV.lastP + step)));
         return;
       }
-
       if (k === "t") {
         changeGizmoContext(DEV.gizmoTarget === "settle" ? "stage" : "settle");
         return;
@@ -2627,6 +1637,7 @@ function DevControls({ initialP }) {
       const map = { w: "translate", e: "rotate", r: "scale", q: "off" };
       if (map[k]) setGizmoMode(map[k]);
     };
+
     const onKeyUp = (ev) => {
       if (!ARROWS[ev.key]) return;
       HOLD.keys.delete(ev.key);
@@ -2660,7 +1671,7 @@ const UI = {
     position: "fixed",
     top: 12,
     left: 12,
-    width: 306,
+    width: 258,
     zIndex: 1000,
     background: "rgba(255,255,255,0.95)",
     border: "1px solid #dde8e0",
@@ -2718,6 +1729,11 @@ const HUMAN_LABELS = {
   settleY: "Phone yaw °",
   settleZ: "Phone roll °",
   tilt: "Start tilt °",
+  glassRegX: "Glass ← →",
+  glassRegY: "Glass ↑ ↓",
+  glassRegZ: "Glass depth",
+  crackExitX: "Crack ← →",
+  crackExitY: "Crack ↑ ↓",
 };
 
 const chipStyle = (active, wide) => ({
@@ -2758,861 +1774,383 @@ const slotStyle = (filled) => ({
   cursor: "pointer",
 });
 
-function MotionSparkline({ values, color = "#2e7d52", height = 34 }) {
-  if (!values || values.length < 2) return null;
-  const max = Math.max(1e-9, ...values);
-  const points = values
-    .map((v, i) => `${(i / (values.length - 1)) * 276},${height - (v / max) * (height - 3)}`)
-    .join(" ");
-  return (
-    <svg width="100%" height={height} viewBox={`0 0 276 ${height}`} preserveAspectRatio="none">
-      <line x1="0" y1={height - 1} x2="276" y2={height - 1} stroke="#d5e2d9" />
-      <polyline points={points} fill="none" stroke={color} strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
-    </svg>
-  );
-}
-
 function DevDashboard() {
   const [, force] = useState(0);
   const panelRef = useRef(null);
   const [collapsed, setCollapsed] = useState(false);
-  const [motionPath, setMotionPath] = useState(loadMotionPath);
-  const [slots, setSlots] = useState(loadSlots);
-  const [slotMeta, setSlotMeta] = useState(() => loadSlotRecord(SLOT_META_KEY, {}));
-  const [slotThumbs, setSlotThumbs] = useState(() => loadSlotRecord(SLOT_THUMB_KEY, {}));
-  const [selectedSlot, setSelectedSlot] = useState(-1);
-  const [slotTarget, setSlotTarget] = useState(1);
-  const [slotSearch, setSlotSearch] = useState("");
-  const [selectedPathNode, setSelectedPathNode] = useState(-1);
-  const [pathProgress, setPathProgress] = useState(0);
-  const [pathPlaying, setPathPlaying] = useState(false);
-  const [status, setStatus] = useState("v5 ready");
-  const [library, setLibrary] = useState(loadMotionLibrary);
-  const [libraryId, setLibraryId] = useState("");
-  const [importText, setImportText] = useState("");
-  const [showImport, setShowImport] = useState(false);
-  const [bulkDuration, setBulkDuration] = useState(1.25);
-  const [bulkHold, setBulkHold] = useState(0);
-  const [bulkEase, setBulkEase] = useState("cinematic");
-  const [rangeStart, setRangeStart] = useState(1);
-  const [rangeEnd, setRangeEnd] = useState(2);
-  const [bridgeFrom, setBridgeFrom] = useState(0);
-  const [bridgeTo, setBridgeTo] = useState(1);
-  const [bridgeCount, setBridgeCount] = useState(2);
-  const [bridgeStyle, setBridgeStyle] = useState("tangent");
-  const [bridgeStrength, setBridgeStrength] = useState(1);
-  const [bridgeArc, setBridgeArc] = useState(0.35);
-  const pathProgressRef = useRef(0);
-  const pathPlaybackRef = useRef({ raf: 0, lastUi: 0 });
-  const historyRef = useRef({ undo: [], redo: [] });
-  const handleHistoryStartRef = useRef(null);
-
-  const compiledPath = useMemo(
-    () => compileMotionPath(motionPath, slots),
-    [motionPath, slots]
-  );
-  const diagnostics = useMemo(
-    () => motionDiagnostics(compiledPath),
-    [compiledPath]
-  );
 
   useEffect(() => {
-    const id = setInterval(() => force((n) => n + 1), 250);
+    const id = setInterval(() => force((n) => n + 1), 150);
     return () => clearInterval(id);
   }, []);
 
-  useEffect(() => persistMotionPath(motionPath), [motionPath]);
+  const [slots, setSlots] = useState(loadSlots);
+
+  const isStage = DEV.gizmoTarget === "stage";
+  const routed = effectiveTarget() !== DEV.gizmoTarget;
 
   useEffect(() => {
-    MOTION_DEV.path = compiledPath;
-    MOTION_DEV.progress = pathProgress;
-    MOTION_DEV.selectedNode = selectedPathNode;
-    MOTION_DEV.showPath = motionPath.showPath;
-    MOTION_DEV.showGhosts = motionPath.showGhosts;
-    MOTION_DEV.editHandles = motionPath.editHandles;
-    MOTION_DEV.diagnostics = diagnostics;
-    MOTION_DEV.progress = pathProgress;
-    MOTION_DEV.version++;
-  }, [compiledPath, diagnostics, selectedPathNode, motionPath.showPath, motionPath.showGhosts, motionPath.editHandles]);
-
-  useEffect(() => {
-    MOTION_DEV.moveHandle = (index, position, finished) => {
-      setMotionPath((current) => {
-        if (!current.nodes[index]) return current;
-        if (!handleHistoryStartRef.current) handleHistoryStartRef.current = current;
-        const nodes = current.nodes.map((node, i) =>
-          i === index ? { ...node, position: position.map((v) => Number(v.toFixed(4))) } : node
-        );
-        const next = { ...current, nodes };
-        if (finished) {
-          historyRef.current.undo.push(handleHistoryStartRef.current || current);
-          historyRef.current.undo = historyRef.current.undo.slice(-60);
-          historyRef.current.redo = [];
-          handleHistoryStartRef.current = null;
-        }
-        return next;
-      });
-    };
-    MOTION_DEV.selectNode = (index) => {
-      setSelectedPathNode(index);
-      setBridgeFrom(index);
-      setBridgeTo(index + 1);
-    };
-    return () => {
-      MOTION_DEV.moveHandle = null;
-      MOTION_DEV.selectNode = null;
-    };
-  }, []);
-
-  useEffect(() => {
-    const cw = (DEV.canvasEl && DEV.canvasEl.clientWidth) || window.innerWidth || 1600;
-    const pw = collapsed ? 0 : panelRef.current ? panelRef.current.offsetWidth : 306;
-    DEV.leftClampNDC = Math.max(-0.9, Math.min(-0.15, -1 + (2 * (22 + pw)) / cw));
+    const cw =
+      (DEV.canvasEl && DEV.canvasEl.clientWidth) || window.innerWidth || 1600;
+    const pw = collapsed
+      ? 0
+      : panelRef.current
+      ? panelRef.current.offsetWidth
+      : 258;
+    const rightPx = 12 + pw + 10;
+    const ndc = -1 + (2 * rightPx) / cw;
+    DEV.leftClampNDC = Math.max(-0.9, Math.min(-0.15, ndc));
   });
 
-  useEffect(() => () => {
-    if (pathPlaybackRef.current.raf) cancelAnimationFrame(pathPlaybackRef.current.raf);
-  }, []);
-
-  const pauseMotionPath = (syncControls = true) => {
-    if (pathPlaybackRef.current.raf) cancelAnimationFrame(pathPlaybackRef.current.raf);
-    pathPlaybackRef.current.raf = 0;
-    setPathPlaying(false);
-    if (syncControls) syncPoseControls(sampleMotionPath(compiledPath, pathProgressRef.current));
-  };
-
-  const commitMotionPath = (next, record = true) => {
-    pauseMotionPath(false);
-    if (record) {
-      historyRef.current.undo.push(motionPath);
-      historyRef.current.undo = historyRef.current.undo.slice(-60);
-      historyRef.current.redo = [];
-    }
-    setMotionPath(normaliseMotionPath(next));
-  };
-
-  const undoPath = () => {
-    const previous = historyRef.current.undo.pop();
-    if (!previous) return;
-    pauseMotionPath(false);
-    historyRef.current.redo.push(motionPath);
-    setMotionPath(previous);
-  };
-
-  const redoPath = () => {
-    const next = historyRef.current.redo.pop();
-    if (!next) return;
-    pauseMotionPath(false);
-    historyRef.current.undo.push(motionPath);
-    setMotionPath(next);
-  };
-
-  const applyPathAt = (progress, syncControls = false) => {
-    const pose = sampleMotionPath(compiledPath, progress);
-    if (!pose) return false;
-    const p = Math.max(0, Math.min(1, progress));
-    pathProgressRef.current = p;
-    MOTION_DEV.progress = p;
-    setPathProgress(p);
-    applyPoseParamsDirect(pose);
-    if (syncControls) syncPoseControls(pose);
-    return true;
-  };
-
-  const playMotionPath = () => {
-    pauseMotionPath(false);
-    const total = motionPathDuration(compiledPath);
-    if (compiledPath.nodes.length < 2 || total <= 0) return;
-    let startProgress = pathProgressRef.current >= 0.999 ? 0 : pathProgressRef.current;
-    const startSeconds = startProgress * total;
-    const startedAt = performance.now();
-    const speed = Math.max(0.1, Number(motionPath.speed) || 1);
-    setPathPlaying(true);
-    const tick = (now) => {
-      const seconds = startSeconds + ((now - startedAt) / 1000) * speed;
-      const done = seconds >= total;
-      const progress = motionPath.loop ? (seconds % total) / total : Math.min(1, seconds / total);
-      const pose = sampleMotionPath(compiledPath, progress);
-      if (pose) {
-        pathProgressRef.current = progress;
-        MOTION_DEV.progress = progress;
-        if (now - pathPlaybackRef.current.lastUi >= 50 || done) {
-          pathPlaybackRef.current.lastUi = now;
-          setPathProgress(progress);
-        }
-        applyPoseParamsDirect(pose);
-      }
-      if (done && !motionPath.loop) {
-        pathPlaybackRef.current.raf = 0;
-        setPathPlaying(false);
-        syncPoseControls(sampleMotionPath(compiledPath, 1));
-        return;
-      }
-      pathPlaybackRef.current.raf = requestAnimationFrame(tick);
-    };
-    pathPlaybackRef.current.raf = requestAnimationFrame(tick);
-  };
-
-  const addPathNode = (slot) => {
-    if (!slots[slot]) return;
-    const i = motionPath.nodes.length;
-    commitMotionPath({
-      ...motionPath,
-      nodes: [...motionPath.nodes, {
-        slot,
-        position: null,
-        duration: i === 0 ? 0 : 1.25,
-        hold: 0,
-        ease: "cinematic",
-      }],
-    });
-    setSelectedPathNode(i);
-  };
-
-  const updateSelectedPathNode = (patch) => {
-    if (selectedPathNode < 0 || !motionPath.nodes[selectedPathNode]) return;
-    const nodes = motionPath.nodes.map((node, i) =>
-      i === selectedPathNode ? { ...node, ...patch } : node
-    );
-    if (nodes[0]) nodes[0] = { ...nodes[0], duration: 0 };
-    commitMotionPath({ ...motionPath, nodes });
-  };
-
-  const movePathNode = (direction) => {
-    const to = selectedPathNode + direction;
-    if (selectedPathNode < 0 || to < 0 || to >= motionPath.nodes.length) return;
-    const nodes = [...motionPath.nodes];
-    [nodes[selectedPathNode], nodes[to]] = [nodes[to], nodes[selectedPathNode]];
-    if (nodes[0]) nodes[0] = { ...nodes[0], duration: 0 };
-    if (nodes[1] && nodes[1].duration <= 0) nodes[1] = { ...nodes[1], duration: 1.25 };
-    commitMotionPath({ ...motionPath, nodes });
-    setSelectedPathNode(to);
-  };
-
-  const removePathNode = () => {
-    if (selectedPathNode < 0) return;
-    const nodes = motionPath.nodes.filter((_, i) => i !== selectedPathNode);
-    if (nodes[0]) nodes[0] = { ...nodes[0], duration: 0 };
-    commitMotionPath({ ...motionPath, nodes });
-    setSelectedPathNode(Math.min(selectedPathNode, nodes.length - 1));
-  };
-
-  const saveSlot = (i) => {
-    pauseMotionPath(false);
-    if (slots[i] && !window.confirm(`Replace pose slot ${i + 1}?`)) return;
-    const next = [...slots];
-    next[i] = readPoseParams();
-    const meta = {
-      ...slotMeta,
-      [i]: {
-        ...(slotMeta[i] || {}),
-        name: slotMeta[i]?.name || `Pose ${i + 1}`,
-        updatedAt: new Date().toISOString(),
-      },
-    };
-    const thumb = capturePoseThumbnail();
-    const thumbs = thumb ? { ...slotThumbs, [i]: thumb } : slotThumbs;
-    setSlots(next);
-    setSlotMeta(meta);
-    setSlotThumbs(thumbs);
-    setSelectedSlot(i);
-    persistSlots(next);
-    persistSlotRecord(SLOT_META_KEY, meta);
-    persistSlotRecord(SLOT_THUMB_KEY, thumbs);
-    setStatus(`saved slot ${i + 1}`);
-  };
-
   const slotClick = (i, ev) => {
-    setSelectedSlot(i);
-    setSlotTarget(i + 1);
-    if (ev.shiftKey) saveSlot(i);
-    else if ((ev.ctrlKey || ev.metaKey) && slots[i]) addPathNode(i);
-    else if (slots[i]) {
-      pauseMotionPath(false);
+    if (ev.shiftKey) {
+      const next = [...slots];
+      next[i] = readPoseParams();
+      setSlots(next);
+      persistSlots(next);
+    } else if (slots[i]) {
       warpToParams(slots[i]);
     }
   };
 
-  const clearSlot = (i, ev) => {
+  const slotClear = (i, ev) => {
     ev.preventDefault();
-    if (!slots[i] || !window.confirm(`Clear pose slot ${i + 1}?`)) return;
-    pauseMotionPath(false);
+    if (!slots[i]) return;
     const next = [...slots];
     next[i] = null;
-    const meta = { ...slotMeta };
-    const thumbs = { ...slotThumbs };
-    delete meta[i];
-    delete thumbs[i];
     setSlots(next);
-    setSlotMeta(meta);
-    setSlotThumbs(thumbs);
     persistSlots(next);
-    persistSlotRecord(SLOT_META_KEY, meta);
-    persistSlotRecord(SLOT_THUMB_KEY, thumbs);
-    setStatus(`cleared slot ${i + 1}; path references are shown red`);
-  };
-
-  const relocateSlot = (mode) => {
-    const from = selectedSlot;
-    const to = Math.max(0, Math.min(SLOT_COUNT - 1, Number(slotTarget) - 1));
-    if (from < 0 || !slots[from] || from === to) return;
-    if (mode === "move" && slots[to]) {
-      setStatus(`slot ${to + 1} is occupied — use swap or choose an empty slot`);
-      return;
-    }
-    const next = [...slots];
-    const meta = { ...slotMeta };
-    const thumbs = { ...slotThumbs };
-    if (mode === "copy") {
-      if (slots[to] && !window.confirm(`Replace slot ${to + 1} with a copy?`)) return;
-      next[to] = { ...next[from] };
-      meta[to] = { ...(meta[from] || {}), name: `${meta[from]?.name || `Pose ${from + 1}`} copy` };
-      if (thumbs[from]) thumbs[to] = thumbs[from];
-    } else if (mode === "swap") {
-      [next[from], next[to]] = [next[to], next[from]];
-      const aMeta = meta[from];
-      const bMeta = meta[to];
-      const aThumb = thumbs[from];
-      const bThumb = thumbs[to];
-      if (bMeta) meta[from] = bMeta; else delete meta[from];
-      if (aMeta) meta[to] = aMeta; else delete meta[to];
-      if (bThumb) thumbs[from] = bThumb; else delete thumbs[from];
-      if (aThumb) thumbs[to] = aThumb; else delete thumbs[to];
-    } else {
-      next[to] = next[from];
-      next[from] = null;
-      if (meta[from]) meta[to] = meta[from]; else delete meta[to];
-      if (thumbs[from]) thumbs[to] = thumbs[from]; else delete thumbs[to];
-      delete meta[from];
-      delete thumbs[from];
-    }
-    let path = motionPath;
-    if (mode !== "copy") {
-      const nodes = motionPath.nodes.map((node) => {
-        if (mode === "swap") {
-          if (node.slot === from) return { ...node, slot: to };
-          if (node.slot === to) return { ...node, slot: from };
-        } else if (node.slot === from) return { ...node, slot: to };
-        return node;
-      });
-      path = { ...motionPath, nodes };
-      commitMotionPath(path);
-    }
-    setSlots(next);
-    setSlotMeta(meta);
-    setSlotThumbs(thumbs);
-    setSelectedSlot(to);
-    setSlotTarget(to + 1);
-    persistSlots(next);
-    persistSlotRecord(SLOT_META_KEY, meta);
-    persistSlotRecord(SLOT_THUMB_KEY, thumbs);
-    setStatus(`${mode} slot ${from + 1} ${mode === "copy" ? "to" : "↔"} ${to + 1}`);
-  };
-
-  const renameSelectedSlot = (name) => {
-    if (selectedSlot < 0) return;
-    const meta = {
-      ...slotMeta,
-      [selectedSlot]: { ...(slotMeta[selectedSlot] || {}), name, updatedAt: new Date().toISOString() },
-    };
-    setSlotMeta(meta);
-    persistSlotRecord(SLOT_META_KEY, meta);
-  };
-
-  const refreshThumbnail = () => {
-    if (selectedSlot < 0 || !slots[selectedSlot]) return;
-    const thumb = capturePoseThumbnail();
-    if (!thumb) return;
-    const thumbs = { ...slotThumbs, [selectedSlot]: thumb };
-    setSlotThumbs(thumbs);
-    persistSlotRecord(SLOT_THUMB_KEY, thumbs);
-  };
-
-  const applyBulk = (scope) => {
-    let lo = 0;
-    let hi = motionPath.nodes.length - 1;
-    if (scope === "range") {
-      lo = Math.max(0, Math.min(hi, Number(rangeStart) - 1));
-      hi = Math.max(lo, Math.min(motionPath.nodes.length - 1, Number(rangeEnd) - 1));
-    }
-    const nodes = motionPath.nodes.map((node, i) =>
-      i >= lo && i <= hi
-        ? {
-            ...node,
-            duration: i === 0 ? 0 : Number(bulkDuration),
-            hold: Number(bulkHold),
-            ease: bulkEase,
-          }
-        : node
-    );
-    commitMotionPath({ ...motionPath, nodes });
-    setStatus(`bulk timing applied to ${scope}`);
-  };
-
-  const generateBridge = () => {
-    const from = Number(bridgeFrom);
-    const to = Number(bridgeTo);
-    if (compiledPath.nodes.length !== motionPath.nodes.length) {
-      setStatus("bridge blocked: restore or remove red missing-slot path nodes first");
-      return;
-    }
-    if (to !== from + 1 || from < 0 || to >= compiledPath.nodes.length) {
-      setStatus("bridge endpoints must be two adjacent path nodes");
-      return;
-    }
-    const count = Math.max(1, Math.min(6, Number(bridgeCount) || 1));
-    const free = slots.map((s, i) => (!s ? i : -1)).filter((i) => i >= 0).slice(0, count);
-    if (free.length < count) {
-      setStatus(`bridge needs ${count} empty pose slots`);
-      return;
-    }
-    const p0 = new THREE.Vector3(...compiledPath.nodes[from].position);
-    const p1 = new THREE.Vector3(...compiledPath.nodes[to].position);
-    const prev = new THREE.Vector3(...compiledPath.nodes[Math.max(0, from - 1)].position);
-    const nextPoint = new THREE.Vector3(...compiledPath.nodes[Math.min(compiledPath.nodes.length - 1, to + 1)].position);
-    const m0 = p0.clone().sub(prev).multiplyScalar(Number(bridgeStrength) || 1);
-    const m1 = nextPoint.clone().sub(p1).multiplyScalar(Number(bridgeStrength) || 1);
-    const chord = p1.clone().sub(p0);
-    let side = chord.clone().cross(new THREE.Vector3(0, 1, 0)).normalize();
-    if (side.lengthSq() < 1e-8) side = new THREE.Vector3(1, 0, 0);
-    const created = [];
-    for (let j = 1; j <= count; j++) {
-      const t = j / (count + 1);
-      const t2 = t * t;
-      const t3 = t2 * t;
-      const point = p0.clone().multiplyScalar(2 * t3 - 3 * t2 + 1)
-        .add(m0.clone().multiplyScalar(t3 - 2 * t2 + t))
-        .add(p1.clone().multiplyScalar(-2 * t3 + 3 * t2))
-        .add(m1.clone().multiplyScalar(t3 - t2));
-      const tangent = p0.clone().multiplyScalar(6 * t2 - 6 * t)
-        .add(m0.clone().multiplyScalar(3 * t2 - 4 * t + 1))
-        .add(p1.clone().multiplyScalar(-6 * t2 + 6 * t))
-        .add(m1.clone().multiplyScalar(3 * t2 - 2 * t))
-        .normalize();
-      if (bridgeStyle === "rise") point.y += Math.sin(Math.PI * t) * Number(bridgeArc);
-      if (bridgeStyle === "orbit") point.add(side.clone().multiplyScalar(Math.sin(Math.PI * t) * Number(bridgeArc)));
-      const trackT = (from + t) / (compiledPath.nodes.length - 1);
-      const pose = interpolateMotionPose(compiledPath, trackT, { point, tangent });
-      pose.sposX = point.x;
-      pose.sposY = point.y;
-      pose.sposZ = point.z;
-      created.push({ slot: free[j - 1], pose, position: point.toArray() });
-    }
-    const nextSlots = [...slots];
-    const meta = { ...slotMeta };
-    created.forEach((item, i) => {
-      nextSlots[item.slot] = item.pose;
-      meta[item.slot] = {
-        name: `Bridge ${from + 1}→${to + 1} ${i + 1}`,
-        updatedAt: new Date().toISOString(),
-      };
-    });
-    const leg = Math.max(0.1, Number(motionPath.nodes[to].duration) || 1.25) / (count + 1);
-    const bridgeNodes = created.map((item) => ({
-      slot: item.slot,
-      position: item.position,
-      duration: leg,
-      hold: 0,
-      ease: motionPath.continuous ? "linear" : "cinematic",
-    }));
-    const nodes = [...motionPath.nodes];
-    nodes.splice(to, 0, ...bridgeNodes);
-    nodes[to + count] = { ...nodes[to + count], duration: leg };
-    setSlots(nextSlots);
-    setSlotMeta(meta);
-    persistSlots(nextSlots);
-    persistSlotRecord(SLOT_META_KEY, meta);
-    commitMotionPath({ ...motionPath, nodes });
-    setSelectedPathNode(to);
-    setStatus(`generated ${count} ${bridgeStyle} bridge poses in slots ${free.map((i) => i + 1).join(", ")}`);
-  };
-
-  const persistLibrary = (next) => {
-    setLibrary(next);
-    persistSlotRecord(MOTION_LIBRARY_KEY, next);
-  };
-
-  const savePathVersion = (asNew = false) => {
-    const id = asNew || !libraryId ? `path-${Date.now()}` : libraryId;
-    const version = { savedAt: new Date().toISOString(), path: motionPath };
-    let next;
-    const existing = library.find((entry) => entry.id === id);
-    if (existing) {
-      next = library.map((entry) =>
-        entry.id === id
-          ? { ...entry, name: motionPath.name, versions: [...entry.versions, version].slice(-20) }
-          : entry
-      );
-    } else {
-      next = [...library, { id, name: motionPath.name, versions: [version] }];
-    }
-    persistLibrary(next);
-    setLibraryId(id);
-    setStatus(existing ? "saved new path version" : "saved new named path");
-  };
-
-  const loadLibraryVersion = (entry, versionIndex = entry.versions.length - 1) => {
-    const version = entry.versions[versionIndex];
-    if (!version) return;
-    commitMotionPath(normaliseMotionPath(version.path));
-    setLibraryId(entry.id);
-    setStatus(`loaded ${entry.name} v${versionIndex + 1}`);
-  };
-
-  const duplicateLibraryPath = () => {
-    const entry = library.find((x) => x.id === libraryId);
-    if (!entry) return;
-    const source = entry.versions[entry.versions.length - 1].path;
-    const id = `path-${Date.now()}`;
-    const path = { ...normaliseMotionPath(source), name: `${entry.name} copy` };
-    persistLibrary([...library, { id, name: path.name, versions: [{ savedAt: new Date().toISOString(), path }] }]);
-    setLibraryId(id);
-    commitMotionPath(path);
-  };
-
-  const exportStudio = () => {
-    downloadJSON(`${(motionPath.name || "motion-path").replace(/[^a-z0-9-_]+/gi, "-")}.json`, {
-      type: "iglass-motion-studio",
-      version: 2,
-      exportedAt: new Date().toISOString(),
-      slots,
-      slotMeta,
-      slotThumbs,
-      path: motionPath,
-    });
-  };
-
-  const importStudio = () => {
-    try {
-      const parsed = JSON.parse(importText);
-      if (parsed.type === "iglass-motion-studio" && parsed.path) {
-        const nextSlots = Array(SLOT_COUNT).fill(null);
-        (parsed.slots || []).slice(0, SLOT_COUNT).forEach((pose, i) => { nextSlots[i] = pose; });
-        const meta = parsed.slotMeta || {};
-        const thumbs = parsed.slotThumbs || {};
-        setSlots(nextSlots);
-        setSlotMeta(meta);
-        setSlotThumbs(thumbs);
-        persistSlots(nextSlots);
-        persistSlotRecord(SLOT_META_KEY, meta);
-        persistSlotRecord(SLOT_THUMB_KEY, thumbs);
-        commitMotionPath(normaliseMotionPath(parsed.path));
-      } else if (Array.isArray(parsed.nodes) && parsed.nodes.every((n) => Number.isInteger(n.slot))) {
-        commitMotionPath(normaliseMotionPath(parsed));
-      } else {
-        throw new Error("not an editable studio/path JSON file");
-      }
-      setShowImport(false);
-      setImportText("");
-      setStatus("import complete");
-    } catch (e) {
-      setStatus(`import failed: ${e.message}`);
-    }
   };
 
   const filledCount = slots.filter(Boolean).length;
-  const selectedNode = motionPath.nodes[selectedPathNode] || null;
-  const selectedPosition = selectedNode
-    ? selectedNode.position || (slots[selectedNode.slot]
-        ? [slots[selectedNode.slot].sposX, slots[selectedNode.slot].sposY, slots[selectedNode.slot].sposZ]
-        : [0, 0, 0])
-    : null;
-  const pathReady = compiledPath.nodes.length >= 2;
-  const pathDuration = motionPathDuration(compiledPath);
-  const isStage = DEV.gizmoTarget === "stage";
-  const routed = effectiveTarget() !== DEV.gizmoTarget;
-  const smallNumber = {
-    width: 54,
-    fontFamily: "ui-monospace, Menlo, Consolas, monospace",
-    fontSize: 9,
-    border: "1px solid #d5e2d9",
-    borderRadius: 4,
-    padding: 3,
-  };
 
   if (collapsed) {
     return (
       <div ref={panelRef} style={UI.panelCollapsed}>
-        <b style={{ color: "#2e7d52", letterSpacing: 1 }}>iGLASS v5</b>
-        <span style={chipStyle(false)} onClick={() => setCollapsed(false)}>▸ open</span>
+        <span
+          style={{
+            fontWeight: 700,
+            fontSize: 11,
+            color: "#2e7d52",
+            letterSpacing: 1,
+            marginRight: 8,
+          }}
+        >
+          iGLASS
+        </span>
+        <span
+          style={chipStyle(false)}
+          title="expand panel"
+          onClick={() => setCollapsed(false)}
+        >
+          ▸ open
+        </span>
       </div>
     );
   }
 
   return (
     <div ref={panelRef} style={UI.panel}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <b style={{ color: "#2e7d52", letterSpacing: 1 }}>iGLASS MOTION STUDIO v5</b>
-        <span style={chipStyle(false)} onClick={() => setCollapsed(true)}>▾ hide</span>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+        }}
+      >
+        <span
+          style={{
+            fontWeight: 700,
+            fontSize: 11,
+            color: "#2e7d52",
+            letterSpacing: 1,
+          }}
+        >
+          iGLASS POSE STUDIO
+        </span>
+        <span
+          style={chipStyle(false)}
+          title="collapse panel (frees the left edge for the gizmo)"
+          onClick={() => setCollapsed(true)}
+        >
+          ▾ hide
+        </span>
       </div>
-      <div style={{ ...UI.hint, marginTop: 3, color: status.startsWith("import failed") ? "#a02b2b" : "#5a6b60" }}>{status}</div>
 
-      <details open>
-        <summary style={UI.head}>rig navigation</summary>
-        <div style={UI.row}>
-          <span style={chipStyle(!isStage, true)} onClick={() => changeGizmoContext("settle")}>📱 phone</span>
-          <span style={chipStyle(isStage, true)} onClick={() => changeGizmoContext("stage")}>🎬 stage</span>
-          <span style={chipStyle(false)} onClick={squareUpPhone}>⊞ phone</span>
-          <span style={chipStyle(false)} onClick={squareUpStage}>⊞ stage</span>
-        </div>
-        {routed && <div style={{ ...UI.hint, color: "#2e7d52" }}>mid-timeline: phone controls route to stage</div>}
-        <div style={UI.row}>
-          {["move", "rotate", "off"].map((v) => (
-            <span key={v} style={chipStyle(DEV.hudMode === v)} onClick={() => { DEV.hudMode = v; }}>{v}</span>
-          ))}
-          {GRAIN_LABELS.map((v, i) => (
-            <span key={v} style={chipStyle(DEV.driveGrain === i)} onClick={() => { DEV.driveGrain = i; if (DEV.setLeva) DEV.setLeva({ drive: driveLabel() }); }}>{v}</span>
-          ))}
-        </div>
-        <div style={UI.row}>
-          {[["W move", "translate"], ["E rotate", "rotate"], ["R scale", "scale"], ["Q off", "off"]].map(([label, v]) => (
-            <span key={v} style={chipStyle(DEV.gizmo === v)} onClick={() => setGizmoMode(v)}>{label}</span>
-          ))}
-        </div>
-      </details>
+      <div style={UI.head}>💥 crack (C)</div>
+      <div style={UI.row}>
+        <span
+          style={chipStyle(CRACK.on, true)}
+          title="the crack is welded to the glass — this is a state, not a motion. Saved into the pose slot."
+          onClick={() => {
+            if (DEV.setLeva) DEV.setLeva({ crackOn: !CRACK.on });
+          }}
+        >
+          {CRACK.on ? "● cracked" : "○ clean"}
+        </span>
+      </div>
 
-      <details open>
-        <summary style={UI.head}>🔗 triple compound motion</summary>
-        <div style={UI.row}>
-          <span style={chipStyle(WIRE.enabled, true)} onClick={() => { WIRE.enabled = !WIRE.enabled; if (WIRE.enabled) wireAnchors(); }}>
-            {WIRE.enabled ? "● triple on" : "○ triple off"}
+      <div style={UI.head}>target</div>
+      <div style={UI.row}>
+        <span
+          style={chipStyle(!isStage, true)}
+          title="the phone's FINAL docked pose"
+          onClick={() => changeGizmoContext("settle")}
+        >
+          📱 phone
+        </span>
+        <span
+          style={chipStyle(isStage, true)}
+          title="the whole scene's framing — works at any point on the timeline"
+          onClick={() => changeGizmoContext("stage")}
+        >
+          🎬 stage
+        </span>
+      </div>
+      {routed && (
+        <div style={{ ...UI.hint, marginTop: 2, color: "#2e7d52" }}>
+          mid-timeline → controls drive the stage · playhead stays put
+        </div>
+      )}
+
+      <div style={UI.head}>⊞ square up (smooth)</div>
+      <div style={UI.row}>
+        <span
+          style={chipStyle(false, true)}
+          title="rotate the phone AS SEEN ON SCREEN to the nearest clean 90°"
+          onClick={squareUpPhone}
+        >
+          ⊞ phone
+        </span>
+        <span
+          style={chipStyle(false, true)}
+          title="rotate the stage frame to the nearest clean 90° — smooth"
+          onClick={squareUpStage}
+        >
+          ⊞ stage
+        </span>
+      </div>
+
+      <div style={UI.head}>🧭 sat-nav</div>
+      <div style={UI.row}>
+        <span
+          style={chipStyle(DEV.hudMode === "move")}
+          title="drag empty canvas = move · scroll = zoom"
+          onClick={() => {
+            DEV.hudMode = "move";
+          }}
+        >
+          🖐 move
+        </span>
+        <span
+          style={chipStyle(DEV.hudMode === "rotate")}
+          title="drag the ring band = roll · drag inside = yaw/pitch"
+          onClick={() => {
+            DEV.hudMode = "rotate";
+          }}
+        >
+          🔄 rotate
+        </span>
+        <span
+          style={chipStyle(DEV.hudMode === "off")}
+          title="HUD off — clicks only retarget"
+          onClick={() => {
+            DEV.hudMode = "off";
+          }}
+        >
+          ✋ off
+        </span>
+      </div>
+
+      <div style={UI.head}>⚡ step size (G)</div>
+      <div style={UI.row}>
+        {GRAIN_LABELS.map((label, i) => (
+          <span
+            key={label}
+            style={chipStyle(DEV.driveGrain === i, true)}
+            title={
+              i === 0
+                ? "smallest arrow-key step — precision"
+                : i === 1
+                ? "medium arrow-key step"
+                : "largest arrow-key step — fast travel"
+            }
+            onClick={() => {
+              DEV.driveGrain = i;
+              if (DEV.setLeva) DEV.setLeva({ drive: driveLabel() });
+            }}
+          >
+            {label}
           </span>
-          <span style={chipStyle(false)} onClick={wireResetRun}>↺ anchors</span>
-        </div>
-        <div style={{ ...UI.row, marginTop: 3 }}>
-          <select style={{ ...SEL_STYLE, maxWidth: 116 }} value={WIRE.master} onChange={(e) => { WIRE.master = e.target.value; if (WIRE.enabled) wireAnchors(); }}>
-            {WIREABLE.map((k) => <option key={k} value={k}>{HUMAN_LABELS[k] || k}</option>)}
-          </select>
-          <span style={{ fontSize: 9, margin: "0 4px" }}>master</span>
-        </div>
-        {[["A", "drivenA", "ratioA"], ["B", "drivenB", "ratioB"]].map(([label, drivenKey, ratioKey]) => (
-          <div key={label}>
-            <div style={{ ...UI.row, marginTop: 3 }}>
-              <b style={{ width: 16, fontSize: 9 }}>{label}</b>
-              <select style={{ ...SEL_STYLE, maxWidth: 170 }} value={WIRE[drivenKey]} onChange={(e) => { WIRE[drivenKey] = e.target.value; if (WIRE.enabled) wireAnchors(); }}>
-                {WIREABLE.map((k) => <option key={k} value={k}>{HUMAN_LABELS[k] || k}</option>)}
-              </select>
-            </div>
-            <div style={UI.row}>
-              <input type="range" min={-180} max={180} step={0.05} value={WIRE[ratioKey]} style={{ width: 220, accentColor: "#2e7d52" }} onChange={(e) => { WIRE[ratioKey] = Number(e.target.value); force((n) => n + 1); }} />
-              <span style={{ fontSize: 9 }}>×{WIRE[ratioKey].toFixed(2)}</span>
-            </div>
+        ))}
+      </div>
+
+      <div style={UI.head}>gizmo — precision (W/E/R/Q)</div>
+      <div style={UI.row}>
+        {[
+          ["move", "translate"],
+          ["rotate", "rotate"],
+          ["scale", "scale"],
+          ["off", "off"],
+        ].map(([label, v]) => (
+          <span
+            key={v}
+            style={chipStyle(DEV.gizmo === v)}
+            onClick={() => setGizmoMode(v)}
+          >
+            {label}
+          </span>
+        ))}
+      </div>
+
+      <div style={UI.head}>🔗 compound motion</div>
+      <div style={UI.row}>
+        <span
+          style={chipStyle(WIRE.enabled, true)}
+          title="couple two parameters"
+          onClick={() => {
+            WIRE.enabled = !WIRE.enabled;
+            if (WIRE.enabled) wireAnchors();
+          }}
+        >
+          {WIRE.enabled ? "● wired" : "○ wire on"}
+        </span>
+        <span
+          style={chipStyle(false)}
+          title="restore both parameters to their anchors"
+          onClick={wireResetRun}
+        >
+          ↺ reset run
+        </span>
+      </div>
+      <div style={{ ...UI.row, marginTop: 3 }}>
+        <select
+          style={SEL_STYLE}
+          value={WIRE.master}
+          title="master — the parameter you drive"
+          onChange={(ev) => {
+            WIRE.master = ev.target.value;
+            if (WIRE.enabled) wireAnchors();
+          }}
+        >
+          {WIREABLE.map((k) => (
+            <option key={k} value={k}>
+              {HUMAN_LABELS[k] || k}
+            </option>
+          ))}
+        </select>
+        <span style={{ margin: "0 4px", color: "#5a6b60", fontSize: 10 }}>→</span>
+        <select
+          style={SEL_STYLE}
+          value={WIRE.driven}
+          title="driven — follows the master"
+          onChange={(ev) => {
+            WIRE.driven = ev.target.value;
+            if (WIRE.enabled) wireAnchors();
+          }}
+        >
+          {WIREABLE.map((k) => (
+            <option key={k} value={k}>
+              {HUMAN_LABELS[k] || k}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div style={{ ...UI.row, marginTop: 3, alignItems: "center" }}>
+        <input
+          type="range"
+          min={-20}
+          max={20}
+          step={0.05}
+          value={WIRE.ratio}
+          style={{ width: 150, accentColor: "#2e7d52" }}
+          title="ratio — driven units per master unit"
+          onChange={(ev) => {
+            WIRE.ratio = parseFloat(ev.target.value);
+          }}
+        />
+        <span
+          style={{
+            marginLeft: 6,
+            fontSize: 10,
+            color: "#25332b",
+            minWidth: 34,
+          }}
+        >
+          ×{WIRE.ratio.toFixed(2)}
+        </span>
+      </div>
+
+      <div style={UI.head}>
+        💾 pose slots ({filledCount}/{SLOT_COUNT})
+      </div>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(10, 20px)",
+          gap: 3,
+        }}
+      >
+        {slots.map((s, i) => (
+          <div
+            key={i}
+            style={slotStyle(!!s)}
+            title={
+              s
+                ? `slot ${i + 1} — click: warp · right-click: clear`
+                : `slot ${i + 1} — shift+click: save`
+            }
+            onClick={(ev) => slotClick(i, ev)}
+            onContextMenu={(ev) => slotClear(i, ev)}
+          >
+            {i + 1}
           </div>
         ))}
-      </details>
+      </div>
 
-      <details open>
-        <summary style={UI.head}>💾 named pose library ({filledCount}/{SLOT_COUNT})</summary>
-        <input value={slotSearch} placeholder="filter by slot name…" style={{ ...SEL_STYLE, maxWidth: "100%", width: 276 }} onChange={(e) => setSlotSearch(e.target.value)} />
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(10, 20px)", gap: 3, marginTop: 5 }}>
-          {slots.map((pose, i) => {
-            const name = slotMeta[i]?.name || `Pose ${i + 1}`;
-            const match = !slotSearch || name.toLowerCase().includes(slotSearch.toLowerCase()) || String(i + 1).includes(slotSearch);
-            return (
-              <div
-                key={i}
-                style={{ ...slotStyle(!!pose), outline: selectedSlot === i ? "2px solid #173d2a" : "none", opacity: match ? 1 : 0.2 }}
-                title={pose ? `S${i + 1}: ${name}\nclick warp · Ctrl-click add to path · right-click clear` : `S${i + 1}: Shift-click to save`}
-                onClick={(e) => slotClick(i, e)}
-                onContextMenu={(e) => clearSlot(i, e)}
-              >{i + 1}</div>
-            );
-          })}
-        </div>
-        <div style={{ ...UI.hint, marginTop: 4 }}>Windows: Shift-click saves · Ctrl-click appends · click previews.</div>
-        {selectedSlot >= 0 && slots[selectedSlot] && (
-          <div style={{ marginTop: 5, padding: 5, border: "1px solid #d5e2d9", borderRadius: 6 }}>
-            <div style={{ display: "flex", gap: 6 }}>
-              {slotThumbs[selectedSlot] ? (
-                <img src={slotThumbs[selectedSlot]} alt={`Preview of ${slotMeta[selectedSlot]?.name || `pose slot ${selectedSlot + 1}`}`} width="96" height="54" style={{ objectFit: "cover", borderRadius: 4, border: "1px solid #d5e2d9" }} />
-              ) : <div style={{ width: 96, height: 54, background: "#eef4f0", borderRadius: 4 }} />}
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 9 }}>slot {selectedSlot + 1}</div>
-                <input value={slotMeta[selectedSlot]?.name || `Pose ${selectedSlot + 1}`} style={{ ...SEL_STYLE, maxWidth: 155, width: 155 }} onChange={(e) => renameSelectedSlot(e.target.value)} />
-                <div><span style={chipStyle(false)} onClick={refreshThumbnail}>📸 refresh</span></div>
-              </div>
-            </div>
-            <div style={{ ...UI.hint, marginTop: 3 }}>
-              xyz {slots[selectedSlot].sposX?.toFixed(2)}, {slots[selectedSlot].sposY?.toFixed(2)}, {slots[selectedSlot].sposZ?.toFixed(2)} · rot {slots[selectedSlot].srotX?.toFixed(0)}°, {slots[selectedSlot].srotY?.toFixed(0)}°, {slots[selectedSlot].srotZ?.toFixed(0)}°
-            </div>
-            <div style={{ ...UI.row, marginTop: 3 }}>
-              <span style={{ fontSize: 9, marginRight: 4 }}>destination</span>
-              <input type="number" min={1} max={SLOT_COUNT} value={slotTarget} style={smallNumber} onChange={(e) => setSlotTarget(e.target.value)} />
-              <span style={chipStyle(false)} onClick={() => relocateSlot("move")}>move</span>
-              <span style={chipStyle(false)} onClick={() => relocateSlot("copy")}>copy</span>
-              <span style={chipStyle(false)} onClick={() => relocateSlot("swap")}>swap</span>
-            </div>
-          </div>
-        )}
-      </details>
+      <div style={UI.head}>🛠 actions</div>
+      <div style={UI.row}>
+        <span style={chipStyle(false)} onClick={() => takeSnapshot("origin")}>
+          set origin
+        </span>
+        <span style={chipStyle(false)} onClick={() => warpToSnapshot("origin")}>
+          ⏪ origin
+        </span>
+      </div>
+      <div style={UI.row}>
+        <span
+          style={chipStyle(false, true)}
+          onClick={() => {
+            const url = buildTuningURL();
+            window.history.replaceState(null, "", url);
+            if (navigator.clipboard) navigator.clipboard.writeText(url);
+          }}
+        >
+          📋 copy URL
+        </span>
+        <span style={chipStyle(false, true)} onClick={saveCard}>
+          📸 save card
+        </span>
+        <span style={chipStyle(false, true)} onClick={copyManifest}>
+          🎞 manifest
+        </span>
+      </div>
 
-      <details open>
-        <summary style={UI.head}>🎬 motion path ({compiledPath.nodes.length}/{motionPath.nodes.length}) · {pathDuration.toFixed(2)}s</summary>
-        <input value={motionPath.name} style={{ ...SEL_STYLE, maxWidth: "100%", width: 276 }} onChange={(e) => commitMotionPath({ ...motionPath, name: e.target.value }, false)} />
-        <div style={{ ...UI.row, minHeight: 24 }}>
-          {!motionPath.nodes.length && <span style={UI.hint}>Ctrl-click named pose slots in travel order.</span>}
-          {motionPath.nodes.map((node, i) => {
-            const valid = !!slots[node.slot];
-            const active = i === selectedPathNode;
-            return (
-              <span key={`${node.slot}-${i}`} style={{ ...chipStyle(active), borderColor: valid ? undefined : "#bd3f3f", background: valid ? chipStyle(active).background : "#fff0f0", color: valid ? chipStyle(active).color : "#8b2020" }} onClick={() => { setSelectedPathNode(i); setBridgeFrom(i); setBridgeTo(i + 1); }}>
-                {i + 1}:S{node.slot + 1}
-              </span>
-            );
-          })}
-        </div>
-        {selectedNode && (
-          <div style={{ padding: 5, border: "1px solid #d5e2d9", borderRadius: 6 }}>
-            <div style={{ ...UI.row, justifyContent: "space-between" }}>
-              <span>node {selectedPathNode + 1} · {slotMeta[selectedNode.slot]?.name || `slot ${selectedNode.slot + 1}`}</span>
-              <span>
-                <span style={chipStyle(false)} onClick={() => movePathNode(-1)}>←</span>
-                <span style={chipStyle(false)} onClick={() => movePathNode(1)}>→</span>
-                <span style={chipStyle(false)} onClick={removePathNode}>×</span>
-              </span>
-            </div>
-            <div style={{ ...UI.row, marginTop: 3 }}>
-              {["x", "y", "z"].map((axis, j) => (
-                <label key={axis} style={{ fontSize: 9, marginRight: 4 }}>{axis} <input type="number" step={0.01} value={Number(selectedPosition[j]).toFixed(3)} style={smallNumber} onChange={(e) => { const p = [...selectedPosition]; p[j] = Number(e.target.value); updateSelectedPathNode({ position: p }); }} /></label>
-              ))}
-              <span style={chipStyle(false)} title="return this handle to its pose position" onClick={() => updateSelectedPathNode({ position: null })}>reset xyz</span>
-            </div>
-            {selectedPathNode > 0 && !motionPath.continuous && (
-              <div style={{ ...UI.row, marginTop: 3 }}>
-                <label style={{ fontSize: 9 }}>travel <input type="number" min={0.1} step={0.05} value={selectedNode.duration} style={smallNumber} onChange={(e) => updateSelectedPathNode({ duration: Number(e.target.value) })} /></label>
-                <select style={SEL_STYLE} value={selectedNode.ease} onChange={(e) => updateSelectedPathNode({ ease: e.target.value })}>{Object.keys(MOTION_EASES).map((k) => <option key={k}>{k}</option>)}</select>
-                <label style={{ fontSize: 9 }}>hold <input type="number" min={0} step={0.05} value={selectedNode.hold} style={smallNumber} onChange={(e) => updateSelectedPathNode({ hold: Number(e.target.value) })} /></label>
-              </div>
-            )}
-          </div>
-        )}
-
-        <div style={{ ...UI.row, marginTop: 5 }}>
-          <select style={SEL_STYLE} value={motionPath.trajectory} onChange={(e) => commitMotionPath({ ...motionPath, trajectory: e.target.value })}>
-            <option value="curve">Catmull-Rom</option><option value="line">straight</option>
-          </select>
-          {motionPath.trajectory === "curve" && <select style={SEL_STYLE} value={motionPath.curveType} onChange={(e) => commitMotionPath({ ...motionPath, curveType: e.target.value })}><option value="centripetal">centripetal</option><option value="chordal">chordal</option><option value="catmullrom">uniform</option></select>}
-          <span style={chipStyle(motionPath.arcLength)} onClick={() => commitMotionPath({ ...motionPath, arcLength: !motionPath.arcLength })}>arc length</span>
-        </div>
-        <div style={UI.row}>
-          <span style={chipStyle(motionPath.continuous, true)} onClick={() => commitMotionPath({ ...motionPath, continuous: !motionPath.continuous })}>{motionPath.continuous ? "continuous on" : "per-leg timing"}</span>
-          <select style={SEL_STYLE} value={motionPath.globalEase} disabled={!motionPath.continuous} onChange={(e) => commitMotionPath({ ...motionPath, globalEase: e.target.value })}>{Object.keys(MOTION_EASES).map((k) => <option key={k}>{k}</option>)}</select>
-          <span style={chipStyle(motionPath.loop)} onClick={() => commitMotionPath({ ...motionPath, loop: !motionPath.loop })}>loop</span>
-        </div>
-        <div style={{ ...UI.row, alignItems: "center" }}>
-          <span style={{ fontSize: 9, width: 38 }}>speed</span>
-          <input type="range" min={0.1} max={3} step={0.05} value={motionPath.speed} style={{ width: 190, accentColor: "#2e7d52" }} onChange={(e) => commitMotionPath({ ...motionPath, speed: Number(e.target.value) }, false)} />
-          <span style={{ fontSize: 9 }}>×{motionPath.speed.toFixed(2)}</span>
-        </div>
-        <div style={UI.row}>
-          <select style={{ ...SEL_STYLE, maxWidth: 126 }} value={motionPath.orientationMode} onChange={(e) => commitMotionPath({ ...motionPath, orientationMode: e.target.value })}>
-            <option value="quaternion">quaternion track</option><option value="tangent">face tangent</option><option value="lookAt">look at target</option>
-          </select>
-          <label style={{ fontSize: 9 }}>bank° <input type="number" step={1} value={motionPath.bank} style={smallNumber} onChange={(e) => commitMotionPath({ ...motionPath, bank: Number(e.target.value) })} /></label>
-        </div>
-        {motionPath.orientationMode === "lookAt" && <div style={UI.row}>{["x", "y", "z"].map((axis, i) => <label key={axis} style={{ fontSize: 9 }}>{axis}<input type="number" step={0.05} value={motionPath.lookAt[i]} style={smallNumber} onChange={(e) => { const lookAt = [...motionPath.lookAt]; lookAt[i] = Number(e.target.value); commitMotionPath({ ...motionPath, lookAt }); }} /></label>)}</div>}
-        {motionPath.orientationMode !== "quaternion" && <div style={UI.row}><span style={{ fontSize: 9 }}>orientation offset°</span>{["x", "y", "z"].map((axis, i) => <label key={axis} style={{ fontSize: 9 }}>{axis}<input type="number" step={1} value={motionPath.orientationOffset[i]} style={smallNumber} onChange={(e) => { const orientationOffset = [...motionPath.orientationOffset]; orientationOffset[i] = Number(e.target.value); commitMotionPath({ ...motionPath, orientationOffset }); }} /></label>)}</div>}
-        <div style={UI.row}>
-          <span style={chipStyle(motionPath.showPath)} onClick={() => commitMotionPath({ ...motionPath, showPath: !motionPath.showPath }, false)}>3D path</span>
-          <span style={chipStyle(motionPath.showGhosts)} onClick={() => commitMotionPath({ ...motionPath, showGhosts: !motionPath.showGhosts }, false)}>ghosts</span>
-          <span style={chipStyle(motionPath.editHandles)} onClick={() => commitMotionPath({ ...motionPath, editHandles: !motionPath.editHandles }, false)}>drag handles</span>
-        </div>
-        <input type="range" min={0} max={1} step={0.001} value={pathProgress} disabled={!pathReady} style={{ width: "100%", accentColor: "#2e7d52" }} onChange={(e) => { pauseMotionPath(false); applyPathAt(Number(e.target.value)); }} onPointerUp={() => syncPoseControls(sampleMotionPath(compiledPath, pathProgressRef.current))} />
-        <div style={UI.row}>
-          <span style={chipStyle(pathPlaying, true)} onClick={() => pathPlaying ? pauseMotionPath(true) : playMotionPath()}>{pathPlaying ? "❚❚ pause" : "▶ preview"}</span>
-          <span style={chipStyle(false)} onClick={() => { pauseMotionPath(false); applyPathAt(0, true); }}>↺ start</span>
-          <span style={chipStyle(false)} onClick={undoPath}>undo</span>
-          <span style={chipStyle(false)} onClick={redoPath}>redo</span>
-          <span style={chipStyle(false)} onClick={() => { commitMotionPath(defaultMotionPath()); setSelectedPathNode(-1); }}>clear</span>
-        </div>
-        <div style={UI.row}>
-          <span style={chipStyle(false, true)} onClick={async () => setStatus(await copyMotionPreviewURL(motionPath, slots) ? "self-contained preview URL copied" : "preview URL needs at least two valid nodes and clipboard permission")}>🔗 preview URL</span>
-          <span style={chipStyle(false, true)} onClick={async () => setStatus(await copyMotionManifest(motionPath, slots) ? "deterministic mp manifest copied" : "manifest needs at least two valid nodes and clipboard permission")}>🎞 mp manifest</span>
-        </div>
-      </details>
-
-      <details>
-        <summary style={UI.head}>⏱ bulk timing</summary>
-        <div style={UI.row}>
-          <label style={{ fontSize: 9 }}>travel <input type="number" min={0.1} step={0.05} value={bulkDuration} style={smallNumber} onChange={(e) => setBulkDuration(e.target.value)} /></label>
-          <label style={{ fontSize: 9 }}>hold <input type="number" min={0} step={0.05} value={bulkHold} style={smallNumber} onChange={(e) => setBulkHold(e.target.value)} /></label>
-          <select style={SEL_STYLE} value={bulkEase} onChange={(e) => setBulkEase(e.target.value)}>{Object.keys(MOTION_EASES).map((k) => <option key={k}>{k}</option>)}</select>
-        </div>
-        <div style={UI.row}>
-          <span style={chipStyle(false)} onClick={() => applyBulk("all")}>apply all</span>
-          <input type="number" min={1} value={rangeStart} style={smallNumber} onChange={(e) => setRangeStart(e.target.value)} />
-          <span>→</span>
-          <input type="number" min={1} value={rangeEnd} style={smallNumber} onChange={(e) => setRangeEnd(e.target.value)} />
-          <span style={chipStyle(false)} onClick={() => applyBulk("range")}>apply range</span>
-        </div>
-      </details>
-
-      <details open>
-        <summary style={UI.head}>🌉 bridge generator</summary>
-        <div style={UI.row}>
-          <label style={{ fontSize: 9 }}>from node <input type="number" min={1} value={bridgeFrom + 1} style={smallNumber} onChange={(e) => { const v = Number(e.target.value) - 1; setBridgeFrom(v); setBridgeTo(v + 1); }} /></label>
-          <label style={{ fontSize: 9 }}>to <input type="number" min={2} value={bridgeTo + 1} style={smallNumber} onChange={(e) => setBridgeTo(Number(e.target.value) - 1)} /></label>
-          <label style={{ fontSize: 9 }}>poses <input type="number" min={1} max={6} value={bridgeCount} style={smallNumber} onChange={(e) => setBridgeCount(e.target.value)} /></label>
-        </div>
-        <div style={UI.row}>
-          <select style={SEL_STYLE} value={bridgeStyle} onChange={(e) => setBridgeStyle(e.target.value)}><option value="tangent">tangent</option><option value="rise">rise arc</option><option value="orbit">side orbit</option></select>
-          <label style={{ fontSize: 9 }}>tangent× <input type="number" step={0.1} value={bridgeStrength} style={smallNumber} onChange={(e) => setBridgeStrength(e.target.value)} /></label>
-          <label style={{ fontSize: 9 }}>arc <input type="number" step={0.05} value={bridgeArc} style={smallNumber} onChange={(e) => setBridgeArc(e.target.value)} /></label>
-          <span style={chipStyle(false, true)} onClick={generateBridge}>generate</span>
-        </div>
-        <div style={UI.hint}>Uses the incoming and outgoing neighbours to preserve tangents; generated bridge poses occupy the first free slots.</div>
-      </details>
-
-      <details>
-        <summary style={UI.head}>📈 velocity diagnostics</summary>
-        {diagnostics ? <>
-          <div style={{ fontSize: 9 }}>linear velocity · max {diagnostics.maxSpeed.toFixed(2)} units/s</div>
-          <MotionSparkline values={diagnostics.speed} />
-          <div style={{ fontSize: 9 }}>angular velocity · max {diagnostics.maxAngular.toFixed(1)} °/s</div>
-          <MotionSparkline values={diagnostics.angular} color="#7960a8" />
-          <div style={{ fontSize: 9 }}>accel {diagnostics.maxAcceleration.toFixed(2)} · jerk {diagnostics.maxJerk.toFixed(2)} · flagged {diagnostics.discontinuities.length}</div>
-        </> : <div style={UI.hint}>Add at least two valid path nodes.</div>}
-      </details>
-
-      <details>
-        <summary style={UI.head}>🗂 named paths / versions / transfer</summary>
-        <div style={UI.row}>
-          <select style={{ ...SEL_STYLE, maxWidth: 180 }} value={libraryId} onChange={(e) => setLibraryId(e.target.value)}>
-            <option value="">select saved path…</option>
-            {library.map((entry) => <option key={entry.id} value={entry.id}>{entry.name} · {entry.versions.length}v</option>)}
-          </select>
-          <span style={chipStyle(false)} onClick={() => savePathVersion(true)}>save new</span>
-          <span style={chipStyle(false)} onClick={() => savePathVersion(false)}>save version</span>
-        </div>
-        {libraryId && (() => {
-          const entry = library.find((x) => x.id === libraryId);
-          if (!entry) return null;
-          return <div style={UI.row}>
-            {entry.versions.slice(-6).map((v, j) => {
-              const index = entry.versions.length - Math.min(6, entry.versions.length) + j;
-              return <span key={v.savedAt} style={chipStyle(false)} onClick={() => loadLibraryVersion(entry, index)}>v{index + 1}</span>;
-            })}
-            <span style={chipStyle(false)} onClick={duplicateLibraryPath}>duplicate</span>
-            <span style={chipStyle(false)} onClick={() => { if (window.confirm("Delete this saved path and its versions?")) { persistLibrary(library.filter((x) => x.id !== libraryId)); setLibraryId(""); } }}>delete</span>
-          </div>;
-        })()}
-        <div style={UI.row}>
-          <span style={chipStyle(false)} onClick={exportStudio}>download JSON</span>
-          <span style={chipStyle(showImport)} onClick={() => setShowImport(!showImport)}>import JSON</span>
-        </div>
-        {showImport && <div><textarea value={importText} placeholder="Paste a v5 studio JSON export or editable path JSON" style={{ width: 276, height: 90, fontSize: 9 }} onChange={(e) => setImportText(e.target.value)} /><div><span style={chipStyle(false, true)} onClick={importStudio}>apply import</span></div></div>}
-      </details>
-
-      <details>
-        <summary style={UI.head}>🛠 original actions</summary>
-        <div style={UI.row}>
-          <span style={chipStyle(false)} onClick={() => takeSnapshot("origin")}>set origin</span>
-          <span style={chipStyle(false)} onClick={() => warpToSnapshot("origin")}>⏪ origin</span>
-          <span style={chipStyle(false)} onClick={() => { const url = buildTuningURL(); window.history.replaceState(null, "", url); if (navigator.clipboard) navigator.clipboard.writeText(url); }}>📋 rig URL</span>
-          <span style={chipStyle(false)} onClick={saveCard}>📸 card</span>
-          <span style={chipStyle(false)} onClick={copyManifest}>🎞 base manifest</span>
-        </div>
-      </details>
+      <div style={UI.hint}>
+        crack is welded to the glass · it is a STATE, saved in the pose slot
+        <br />
+        glass reg ±25 drives the pane clean out of frame — that is the swap
+        <br />
+        the playhead NEVER moves unless you move it
+        <br />
+        move mode: drag canvas = slide · scroll = zoom
+        <br />
+        rotate mode: drag ring = roll · inside ring = yaw/pitch
+        <br />
+        gizmo (W/E/R/Q) overrides the sat-nav
+        <br />
+        arrows: tap = one exact step · hold = accelerating glide
+      </div>
     </div>
   );
 }
@@ -3852,137 +2390,6 @@ function SatNavHUD() {
 // ---------------------------------------------------------
 // DevGizmo
 // ---------------------------------------------------------
-function PathHandleGizmo({ path, index }) {
-  const ctrlRef = useRef();
-  const dragging = useRef(false);
-  const proxy = useMemo(() => new THREE.Object3D(), []);
-  const node = path && path.nodes[index];
-
-  useFrame(() => {
-    if (!dragging.current && node && Array.isArray(node.position)) {
-      proxy.position.set(node.position[0], node.position[1], node.position[2]);
-    }
-  });
-
-  useEffect(() => () => {
-    DEV.gizmoDragging = false;
-  }, []);
-
-  if (!node || !MOTION_DEV.editHandles) return null;
-  return (
-    <>
-      <primitive object={proxy} />
-      <TransformControls
-        ref={ctrlRef}
-        object={proxy}
-        mode="translate"
-        space="world"
-        size={0.75}
-        onMouseDown={() => {
-          dragging.current = true;
-          DEV.gizmoDragging = true;
-        }}
-        onObjectChange={() => {
-          if (MOTION_DEV.moveHandle) MOTION_DEV.moveHandle(index, proxy.position.toArray(), false);
-        }}
-        onMouseUp={() => {
-          dragging.current = false;
-          DEV.gizmoDragging = false;
-          DEV.lastDragEnd = performance.now();
-          if (MOTION_DEV.moveHandle) MOTION_DEV.moveHandle(index, proxy.position.toArray(), true);
-        }}
-      />
-    </>
-  );
-}
-
-function PathPlayhead({ path }) {
-  const ref = useRef();
-  useFrame(() => {
-    if (!ref.current) return;
-    const pose = sampleMotionPath(path, MOTION_DEV.progress);
-    if (pose) ref.current.position.set(pose.sposX, pose.sposY, pose.sposZ);
-  });
-  return (
-    <mesh ref={ref} renderOrder={9002}>
-      <sphereGeometry args={[0.06, 18, 14]} />
-      <meshBasicMaterial color="#ff4f7b" depthTest={false} />
-    </mesh>
-  );
-}
-
-function MotionPathOverlay() {
-  const [revision, setRevision] = useState(MOTION_DEV.version);
-  const seen = useRef(MOTION_DEV.version);
-  useFrame(() => {
-    if (seen.current !== MOTION_DEV.version) {
-      seen.current = MOTION_DEV.version;
-      setRevision(MOTION_DEV.version);
-    }
-  });
-
-  const path = MOTION_DEV.path;
-  const line = useMemo(() => {
-    if (!path || path.nodes.length < 2 || !MOTION_DEV.showPath) return null;
-    const points = Array.from({ length: 121 }, (_, i) => {
-      const pose = sampleMotionPath(path, i / 120);
-      return new THREE.Vector3(pose.sposX, pose.sposY, pose.sposZ);
-    });
-    const geometry = new THREE.BufferGeometry().setFromPoints(points);
-    const material = new THREE.LineBasicMaterial({ color: 0x24a66a, transparent: true, opacity: 0.9, depthTest: false });
-    const object = new THREE.Line(geometry, material);
-    object.renderOrder = 9000;
-    return object;
-  }, [revision, path]);
-
-  useEffect(() => () => {
-    if (line) {
-      line.geometry.dispose();
-      line.material.dispose();
-    }
-  }, [line]);
-
-  if (!path || !MOTION_DEV.showPath || path.nodes.length < 2) return null;
-  const ghostProgress = [0, 0.25, 0.5, 0.75, 1];
-
-  return (
-    <group name="iglass-motion-path-overlay">
-      {line && <primitive object={line} />}
-      {path.nodes.map((node, i) => (
-        <group key={`${i}-${node.slot ?? "embedded"}`} position={node.position}>
-          <mesh renderOrder={9001} onClick={(e) => { e.stopPropagation(); if (MOTION_DEV.selectNode) MOTION_DEV.selectNode(i); }}>
-            <sphereGeometry args={[i === MOTION_DEV.selectedNode ? 0.055 : 0.038, 16, 12]} />
-            <meshBasicMaterial color={i === MOTION_DEV.selectedNode ? "#ffb020" : "#2e7d52"} depthTest={false} transparent opacity={0.95} />
-          </mesh>
-          <Html center distanceFactor={6} style={{ pointerEvents: "none", font: "700 10px ui-monospace", color: "#173d2a", background: "rgba(255,255,255,.85)", borderRadius: 8, padding: "1px 4px" }}>
-            {i + 1}
-          </Html>
-        </group>
-      ))}
-      {MOTION_DEV.showGhosts && ghostProgress.map((p) => {
-        const pose = sampleMotionPath(path, p);
-        return (
-          <mesh key={p} position={[pose.sposX, pose.sposY, pose.sposZ]} rotation={[pose.srotX * Math.PI / 180, pose.srotY * Math.PI / 180, pose.srotZ * Math.PI / 180]} renderOrder={8999}>
-            <boxGeometry args={[0.28, 0.56, 0.025]} />
-            <meshBasicMaterial color="#58b887" wireframe transparent opacity={0.22} depthTest={false} />
-          </mesh>
-        );
-      })}
-      <PathPlayhead path={path} />
-      {MOTION_DEV.diagnostics && MOTION_DEV.diagnostics.discontinuities.map(({ progress }, i) => {
-        const pose = sampleMotionPath(path, progress);
-        return (
-          <mesh key={`spike-${i}`} position={[pose.sposX, pose.sposY, pose.sposZ]} renderOrder={9003}>
-            <octahedronGeometry args={[0.055, 0]} />
-            <meshBasicMaterial color="#dc3545" depthTest={false} />
-          </mesh>
-        );
-      })}
-      <PathHandleGizmo path={path} index={MOTION_DEV.selectedNode} />
-    </group>
-  );
-}
-
 function DevGizmo() {
   const { viewport, camera } = useThree();
   const ctrlRef = useRef();
@@ -4007,9 +2414,10 @@ function DevGizmo() {
   useFrame(() => {
     DEV.viewport = { width: viewport.width, height: viewport.height };
 
-    const eff = DEV.gizmoDragging && dragRef.current
-      ? dragRef.current.eff
-      : effectiveTarget();
+    const eff =
+      DEV.gizmoDragging && dragRef.current
+        ? dragRef.current.eff
+        : effectiveTarget();
     DEV.gizmoSpace = eff === "stage" ? "world" : "local";
 
     if (DEV.gizmo !== mode) setMode(DEV.gizmo);
@@ -4055,8 +2463,7 @@ function DevGizmo() {
   useEffect(() => {
     const ctrl = ctrlRef.current;
     if (!ctrl) return;
-    const root =
-      typeof ctrl.getHelper === "function" ? ctrl.getHelper() : ctrl;
+    const root = typeof ctrl.getHelper === "function" ? ctrl.getHelper() : ctrl;
     if (!root || typeof root.traverse !== "function") return;
     root.traverse((child) => {
       child.frustumCulled = false;
@@ -4093,9 +2500,7 @@ function DevGizmo() {
     if (DEV.gizmo === "translate") {
       const delta = proxy.position.clone().sub(d.proxyPos);
       if (d.eff === "settle") {
-        delta
-          .applyQuaternion(d.stageQuatInv)
-          .divideScalar(d.stageScale || 1);
+        delta.applyQuaternion(d.stageQuatInv).divideScalar(d.stageScale || 1);
       }
       obj.position.copy(d.targetPos).add(delta);
     } else if (DEV.gizmo === "rotate") {
@@ -4149,7 +2554,7 @@ function DevGizmo() {
   return (
     <>
       <primitive object={proxy} />
-      {mode !== "off" && ready && !MOTION_DEV.editHandles && (
+      {mode !== "off" && ready && (
         <TransformControls
           key={`${mode}-${target}`}
           ref={ctrlRef}
@@ -4177,19 +2582,15 @@ function DevGizmo() {
 //   ?p=0.85                    freeze the timeline at a fixed progress
 //   ?settle=0,180,0            SETTLE.targetEuler, degrees
 //   ?tilt=18                   START.tilt, degrees
-//   ?lift=0.08                 SETTLE.arcLift
-//   ?size=1.6                  MODEL.targetSize
-//   ?pscale=0.8                SETTLE.scale
+//   ?lift / ?shift / ?vshift / ?size / ?pscale
 //   ?spos / ?srot / ?sscale    STAGE transform
-//   ?glassreg=x,y,z            whole-glass-unit registration
-//   ?light=amb,key,fill,env,exp   v3.8 lighting rig
-//   ?bezel=env,rough,offset       v3.8.1 bezel dials
-//   ?oled=-0.5,0                  OLED face-split cut, rim on/off
-//   ?glass=rough,env,opac,cc,ccr  v3.9 front-glass material
-//   ?envp=studio   ?envb=0        reflected world + IBL blur
-//   ?crack=opac,exX,exY,exZ       cracked-pane strength + discard path
-//   ?motion=<base64url-json>       self-contained slot-based motion path
-//   ?mp=0.5                       freeze motion-path progress for capture
+//   ?glassreg=x,y,z            whole-glass-unit registration (±25)
+//   ?light=amb,key,fill,env,exp
+//   ?bezel=env,rough,offset
+//   ?oled=-0.5,0               face-split cut, rim on/off
+//   ?glass=rough,env,opac,cc,ccr
+//   ?envp=studio   ?envb=0     reflected world + IBL blur
+//   ?crack=on,exitX,exitY      1/0, then where the fracture sits
 //   ?snap=1                    deterministic capture (Playwright)
 //   ?dev=1                     Pose Studio
 // ============================================
@@ -4213,29 +2614,22 @@ function resolveRuntimeConfig() {
     }
   }
   const tiltParam = parseFloat(params.get("tilt"));
-  if (!isNaN(tiltParam)) {
-    START.tilt = (tiltParam * Math.PI) / 180;
-  }
+  if (!isNaN(tiltParam)) START.tilt = (tiltParam * Math.PI) / 180;
+
   const liftParam = parseFloat(params.get("lift"));
-  if (!isNaN(liftParam)) {
-    SETTLE.arcLift = liftParam;
-  }
+  if (!isNaN(liftParam)) SETTLE.arcLift = liftParam;
+
   const shiftParam = parseFloat(params.get("shift"));
-  if (!isNaN(shiftParam)) {
-    SETTLE.xShiftFraction = shiftParam;
-  }
+  if (!isNaN(shiftParam)) SETTLE.xShiftFraction = shiftParam;
+
   const vShiftParam = parseFloat(params.get("vshift"));
-  if (!isNaN(vShiftParam)) {
-    SETTLE.yShiftFraction = vShiftParam;
-  }
+  if (!isNaN(vShiftParam)) SETTLE.yShiftFraction = vShiftParam;
+
   const sizeParam = parseFloat(params.get("size"));
-  if (!isNaN(sizeParam) && sizeParam > 0) {
-    MODEL.targetSize = sizeParam;
-  }
+  if (!isNaN(sizeParam) && sizeParam > 0) MODEL.targetSize = sizeParam;
+
   const pscaleParam = parseFloat(params.get("pscale"));
-  if (!isNaN(pscaleParam) && pscaleParam > 0) {
-    SETTLE.scale = pscaleParam;
-  }
+  if (!isNaN(pscaleParam) && pscaleParam > 0) SETTLE.scale = pscaleParam;
 
   const sposParam = params.get("spos");
   if (sposParam) {
@@ -4252,22 +2646,21 @@ function resolveRuntimeConfig() {
     }
   }
   const sscaleParam = parseFloat(params.get("sscale"));
-  if (!isNaN(sscaleParam) && sscaleParam > 0) {
-    STAGE.scale = sscaleParam;
-  }
+  if (!isNaN(sscaleParam) && sscaleParam > 0) STAGE.scale = sscaleParam;
   DEV.dirtyStage = true;
 
   const glassregParam = params.get("glassreg");
   if (glassregParam) {
     const parts = glassregParam.split(",").map((v) => parseFloat(v));
     if (parts.length === 3 && parts.every((v) => !isNaN(v))) {
-      GLASS_REG.x = parts[0];
-      GLASS_REG.y = parts[1];
-      GLASS_REG.z = parts[2];
+      const cl = (v) =>
+        Math.max(-GLASS_REG_RANGE, Math.min(GLASS_REG_RANGE, v));
+      GLASS_REG.x = cl(parts[0]);
+      GLASS_REG.y = cl(parts[1]);
+      GLASS_REG.z = cl(parts[2]);
     }
   }
 
-  // ---- BEZEL channel (v3.8.1) ----
   const bezelParam = params.get("bezel");
   if (bezelParam) {
     const parts = bezelParam.split(",").map((v) => parseFloat(v));
@@ -4278,19 +2671,15 @@ function resolveRuntimeConfig() {
     }
   }
 
-  // ---- OLED channel (v3.8.4) ----
   const oledParam = params.get("oled");
   if (oledParam) {
     const parts = oledParam.split(",").map((v) => parseFloat(v));
     if (!isNaN(parts[0]) && parts[0] >= -1 && parts[0] <= 0) {
       OLED.faceCut = parts[0];
     }
-    if (parts.length > 1 && !isNaN(parts[1])) {
-      OLED.showRim = parts[1] === 1;
-    }
+    if (parts.length > 1 && !isNaN(parts[1])) OLED.showRim = parts[1] === 1;
   }
 
-  // ---- GLASS / ENV / CRACK channels (v3.9) ----
   const glassParam = params.get("glass");
   if (glassParam) {
     const q = glassParam.split(",").map((v) => parseFloat(v));
@@ -4303,23 +2692,24 @@ function resolveRuntimeConfig() {
     }
   }
   const envpParam = params.get("envp");
-  if (envpParam && ENV_PRESETS.includes(envpParam)) {
-    LIGHT.preset = envpParam;
-  }
+  if (envpParam && ENV_PRESETS.includes(envpParam)) LIGHT.preset = envpParam;
+
   const envbParam = parseFloat(params.get("envb"));
   if (!isNaN(envbParam) && envbParam >= 0 && envbParam <= 1) {
     LIGHT.blur = envbParam;
   }
+
+  // ---- CRACK channel — on, exitX, exitY. Tolerant of a legacy 13-value
+  // ?crack= string: the first slot was opacity (1.0), which reads as ON.
   const crackParam = params.get("crack");
   if (crackParam) {
     const q = crackParam.split(",").map((v) => parseFloat(v));
-    if (q.length === 4 && q.every((v) => !isNaN(v))) {
-      CRACK.opacity = q[0];
-      CRACK.exit = [q[1], q[2], q[3]];
+    if (!isNaN(q[0])) CRACK.on = q[0] > 0.5;
+    if (q.length === 3 && !isNaN(q[1]) && !isNaN(q[2])) {
+      CRACK.exit = [q[1], q[2]];
     }
   }
 
-  // ---- LIGHT channel (v3.8) — applies in production too ----
   const lightParam = params.get("light");
   if (lightParam) {
     const parts = lightParam.split(",").map((v) => parseFloat(v));
@@ -4339,20 +2729,11 @@ function resolveRuntimeConfig() {
 
   CAPTURE_SNAP = params.get("snap") === "1" || params.get("snap") === "true";
 
-  const motionPath = params.get("motion")
-    ? decodeMotionPath(params.get("motion"))
-    : null;
-  const mpParam = parseFloat(params.get("mp"));
-  const motionFreezeP =
-    motionPath && !isNaN(mpParam)
-      ? Math.max(0, Math.min(1, mpParam))
-      : null;
-
   const pParam = parseFloat(params.get("p"));
   let freezeP = !isNaN(pParam) ? Math.max(0, Math.min(1, pParam)) : null;
   if (dev && freezeP === null) freezeP = 0.5;
 
-  return { mode, bg, freezeP, dev, motionPath, motionFreezeP };
+  return { mode, bg, freezeP, dev };
 }
 
 function phaseMap(p) {
@@ -4372,16 +2753,7 @@ function phaseMap(p) {
       ? 0
       : smoothstep((p - reassembleEnd) / (1 - reassembleEnd));
 
-  // The cracked pane is discarded across the HOLD — the beat where the
-  // phone is already open. 0 = still cracked, 1 = clean pane only.
-  const swap =
-    p <= explodeEnd
-      ? 0
-      : p >= holdEnd
-      ? 1
-      : smoothstep((p - explodeEnd) / (holdEnd - explodeEnd));
-
-  return { explode, rotate, swap };
+  return { explode, rotate };
 }
 
 // ============================================
@@ -4396,9 +2768,10 @@ const defaultProps = {
   modelPath: "/14 pro.glb",
   screenTexture: screenImg,
   internalsTexture: internalsImg,
-  // OPTIONAL. White/grey crack lines on a TRANSPARENT background, same
-  // aspect as the screen. Absent -> the crack layer never mounts.
-  crackTexture: null,
+  // WHITE crack lines on a TRANSPARENT background, pane aspect (71:155).
+  // A fracture SCATTERS light — it reads bright, not dark. Black cracks on
+  // a near-black glass pane are invisible.
+  crackTexture: crackImg,
 };
 
 // ============================================
@@ -4410,46 +2783,17 @@ const scrollState = {
   oledOffset: 0,
   phoneOffset: 0,
   rotate: 0,
-  swap: 0,
 };
 
 // ---------------------------------------------------------
-// OLED BACK-FACE SPLIT (v3.8)
-//
-// Display_OLED is a solid slab: the GLB carries 118.62 units of face area
-// pointing at the phone's FRONT and 118.63 pointing at its BACK. Both caps
-// are front-facing when viewed from their own side, so THREE.FrontSide
-// renders both of them — which is why the single screen material painted
-// the UI on the back of the phone.
-//
-// You cannot solve this with `side`. FrontSide/BackSide select by facing
-// relative to the CAMERA, and each cap is "front" from where it's seen.
-// The split has to be by GEOMETRY.
-//
-// So: partition the index by the sign of each triangle's winding-normal Z,
-// reorder it front-first, and declare two geometry GROUPS. three.js then
-// accepts a MATERIAL ARRAY — [screen, black] — and shades each group with
-// its own material in a single draw pair, no extra mesh, no extra memory.
-//
-// Front is -Z. Verified against the deployed GLB: Glass_Front sits at
-// z = -0.0051 and Back Glass at z = +0.005, so the phone faces -Z, and the
-// screen is therefore the cap whose normals point that way (nz < 0).
+// OLED FRONT / BACK / RIM SPLIT
 // ---------------------------------------------------------
 const OLED_SCREEN_GROUP = 0;
 const OLED_BLACK_GROUP = 1;
 const OLED_RIM_GROUP = 2;
 
-// Cached per-triangle classification data. Filled once by splitOledGeometry;
-// applyOledCut then rebuilds ONLY the index buffer + groups from it. This is
-// why the dial is live: nothing re-traverses the scene graph, and the meshes
-// have already been re-parented out of clonedScene by <primitive>, so a
-// second traverse would find nothing and destroy the model.
 const OLED_CACHE = { geo: null, tri: null, nz: null };
 
-// THREE-way partition (v3.8.5). The cut is symmetric: faceCut for the front
-// cap, -faceCut for the back cap, and everything in between is the slab's
-// side wall — the rim — which gets its own group so it can be switched off
-// without taking the back cap (and the slab's solidity) with it.
 function applyOledCut(cut) {
   const { geo, tri, nz } = OLED_CACHE;
   if (!geo || !tri || !nz) return;
@@ -4505,11 +2849,6 @@ function splitOledGeometry(geometry) {
     ac.subVectors(c, a);
     n.crossVectors(ab, ac);
 
-    // NORMALISE. v3.8 compared the RAW cross product's z against 0, which
-    // made the classification a function of triangle AREA as well as
-    // facing — and put the threshold exactly where the rim's normals live.
-    // A unit normal puts the front cap at nz ~ -1 and the rim at nz ~ 0,
-    // so a cut at -0.5 has half a unit of margin on both sides.
     const len2 = n.lengthSq();
     nz[t] = len2 > 1e-20 ? n.z / Math.sqrt(len2) : 0; // degenerate -> black
   }
@@ -4550,14 +2889,13 @@ function IPhoneExploded({
   oledTexture.wrapT = THREE.ClampToEdgeWrapping;
   oledTexture.needsUpdate = true;
 
-  // Hooks cannot be conditional — BLANK_PX stands in when there is no
-  // crack PNG, and hasCrack gates the mount instead.
   const crackTex = useTexture(crackTexture || BLANK_PX);
   crackTex.flipY = false; // matches the OLED/UV convention for this asset
   crackTex.colorSpace = THREE.SRGBColorSpace;
   crackTex.anisotropy = maxAniso;
   crackTex.generateMipmaps = true;
   crackTex.minFilter = THREE.LinearMipmapLinearFilter;
+  crackTex.magFilter = THREE.LinearFilter;
   crackTex.wrapS = THREE.ClampToEdgeWrapping;
   crackTex.wrapT = THREE.ClampToEdgeWrapping;
   crackTex.needsUpdate = true;
@@ -4610,13 +2948,7 @@ function IPhoneExploded({
 
   // ---------------------------------------------------------
   // SORTING + HIERARCHY BAKE
-  //
-  // Selection is by MESH NAME for the glass/OLED families. The pill and
-  // the camera prims get NO special handling — they fall through to the
-  // body group, which is where they lived before v3.8 and where they
-  // belong again (v3.8.2 revert).
-  //
-  // Render order: Body 0 → coats 1 → OLED 1 → Glass Front 3 → Bezel 4
+  // Render order: Body 0 → coats 1 → OLED 1 → Glass 3 → CRACK 4 → Bezel 5
   // ---------------------------------------------------------
   const { glassMeshes, oledMeshes, bodyMeshes, crackGeo } = useMemo(() => {
     const glass = [];
@@ -4625,8 +2957,6 @@ function IPhoneExploded({
     let crack = null;
     DEV.bezelMeshes = [];
 
-    // World matrices for the INTACT graph — ground truth for the rebase.
-    // MUST run before any mesh is re-parented by <primitive>.
     clonedScene.updateMatrixWorld(true);
 
     clonedScene.traverse((child) => {
@@ -4635,11 +2965,6 @@ function IPhoneExploded({
       const name = child.name.toLowerCase();
 
       // ---- 1. BEZEL ----
-      // depthTest:true is RESTORED and non-negotiable: depthTest:false made
-      // the bezel draw through the body from behind, exactly as the v3.2
-      // comment predicted once the choreography showed the phone's back.
-      // Everything else here is a live dial (BEZEL) because the residual
-      // black-rim cause is unresolved — see the BEZEL block at the top.
       if (name.includes("bezel") || name.includes("glass_bezel")) {
         const bezelMat = new THREE.MeshStandardMaterial({
           color: new THREE.Color(0x000000),
@@ -4654,25 +2979,19 @@ function IPhoneExploded({
           polygonOffsetUnits: BEZEL.offset,
         });
         child.material = bezelMat;
-        DEV.bezelMat = bezelMat; // live handle for the Leva folder
-        DEV.bezelMeshes.push(child); // live handle for the isolate toggle
+        DEV.bezelMat = bezelMat;
+        DEV.bezelMeshes.push(child);
         child.renderOrder = 5; // above the crack overlay (4)
         glass.push(child);
         return;
       }
 
       // ---- 2. GLASS FRONT ----
-      // The Dynamic Island cutout is authored into this geometry. Nothing
-      // here fills it, in any version — it stays a true hole.
       if (
         name.includes("glass_front") ||
         name.includes("glass front") ||
         (name.includes("glass") && !name.includes("bezel"))
       ) {
-        // MeshPHYSICAL, not Standard. The clearcoat is the whole point: a
-        // second specular layer with its own roughness. Constructed with a
-        // non-zero clearcoat so the shader compiles the chunk in — dialling
-        // it to 0 later is then a uniform write, not a recompile.
         const glassMat = new THREE.MeshPhysicalMaterial({
           color: new THREE.Color(0x000000),
           roughness: GLASS.rough,
@@ -4693,17 +3012,19 @@ function IPhoneExploded({
         glass.push(child);
 
         // ---- THE CRACKED PANE'S GEOMETRY ----
-        // Cloned from the clean pane, so it is the same plane, at the same
-        // place, at the same size, forever — it cannot drift. Its UVs are
-        // regenerated planar from the bounding box rather than trusting the
-        // GLB's TEXCOORD_0, so the crack PNG maps predictably.
+        // Cloned from the clean pane and mounted as its CHILD, so it is the
+        // same plane, at the same place, forever. Planar UVs regenerated
+        // from the bounding box rather than trusting the GLB's TEXCOORD_0.
         const cg = child.geometry.clone();
         const cpos = cg.attributes.position;
         if (cpos) {
-          let minX = Infinity, maxX = -Infinity;
-          let minY = Infinity, maxY = -Infinity;
+          let minX = Infinity,
+            maxX = -Infinity;
+          let minY = Infinity,
+            maxY = -Infinity;
           for (let i = 0; i < cpos.count; i++) {
-            const x = cpos.getX(i), y = cpos.getY(i);
+            const x = cpos.getX(i),
+              y = cpos.getY(i);
             if (x < minX) minX = x;
             if (x > maxX) maxX = x;
             if (y < minY) minY = y;
@@ -4722,7 +3043,7 @@ function IPhoneExploded({
         return;
       }
 
-      // ---- 3. OLED — solid slab, split front/back ----
+      // ---- 3. OLED — solid slab, split front / back / rim ----
       if (name.includes("display") || name.includes("oled")) {
         child.geometry = splitOledGeometry(child.geometry);
 
@@ -4755,9 +3076,6 @@ function IPhoneExploded({
           uvAttr.needsUpdate = true;
         }
 
-        // Material ARRAY — index matches the geometry groups declared in
-        // splitOledGeometry. [0] screen, [1] back cap, [2] the slab RIM.
-        // The rim is the second of the two black trims; it is off.
         const oledRimMat = new THREE.MeshBasicMaterial({
           color: new THREE.Color(0x000000),
           toneMapped: false,
@@ -4766,10 +3084,7 @@ function IPhoneExploded({
         DEV.oledRimMat = oledRimMat;
 
         child.material = [
-          new THREE.MeshBasicMaterial({
-            map: oledTexture,
-            toneMapped: false,
-          }),
+          new THREE.MeshBasicMaterial({ map: oledTexture, toneMapped: false }),
           new THREE.MeshBasicMaterial({
             color: new THREE.Color(0x000000),
             toneMapped: false,
@@ -4782,31 +3097,13 @@ function IPhoneExploded({
       }
 
       // ---- 4. BODY ----
-      // Includes the Dynamic Island pill and the front-camera prims. No
-      // special routing, no hiding — v3.8.2 reverts both.
       child.material = child.material.clone();
       const mat = child.material;
 
-      // Kill baked emission. Body materials carry 0.13–0.45 emissive from
-      // the source asset; nothing on the chassis should self-illuminate.
       if (mat.emissive) mat.emissive.setRGB(0, 0, 0);
       if ("emissiveIntensity" in mat) mat.emissiveIntensity = 0;
       mat.emissiveMap = null;
 
-      // ---- TRANSLUCENT COATS (v3.8.1 — RETAINED) ----
-      //
-      // The old rule was `if (opacity < 1) color.setHex(0x0a0a0a)` — it
-      // painted EVERY translucent body material near-black. That is why the
-      // Rear Camera Island rendered black: the island itself is opaque white
-      // and perfectly fine, but "Rear Camera Island + Apple Logo" is a
-      // 10%-alpha WHITE gloss coat lying on top of it, and the rule turned
-      // that coat into an opaque black slab. Same for "Display Camera Hole
-      // (Center Bright)" (white, alpha 0.175) and "Flash Bright" (alpha 0.20
-      // — a FLASH, painted black).
-      //
-      // Coats now render as AUTHORED — real colour, real alpha — with
-      // depthWrite off so they cannot fight the surface they sit on.
-      //
       //   alpha ≤ 0.05 — effectively-invisible film → still hidden
       //   alpha <  1   — gloss coat → keep colour, keep transparency
       if (mat.opacity <= 0.05) {
@@ -4819,22 +3116,17 @@ function IPhoneExploded({
         mat.depthWrite = true;
       }
 
-      [
-        mat.map,
-        mat.normalMap,
-        mat.roughnessMap,
-        mat.metalnessMap,
-        mat.aoMap,
-      ].forEach((tex) => {
-        if (tex) {
-          tex.anisotropy = maxAniso;
-          tex.generateMipmaps = true;
-          tex.minFilter = THREE.LinearMipmapLinearFilter;
-          tex.needsUpdate = true;
+      [mat.map, mat.normalMap, mat.roughnessMap, mat.metalnessMap, mat.aoMap].forEach(
+        (tex) => {
+          if (tex) {
+            tex.anisotropy = maxAniso;
+            tex.generateMipmaps = true;
+            tex.minFilter = THREE.LinearMipmapLinearFilter;
+            tex.needsUpdate = true;
+          }
         }
-      });
+      );
 
-      // Coats draw after the opaque body they sit on.
       const isCoat = mat.transparent && child.visible;
       child.renderOrder = isCoat ? 1 : 0;
       body.push(child);
@@ -4842,10 +3134,6 @@ function IPhoneExploded({
 
     // ---- ANCHORED REBASE ----
     // newLocal = anchorOldLocal · anchorWorld⁻¹ · meshWorld
-    // Anchor = first primary body primitive. Every mesh lands at its TRUE
-    // pose relative to the body, expressed in the exact frame the body
-    // already rendered in — so pivot fit, rest quaternion, internals plane
-    // and explode distances need no retune.
     const allMeshes = [...glass, ...oled, ...body];
     const anchorMesh = body[0] || allMeshes[0];
     if (anchorMesh) {
@@ -4868,30 +3156,32 @@ function IPhoneExploded({
   }, [clonedScene, oledTexture, maxAniso]);
 
   // ---------------------------------------------------------
-  // CRACKED-PANE MATERIAL (v3.9)
+  // CRACKED-PANE MATERIAL
   //
-  // The PNG is white/grey crack lines on TRANSPARENT. transparent:true
-  // means the PNG's own alpha carves the shape, so the pane is invisible
-  // everywhere except along the fractures — which sit ON TOP of the clean
-  // glass beneath. depthWrite off so it cannot fight the pane it lies on;
-  // polygonOffset -3 so it wins over the glass's -2 where they are exactly
-  // coplanar (they are — it is the same geometry).
+  // WHITE crack lines on TRANSPARENT. transparent:true means the PNG's own
+  // alpha carves the shape, so the pane is invisible everywhere except
+  // along the fractures — which sit ON TOP of the clean glass beneath.
+  // depthWrite off so it cannot fight the pane it lies on; polygonOffset -3
+  // so it wins over the glass's -2 where they are exactly coplanar (they
+  // are — it is the same geometry).
   // ---------------------------------------------------------
   const crackMat = useMemo(() => {
     const m = new THREE.MeshPhysicalMaterial({
       map: crackTex,
       transparent: true,
-      opacity: CRACK.opacity,
+      opacity: 1,
       roughness: 0.06,
       metalness: 0.0,
       depthWrite: false,
       envMapIntensity: GLASS.env,
       clearcoat: 1.0,
       clearcoatRoughness: 0.04,
+      side: THREE.DoubleSide,
       polygonOffset: true,
       polygonOffsetFactor: -3,
       polygonOffsetUnits: -3,
     });
+    m.visible = CRACK.on;
     DEV.crackMat = m;
     return m;
   }, [crackTex]);
@@ -4965,12 +3255,8 @@ function IPhoneExploded({
   // ANIMATION
   // ---------------------------------------------------------
   useFrame((state) => {
-    const damp = CAPTURE_SNAP || DEV.pathPreview ? 1 : 0.1;
+    const damp = CAPTURE_SNAP ? 1 : 0.1;
 
-    // ---- v3.8 LIGHT apply. Runs in production too (URL-driven look
-    // channel). scene.environmentIntensity scales the IBL contribution;
-    // toneMappingExposure scales everything BEFORE the ACES curve, which
-    // is what actually rolls the highlights off instead of clipping. ----
     if (DEV.dirtyLight) {
       gl.toneMappingExposure = LIGHT.exp;
       if ("environmentIntensity" in rootScene) {
@@ -4998,10 +3284,7 @@ function IPhoneExploded({
     if (
       DEV.dirtyStage &&
       stageGroupRef.current &&
-      !(
-        DEV.gizmoDragging &&
-        (DEV.gizmoTarget === "stage" || !atEndpoint())
-      )
+      !(DEV.gizmoDragging && (DEV.gizmoTarget === "stage" || !atEndpoint()))
     ) {
       const g = stageGroupRef.current;
       g.position.set(STAGE.position[0], STAGE.position[1], STAGE.position[2]);
@@ -5014,8 +3297,12 @@ function IPhoneExploded({
       DEV.dirtyStage = false;
     }
 
+    // ---- THE GLASS UNIT: Front Window + Bezel + the crack riding on it.
+    // GLASS_REG now spans ±25, which is enough to carry the whole unit out
+    // of frame and back. X and Y are written directly (a swap is a move you
+    // are DRIVING, not a spring); Z keeps its lerp so the explode still
+    // eases.
     if (glassGroupRef.current) {
-      // GLASS_REG rides the glass unit — Front Window + Bezel only.
       const target = -(scrollState.glassOffset * explodeDistance * 2.0);
       glassGroupRef.current.position.z = THREE.MathUtils.lerp(
         glassGroupRef.current.position.z,
@@ -5026,31 +3313,13 @@ function IPhoneExploded({
       glassGroupRef.current.position.y = GLASS_REG.y;
     }
 
-    // ---- CRACKED PANE ----
-    // Rides the glass's GLASS_REG and explode by default (explodeMul 2.0 ==
-    // the glass group's), so it looks welded to the pane. CRACK.exit then
-    // adds its OWN departure, scaled by swap, so the broken glass can be
-    // thrown clear while the clean pane stays on its path.
+    // ---- CRACKED PANE (v3.11) ----
+    // A CHILD of the glass group. It has no travel of its own — it cannot,
+    // there is no code that could give it any. Its only transform is where
+    // the fracture pattern sits on the pane, and whether it is there at all.
     if (crackGroupRef.current && hasCrack) {
-      const sw = scrollState.swap;
-      const g = crackGroupRef.current;
-      const target = -(
-        scrollState.glassOffset *
-        explodeDistance *
-        CRACK.explodeMul
-      );
-      g.position.z = THREE.MathUtils.lerp(
-        g.position.z,
-        target + GLASS_REG.z + CRACK.exit[2] * sw,
-        damp
-      );
-      g.position.x = GLASS_REG.x + CRACK.exit[0] * sw;
-      g.position.y = GLASS_REG.y + CRACK.exit[1] * sw;
-
-      if (DEV.crackMat) {
-        DEV.crackMat.opacity = CRACK.opacity * (1 - sw);
-        DEV.crackMat.visible = sw < 0.999; // stop drawing it once it is gone
-      }
+      crackGroupRef.current.position.set(CRACK.exit[0], CRACK.exit[1], 0);
+      if (DEV.crackMat) DEV.crackMat.visible = CRACK.on;
     }
 
     if (oledGroupRef.current) {
@@ -5071,7 +3340,11 @@ function IPhoneExploded({
     if (modelGroupRef.current && !settleDrag) {
       const t = scrollState.rotate;
 
-      qTarget.slerpQuaternions(quatsRef.current.qStart, quatsRef.current.qEnd, t);
+      qTarget.slerpQuaternions(
+        quatsRef.current.qStart,
+        quatsRef.current.qEnd,
+        t
+      );
       modelGroupRef.current.quaternion.slerp(qTarget, damp);
 
       const targetScale = 1 - (1 - SETTLE.scale) * t;
@@ -5118,25 +3391,22 @@ function IPhoneExploded({
         }}
       >
         <group ref={pivotRef}>
-          {/* GLASS UNIT — Front Window + Bezel. */}
+          {/* GLASS UNIT — Front Window + Bezel + the crack. */}
           <group ref={glassGroupRef}>
             {glassMeshes.map((m, i) => (
               <primitive key={`glass-${i}`} object={m} />
             ))}
-          </group>
 
-          {/* CRACKED PANE — sibling of the glass, its own transform, so it
-              can be thrown clear independently. Never mounts without a
-              crackTexture prop. */}
-          {hasCrack && crackGeo && (
-            <group ref={crackGroupRef}>
-              <mesh
-                geometry={crackGeo}
-                material={crackMat}
-                renderOrder={4}
-              />
-            </group>
-          )}
+            {/* CRACKED PANE — a CHILD of the glass, not a sibling. It goes
+                where the glass goes because it IS the glass. Its transform
+                carries one thing only: where on the pane the fracture sits.
+                Never mounts without a crackTexture prop. */}
+            {hasCrack && crackGeo && (
+              <group ref={crackGroupRef}>
+                <mesh geometry={crackGeo} material={crackMat} renderOrder={4} />
+              </group>
+            )}
+          </group>
 
           {/* OLED */}
           <group ref={oledGroupRef}>
@@ -5172,16 +3442,6 @@ function IPhoneExploded({
 
 // ============================================
 // Scene
-//
-// LIGHTING (v3.8). The old rig ran FIVE sources at once — ambient 0.8, two
-// directionals, a point light, AND a studio IBL, which is itself an
-// ambient source. Ambient light has no direction, so stacking it is what
-// destroyed the form gradient. Then NoToneMapping clipped everything over
-// 1.0 flat to white, and the chassis and buttons are metalness 1.0, i.e.
-// mirrors of all of it. Result: the cream blowout.
-//
-// Now: one key (the gradient), one fill (the rim), a low ambient, and the
-// IBL scaled by scene.environmentIntensity — every one of them on a dial.
 // ============================================
 function Scene({
   modelPath,
@@ -5194,9 +3454,6 @@ function Scene({
   const [envPreset, setEnvPreset] = useState(LIGHT.preset);
   const [envBlur, setEnvBlur] = useState(LIGHT.blur);
 
-  // preset and blur are React PROPS on <Environment>, not uniforms — they
-  // need a re-render, so Leva writes through this setter rather than
-  // mutating LIGHT and waiting for a frame that will never notice.
   useEffect(() => {
     DEV.setEnv = (pr, b) => {
       setEnvPreset(pr);
@@ -5212,8 +3469,6 @@ function Scene({
   const fillRef = useRef();
 
   useFrame(() => {
-    // Lights read LIGHT live — no dirty flag needed, these are 3 float
-    // writes per frame and it keeps the Leva drag perfectly smooth.
     if (ambRef.current) ambRef.current.intensity = LIGHT.amb;
     if (keyRef.current) keyRef.current.intensity = LIGHT.key;
     if (fillRef.current) fillRef.current.intensity = LIGHT.fill;
@@ -5235,15 +3490,6 @@ function Scene({
         color="#e8f0ff"
       />
 
-      {/* The IBL. Its STRENGTH is scene.environmentIntensity, driven from
-          LIGHT.env in the useFrame above — not a prop, so that part works on
-          every drei/three version.
-          `preset` swaps WHICH WORLD gets reflected — this is what changes the
-          SHAPE of the highlight on the glass. "studio" is the one with hard
-          softbox panels in it; that circle IS this preset.
-          `blur` softens the IBL itself. Version-dependent: on an older drei
-          the prop is ignored — no error, no effect. GLASS.rough is the
-          guaranteed softener. */}
       <Environment preset={envPreset} blur={envBlur} />
 
       <IPhoneExploded
@@ -5254,7 +3500,6 @@ function Scene({
         explodeDistance={explodeDistance}
       />
 
-      {dev && <MotionPathOverlay />}
       {dev && <DevGizmo />}
     </>
   );
@@ -5277,24 +3522,16 @@ export default function CrossSection3DScrollGLB(props) {
     crackTexture,
   } = merged;
 
-  const {
-    mode,
-    bg,
-    freezeP,
-    dev,
-    motionPath: runtimeMotionPath,
-    motionFreezeP,
-  } = useMemo(resolveRuntimeConfig, []);
+  const { mode, bg, freezeP, dev } = useMemo(resolveRuntimeConfig, []);
 
   const containerRef = useRef(null);
   const stickyRef = useRef(null);
 
   useEffect(() => {
     const applyProgress = (p) => {
-      const { explode, rotate, swap } = phaseMap(p);
+      const { explode, rotate } = phaseMap(p);
       scrollState.explosion = explode;
       scrollState.rotate = rotate;
-      scrollState.swap = swap;
       scrollState.glassOffset = mapRange(
         explode,
         glassStagger[0],
@@ -5320,31 +3557,13 @@ export default function CrossSection3DScrollGLB(props) {
 
     DEV.applyProgress = applyProgress;
 
-    const applyRuntimeProgress = (progress) => {
-      if (runtimeMotionPath) {
-        const pose = sampleMotionPath(runtimeMotionPath, progress);
-        if (pose) applyPoseParamsDirect(pose);
-      } else {
-        applyProgress(progress);
-      }
-    };
-
-    if (runtimeMotionPath && motionFreezeP !== null) {
-      document.documentElement.style.overflow = "hidden";
-      document.body.style.overflow = "hidden";
-      applyRuntimeProgress(motionFreezeP);
-      return;
-    }
-
-    if (!runtimeMotionPath && freezeP !== null) {
+    if (freezeP !== null) {
       document.documentElement.style.overflow = "hidden";
       document.body.style.overflow = "hidden";
       DEV.lastP = freezeP;
       applyProgress(freezeP);
       return;
     }
-
-    if (runtimeMotionPath) applyRuntimeProgress(0);
 
     if (mode === "scroll") {
       document.documentElement.style.overflow = "hidden";
@@ -5356,7 +3575,7 @@ export default function CrossSection3DScrollGLB(props) {
           event.data.type === "scroll-progress" &&
           typeof event.data.progress === "number"
         ) {
-          applyRuntimeProgress(Math.max(0, Math.min(1, event.data.progress)));
+          applyProgress(Math.max(0, Math.min(1, event.data.progress)));
         }
       };
 
@@ -5372,26 +3591,15 @@ export default function CrossSection3DScrollGLB(props) {
       document.body.style.overflow = "hidden";
 
       const proxy = { p: 0 };
-      const runtimeDuration = runtimeMotionPath
-        ? Math.max(
-            0.1,
-            motionPathDuration(runtimeMotionPath) /
-              Math.max(0.1, Number(runtimeMotionPath.speed) || 1)
-          )
-        : 7;
       const tween = gsap.to(proxy, {
         p: 1,
-        duration: runtimeDuration,
-        ease: runtimeMotionPath ? "none" : "power2.inOut",
+        duration: 7,
+        ease: "power2.inOut",
         delay: 1,
-        repeat: runtimeMotionPath
-          ? runtimeMotionPath.loop === false
-            ? 0
-            : -1
-          : -1,
-        yoyo: runtimeMotionPath ? false : true,
-        repeatDelay: runtimeMotionPath ? 0 : 1.2,
-        onUpdate: () => applyRuntimeProgress(proxy.p),
+        repeat: -1,
+        yoyo: true,
+        repeatDelay: 1.2,
+        onUpdate: () => applyProgress(proxy.p),
       });
       return () => tween.kill();
     }
@@ -5405,25 +3613,17 @@ export default function CrossSection3DScrollGLB(props) {
         end: `+=${scrollDistance * 100}vh`,
         pin: stickyRef.current,
         scrub: 1,
-        onUpdate: (self) => applyRuntimeProgress(self.progress),
+        onUpdate: (self) => applyProgress(self.progress),
       });
     }, containerRef);
 
     return () => ctx.revert();
-  }, [
-    mode,
-    freezeP,
-    runtimeMotionPath,
-    motionFreezeP,
-    scrollDistance,
-    glassStagger,
-    oledStagger,
-    phoneStagger,
-  ]);
+  }, [mode, freezeP, scrollDistance, glassStagger, oledStagger, phoneStagger]);
 
   const onWrapPointerDown = (e) => {
     if (!dev || !DEV.setLeva) return;
-    if (DEV.hudMode !== "move" || DEV.gizmo !== "off" || DEV.gizmoDragging) return;
+    if (DEV.hudMode !== "move" || DEV.gizmo !== "off" || DEV.gizmoDragging)
+      return;
 
     cancelSquareAnim();
 
@@ -5528,9 +3728,6 @@ export default function CrossSection3DScrollGLB(props) {
             preserveDrawingBuffer: dev,
           }}
           onCreated={({ gl, scene }) => {
-            // v3.8: ACES Filmic, NOT NoToneMapping. Without a tone curve,
-            // every value over 1.0 clips flat to white — which is exactly
-            // what the metal chassis and the studio IBL were doing.
             gl.toneMapping = THREE.ACESFilmicToneMapping;
             gl.toneMappingExposure = LIGHT.exp;
             if ("environmentIntensity" in scene) {
@@ -5541,10 +3738,7 @@ export default function CrossSection3DScrollGLB(props) {
           }}
           onPointerMissed={() => {
             if (!DEV.enabled) return;
-            if (
-              DEV.gizmoDragging ||
-              performance.now() - DEV.lastDragEnd < 250
-            )
+            if (DEV.gizmoDragging || performance.now() - DEV.lastDragEnd < 250)
               return;
             changeGizmoContext("stage");
           }}
@@ -5567,3 +3761,4 @@ export default function CrossSection3DScrollGLB(props) {
 useGLTF.preload(defaultProps.modelPath);
 useTexture.preload(defaultProps.screenTexture);
 useTexture.preload(defaultProps.internalsTexture);
+useTexture.preload(defaultProps.crackTexture);
