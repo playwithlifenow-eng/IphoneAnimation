@@ -17,7 +17,7 @@ import { Leva, useControls, button, folder } from "leva";
 gsap.registerPlugin(ScrollTrigger);
 
 // ============================================
-// v3.11 — THE CRACK IS THE GLASS
+// v3.11.1 — THE CRACK IS THE GLASS  (depthTest fix: crack now survives p=0)
 //
 //   v3.10 treated the cracked pane as an independent object that could
 //   outrun, lag, tumble away from and dissolve out of the pane it is a
@@ -3173,6 +3173,16 @@ function IPhoneExploded({
       roughness: 0.06,
       metalness: 0.0,
       depthWrite: false,
+      // v3.11.1 — THE p=0 BUG.
+      // The OLED is a MeshBasicMaterial: OPAQUE, depthWrite ON. Opaque draws
+      // before every transparent object and stamps the depth buffer. The crack
+      // is transparent, so it draws afterwards and depth-TESTS against the OLED.
+      // Docked at p=0 the glass pane is not reliably proud of the OLED slab
+      // (the Blender mesh defect), so the crack lost the test and vanished.
+      // Nudge p and the glass translates out, clears the OLED, crack pops in.
+      // polygonOffset -3 cannot win that — the surfaces are not merely coplanar.
+      // The crack is the OUTERMOST surface of the phone. Nothing may occlude it.
+      depthTest: false,
       envMapIntensity: GLASS.env,
       clearcoat: 1.0,
       clearcoatRoughness: 0.04,
