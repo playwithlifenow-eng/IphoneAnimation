@@ -19,6 +19,14 @@ import { Leva, useControls, button, folder } from "leva";
 gsap.registerPlugin(ScrollTrigger);
 
 // ============================================
+// v7.1.2 — TRANSPARENT SWEEP + RESTORED CRACK STATE
+//
+//   The sweep shader now writes zero alpha wherever it has no visible
+//   highlight instead of painting the entire front pane opaque black.
+//   Crack visibility is again an explicit saved control and is no longer
+//   forcibly disabled by teardown timeline progress.
+//
+// ============================================
 // v7.1.1 — FRONT-GLASS ROUTING + CRACK RESTORATION
 //
 //   "Back Glass" is no longer caught by the generic glass-name test and
@@ -562,23 +570,14 @@ const SHINE = {
 };
 
 // ---------------------------------------------------------
-// CRACK (v3.9) — the cracked pane that gets removed and replaced.
-//
-//   The cracked pane is a CLONE of Glass_Front's geometry (a flat plane,
-//   1216 verts, already UV'd) carrying a crack PNG. It is a sibling group
-//   of the glass, so by default it inherits the same GLASS_REG and the
-//   same explode multiplier and looks welded to the pane it sits on.
-//
-//   swap 0 -> 1 across the HOLD phase (TIMELINE.explodeEnd -> holdEnd).
-//     opacity  fades CRACK.opacity -> 0
-//     exit     an EXTRA translation, scaled by swap, that sends the broken
-//              pane off on its own path while the clean one stays put.
-//              Leave at 0,0,0 and it simply dissolves in place.
-// Overridable: ?crack=opacity,exitX,exitY,exitZ
+// CRACK — explicit state + registration, restored from v3.11.1.
+// Timeline progress never overrides `on`; saved poses decide whether the
+// moving front pane is cracked or clean.
+// Overridable: ?crack=on,opacity,exitX,exitY,exitZ
 // ---------------------------------------------------------
 const CRACK = {
+  on: true,
   opacity: 1.0,
-  explodeMul: 2.0, // 2.0 == the glass group's multiplier: welded
   exit: [0, 0, 0],
 };
 
@@ -1400,6 +1399,13 @@ function applyPoseParamsDirect(pose) {
   if (Number.isFinite(pose.shine)) {
     SHINE.progress = Math.max(0, Math.min(1, pose.shine));
   }
+  if (typeof pose.crackOn === "boolean") CRACK.on = pose.crackOn;
+  if (Number.isFinite(pose.crackOpacity)) {
+    CRACK.opacity = Math.max(0, Math.min(1, pose.crackOpacity));
+  }
+  if ([pose.crackExitX, pose.crackExitY, pose.crackExitZ].every(Number.isFinite)) {
+    CRACK.exit = [pose.crackExitX, pose.crackExitY, pose.crackExitZ];
+  }
   if (Number.isFinite(pose.p)) {
     const p = Math.max(0, Math.min(1, pose.p));
     DEV.lastP = p;
@@ -1551,6 +1557,11 @@ function downloadJSON(filename, value) {
 function readPoseParams() {
   const o = {};
   for (const k of Object.keys(DRIVE_READERS)) o[k] = DRIVE_READERS[k]();
+  o.crackOn = CRACK.on;
+  o.crackOpacity = CRACK.opacity;
+  o.crackExitX = CRACK.exit[0];
+  o.crackExitY = CRACK.exit[1];
+  o.crackExitZ = CRACK.exit[2];
   o.p = DEV.lastP;
   return o;
 }
@@ -1821,7 +1832,7 @@ function serialiseParams(params) {
   params.set("envb", LIGHT.blur.toFixed(2));
   params.set(
     "crack",
-    [CRACK.opacity, CRACK.exit[0], CRACK.exit[1], CRACK.exit[2]]
+    [CRACK.on ? 1 : 0, CRACK.opacity, CRACK.exit[0], CRACK.exit[1], CRACK.exit[2]]
       .map((v) => v.toFixed(2))
       .join(",")
   );
@@ -2383,6 +2394,13 @@ function DevControls({ initialP }) {
     // ---- v3.9 CRACKED PANE. Inert unless a crackTexture prop is passed. ----
     "💥 cracked pane": folder(
       {
+        crackOn: {
+          value: CRACK.on,
+          label: "show crack",
+          onChange: (v) => {
+            CRACK.on = v;
+          },
+        },
         crackOpacity: {
           value: CRACK.opacity,
           min: 0,
@@ -2398,7 +2416,7 @@ function DevControls({ initialP }) {
           min: -3,
           max: 3,
           step: 0.01,
-          label: "discard ← → (X)",
+          label: "crack ← → (X)",
           onChange: (v) => {
             CRACK.exit[0] = v;
           },
@@ -2408,7 +2426,7 @@ function DevControls({ initialP }) {
           min: -3,
           max: 3,
           step: 0.01,
-          label: "discard ↑ ↓ (Y)",
+          label: "crack ↑ ↓ (Y)",
           onChange: (v) => {
             CRACK.exit[1] = v;
           },
@@ -2418,7 +2436,7 @@ function DevControls({ initialP }) {
           min: -3,
           max: 3,
           step: 0.01,
-          label: "discard depth (Z)",
+          label: "crack depth (Z)",
           onChange: (v) => {
             CRACK.exit[2] = v;
           },
@@ -2898,6 +2916,10 @@ function DevControls({ initialP }) {
       if (k === "g") {
         DEV.driveGrain = (DEV.driveGrain + 1) % 3;
         set({ drive: driveLabel() });
+        return;
+      }
+      if (k === "c") {
+        set({ crackOn: !CRACK.on });
         return;
       }
       if (k === "[" || k === "]") {
@@ -3813,7 +3835,7 @@ function DevDashboard() {
   if (collapsed) {
     return (
       <div ref={panelRef} style={UI.panelCollapsed}>
-        <b style={{ color: "#2e7d52", letterSpacing: 1 }}>iGLASS v7.1</b>
+        <b style={{ color: "#2e7d52", letterSpacing: 1 }}>iGLASS v7.1.2</b>
         <span style={chipStyle(false)} onClick={() => setCollapsed(false)}>▸ open</span>
       </div>
     );
@@ -3822,7 +3844,7 @@ function DevDashboard() {
   return (
     <div ref={panelRef} style={UI.panel}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <b style={{ color: "#2e7d52", letterSpacing: 1 }}>iGLASS PRODUCTION STUDIO v7.1</b>
+        <b style={{ color: "#2e7d52", letterSpacing: 1 }}>iGLASS PRODUCTION STUDIO v7.1.2</b>
         <span style={chipStyle(false)} onClick={() => setCollapsed(true)}>▾ hide</span>
       </div>
       <div style={{ ...UI.hint, marginTop: 3, color: status.startsWith("import failed") ? "#a02b2b" : "#5a6b60" }}>{status}</div>
@@ -3847,6 +3869,19 @@ function DevDashboard() {
           }}
         />
         <div style={{ ...UI.hint, marginTop: 2 }}>front-glass teardown / reassembly timeline</div>
+      </div>
+
+      <div style={UI.row}>
+        <span
+          style={chipStyle(CRACK.on, true)}
+          title="Explicit crack state; saved into pose slots. Shortcut: C"
+          onClick={() => {
+            if (DEV.setLeva) DEV.setLeva({ crackOn: !CRACK.on });
+            force((n) => n + 1);
+          }}
+        >
+          {CRACK.on ? "● cracked" : "○ clean"}
+        </span>
       </div>
 
       <details open>
@@ -4962,7 +4997,13 @@ function resolveRuntimeConfig() {
   const crackParam = params.get("crack");
   if (crackParam) {
     const q = crackParam.split(",").map((v) => parseFloat(v));
-    if (q.length === 4 && q.every((v) => !isNaN(v))) {
+    if (q.length === 5 && q.every((v) => !isNaN(v))) {
+      CRACK.on = q[0] > 0.5;
+      CRACK.opacity = q[1];
+      CRACK.exit = [q[2], q[3], q[4]];
+    } else if (q.length === 4 && q.every((v) => !isNaN(v))) {
+      // v7.1 legacy: opacity, X, Y, Z.
+      CRACK.on = q[0] > 0;
       CRACK.opacity = q[0];
       CRACK.exit = [q[1], q[2], q[3]];
     }
@@ -5649,13 +5690,19 @@ function IPhoneExploded({
           vec3 rgb = warmWhite * (sweep + panel + glint)
                    + coolWhite * (0.18 * broad * uSweepStrength);
           float gate = clamp(uCleanMix, 0.0, 1.0);
-          gl_FragColor = vec4(rgb, gate);
+          float intensity = max(max(rgb.r, rgb.g), rgb.b) * gate;
+
+          // Never cover the pane with RGB 0 / alpha 1. Only actual reflected
+          // light writes alpha; every untouched pixel remains transparent.
+          if (intensity <= 0.0001) discard;
+          vec3 highlightColour = rgb / max(max(max(rgb.r, rgb.g), rgb.b), 0.0001);
+          gl_FragColor = vec4(highlightColour, clamp(intensity, 0.0, 1.0));
         }
       `,
       transparent: true,
       depthWrite: false,
       depthTest: true,
-      blending: THREE.AdditiveBlending,
+      blending: THREE.NormalBlending,
       toneMapped: false,
       polygonOffset: true,
       polygonOffsetFactor: -4,
@@ -5827,17 +5874,12 @@ function IPhoneExploded({
     // offset is local; the parent's GLASS_REG/explode transform supplies the
     // pane motion. This prevents the crack and glass transforms diverging.
     if (crackGroupRef.current && hasCrack) {
-      const sw = scrollState.swap;
       const g = crackGroupRef.current;
-      g.position.set(
-        CRACK.exit[0] * sw,
-        CRACK.exit[1] * sw,
-        CRACK.exit[2] * sw
-      );
+      g.position.set(CRACK.exit[0], CRACK.exit[1], CRACK.exit[2]);
 
       if (DEV.crackMat) {
-        DEV.crackMat.opacity = CRACK.opacity * (1 - sw);
-        DEV.crackMat.visible = sw < 0.999; // stop drawing it once it is gone
+        DEV.crackMat.opacity = CRACK.opacity;
+        DEV.crackMat.visible = CRACK.on && CRACK.opacity > 0.001;
       }
     }
 
