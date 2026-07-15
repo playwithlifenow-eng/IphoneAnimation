@@ -5818,7 +5818,7 @@ function Scene({
 // TEMPORARY FRAMER VIEWPORT SIMULATOR
 //
 // Direct Vercel usage:
-//   ?simulate=1440x900&padding=80,60
+//   ?simulate=1440x900
 //
 // The outer page is only a workbench. The actual Motion Studio runs inside
 // a same-origin iframe whose layout viewport is the requested CSS size.
@@ -5840,17 +5840,7 @@ function resolveFramerViewportSimulator() {
   const width = Math.max(1, Number(match[1]));
   const height = Math.max(1, Number(match[2]));
 
-  const rawPadding = (params.get("padding") || "0")
-    .split(",")
-    .map((value) => Math.max(0, Number(value.trim()) || 0));
-
-  const paddingX = Math.min(rawPadding[0], width / 2);
-  const paddingY = Math.min(
-    rawPadding.length > 1 ? rawPadding[1] : rawPadding[0],
-    height / 2
-  );
-
-  return { width, height, paddingX, paddingY };
+  return { width, height };
 }
 
 function FramerViewportSimulator({ config }) {
@@ -5933,48 +5923,11 @@ function FramerViewportSimulator({ config }) {
             position: "absolute",
             inset: 0,
             zIndex: 2147483646,
-            border: "3px solid #ff3b30",
+            border: "3px solid #00a86b",
             boxSizing: "border-box",
             pointerEvents: "none",
           }}
         />
-
-        <div
-          aria-hidden="true"
-          style={{
-            position: "absolute",
-            left: config.paddingX,
-            right: config.paddingX,
-            top: config.paddingY,
-            bottom: config.paddingY,
-            zIndex: 2147483647,
-            border: "3px dashed #00a86b",
-            boxSizing: "border-box",
-            boxShadow: "0 0 0 9999px rgba(255, 59, 48, 0.08)",
-            pointerEvents: "none",
-          }}
-        />
-      </div>
-
-      <div
-        aria-hidden="true"
-        style={{
-          position: "fixed",
-          left: 12,
-          top: 12,
-          zIndex: 2147483647,
-          padding: "8px 10px",
-          borderRadius: 6,
-          background: "rgba(0, 0, 0, 0.82)",
-          color: "#ffffff",
-          fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-          fontSize: 12,
-          lineHeight: 1.35,
-          pointerEvents: "none",
-        }}
-      >
-        <div>RED = iframe edge</div>
-        <div>GREEN = padding-safe edge</div>
       </div>
     </div>
   );
