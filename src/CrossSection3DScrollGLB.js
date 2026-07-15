@@ -5815,6 +5815,56 @@ function Scene({
 }
 
 // ============================================
+// TEMPORARY VIEWPORT DIAGNOSTIC
+// Reports the live iframe layout viewport in CSS pixels.
+// Remove this component and its render line after measurement.
+// ============================================
+function ViewportDiagnosticOverlay() {
+  const readViewport = () => ({
+    width: typeof window === "undefined" ? 0 : window.innerWidth,
+    height: typeof window === "undefined" ? 0 : window.innerHeight,
+  });
+
+  const [viewport, setViewport] = useState(readViewport);
+
+  useEffect(() => {
+    const update = () => setViewport(readViewport());
+
+    update();
+    window.addEventListener("resize", update);
+    window.visualViewport?.addEventListener("resize", update);
+
+    return () => {
+      window.removeEventListener("resize", update);
+      window.visualViewport?.removeEventListener("resize", update);
+    };
+  }, []);
+
+  return (
+    <div
+      aria-hidden="true"
+      style={{
+        position: "fixed",
+        top: 12,
+        right: 12,
+        zIndex: 2147483647,
+        padding: "7px 10px",
+        borderRadius: 6,
+        background: "rgba(0, 0, 0, 0.78)",
+        color: "#ffffff",
+        fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+        fontSize: 12,
+        lineHeight: 1,
+        whiteSpace: "nowrap",
+        pointerEvents: "none",
+      }}
+    >
+      {viewport.width} × {viewport.height} CSS px
+    </div>
+  );
+}
+
+// ============================================
 // Main Component
 // ============================================
 export default function CrossSection3DScrollGLB(props) {
@@ -6050,6 +6100,7 @@ export default function CrossSection3DScrollGLB(props) {
         background: bg,
       }}
     >
+      <ViewportDiagnosticOverlay />
       {dev && (
         <Leva
           collapsed={true}
