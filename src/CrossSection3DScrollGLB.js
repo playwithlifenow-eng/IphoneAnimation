@@ -5815,20 +5815,54 @@ function Scene({
 }
 
 // ============================================
-// TEMPORARY VIEWPORT DIAGNOSTIC
-// Reports the live iframe layout viewport in CSS pixels.
-// Remove this component and its render line after measurement.
+// TEMPORARY FRAMER VIEWPORT SIMULATOR
+//
+// Direct Vercel usage:
+//   ?simulate=1440x900&padding=80,60
+//
+// The outer page is only a workbench. The actual Motion Studio runs inside
+// a same-origin iframe whose layout viewport is the requested CSS size.
+// Scaling is applied to the iframe element, not its contents, so R3F still
+// measures and renders the exact target viewport.
 // ============================================
-function ViewportDiagnosticOverlay() {
-  const readViewport = () => ({
-    width: typeof window === "undefined" ? 0 : window.innerWidth,
-    height: typeof window === "undefined" ? 0 : window.innerHeight,
+function resolveFramerViewportSimulator() {
+  if (typeof window === "undefined") return null;
+
+  const params = new URLSearchParams(window.location.search);
+  const rawViewport = params.get("simulate");
+  if (!rawViewport) return null;
+
+  const match = rawViewport
+    .trim()
+    .match(/^(\d+(?:\.\d+)?)\s*[x,]\s*(\d+(?:\.\d+)?)$/i);
+  if (!match) return null;
+
+  const width = Math.max(1, Number(match[1]));
+  const height = Math.max(1, Number(match[2]));
+
+  const rawPadding = (params.get("padding") || "0")
+    .split(",")
+    .map((value) => Math.max(0, Number(value.trim()) || 0));
+
+  const paddingX = Math.min(rawPadding[0], width / 2);
+  const paddingY = Math.min(
+    rawPadding.length > 1 ? rawPadding[1] : rawPadding[0],
+    height / 2
+  );
+
+  return { width, height, paddingX, paddingY };
+}
+
+function FramerViewportSimulator({ config }) {
+  const readWorkbench = () => ({
+    width: typeof window === "undefined" ? config.width : window.innerWidth,
+    height: typeof window === "undefined" ? config.height : window.innerHeight,
   });
 
-  const [viewport, setViewport] = useState(readViewport);
+  const [workbench, setWorkbench] = useState(readWorkbench);
 
   useEffect(() => {
-    const update = () => setViewport(readViewport());
+    const update = () => setWorkbench(readWorkbench());
 
     update();
     window.addEventListener("resize", update);
@@ -5840,26 +5874,108 @@ function ViewportDiagnosticOverlay() {
     };
   }, []);
 
+  const childURL = useMemo(() => {
+    const url = new URL(window.location.href);
+    url.searchParams.delete("simulate");
+    url.searchParams.delete("padding");
+    url.searchParams.set("dev", "1");
+    url.searchParams.set("mode", "scroll");
+    return url.toString();
+  }, []);
+
+  const gutter = 48;
+  const scale = Math.max(
+    0.05,
+    Math.min(
+      (workbench.width - gutter) / config.width,
+      (workbench.height - gutter) / config.height
+    )
+  );
+
   return (
     <div
-      aria-hidden="true"
       style={{
         position: "fixed",
-        top: 12,
-        right: 12,
-        zIndex: 2147483647,
-        padding: "7px 10px",
-        borderRadius: 6,
-        background: "rgba(0, 0, 0, 0.78)",
-        color: "#ffffff",
-        fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-        fontSize: 12,
-        lineHeight: 1,
-        whiteSpace: "nowrap",
-        pointerEvents: "none",
+        inset: 0,
+        overflow: "hidden",
+        background: "#d9dde2",
       }}
     >
-      {viewport.width} × {viewport.height} CSS px
+      <div
+        style={{
+          position: "absolute",
+          left: "50%",
+          top: "50%",
+          width: config.width,
+          height: config.height,
+          transform: `translate(-50%, -50%) scale(${scale})`,
+          transformOrigin: "center center",
+          overflow: "hidden",
+          background: "#ffffff",
+          boxShadow: "0 18px 60px rgba(0, 0, 0, 0.24)",
+        }}
+      >
+        <iframe
+          src={childURL}
+          title="Framer viewport simulator"
+          style={{
+            display: "block",
+            width: "100%",
+            height: "100%",
+            border: 0,
+            background: "#ffffff",
+          }}
+        />
+
+        <div
+          aria-hidden="true"
+          style={{
+            position: "absolute",
+            inset: 0,
+            zIndex: 2147483646,
+            border: "3px solid #ff3b30",
+            boxSizing: "border-box",
+            pointerEvents: "none",
+          }}
+        />
+
+        <div
+          aria-hidden="true"
+          style={{
+            position: "absolute",
+            left: config.paddingX,
+            right: config.paddingX,
+            top: config.paddingY,
+            bottom: config.paddingY,
+            zIndex: 2147483647,
+            border: "3px dashed #00a86b",
+            boxSizing: "border-box",
+            boxShadow: "0 0 0 9999px rgba(255, 59, 48, 0.08)",
+            pointerEvents: "none",
+          }}
+        />
+      </div>
+
+      <div
+        aria-hidden="true"
+        style={{
+          position: "fixed",
+          left: 12,
+          top: 12,
+          zIndex: 2147483647,
+          padding: "8px 10px",
+          borderRadius: 6,
+          background: "rgba(0, 0, 0, 0.82)",
+          color: "#ffffff",
+          fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+          fontSize: 12,
+          lineHeight: 1.35,
+          pointerEvents: "none",
+        }}
+      >
+        <div>RED = iframe edge</div>
+        <div>GREEN = padding-safe edge</div>
+      </div>
     </div>
   );
 }
@@ -5867,7 +5983,7 @@ function ViewportDiagnosticOverlay() {
 // ============================================
 // Main Component
 // ============================================
-export default function CrossSection3DScrollGLB(props) {
+function CrossSection3DScrollGLBScene(props) {
   const merged = { ...defaultProps, ...props };
   const {
     explodeDistance,
@@ -6100,7 +6216,6 @@ export default function CrossSection3DScrollGLB(props) {
         background: bg,
       }}
     >
-      <ViewportDiagnosticOverlay />
       {dev && (
         <Leva
           collapsed={true}
@@ -6165,6 +6280,16 @@ export default function CrossSection3DScrollGLB(props) {
         </Canvas>
       </div>
     </div>
+  );
+}
+
+export default function CrossSection3DScrollGLB(props) {
+  const simulator = useMemo(resolveFramerViewportSimulator, []);
+
+  return simulator ? (
+    <FramerViewportSimulator config={simulator} />
+  ) : (
+    <CrossSection3DScrollGLBScene {...props} />
   );
 }
 
