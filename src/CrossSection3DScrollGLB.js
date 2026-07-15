@@ -19,10 +19,34 @@ import { Leva, useControls, button, folder } from "leva";
 gsap.registerPlugin(ScrollTrigger);
 
 // ============================================
-// v7.2.1 — CLAUDE v3.11.1 GLASS/CRACK RESTORATION
+// v7.3.0 — HYBRID: v7.2 MOTION RIG × v3.11 GLASS LAW
 //
-//   Front glass, bezel membership, crack state, crack registration and the
-//   crack material are restored from Claude's v3.11.1 implementation.
+//   ChatGPT's motion studio (150 named slots, path engine, unlimited
+//   saved-path library, bridge generator) is kept in full. Three silent
+//   re-litigations of v3.11 decisions are reverted, and three defects
+//   are fixed:
+//
+//   CRACK LAW        ON/OFF + X/Y registration ONLY. Opacity and Z are
+//                    culled again — a crack is not translucent and has
+//                    no depth of its own. The boolean saves into every
+//                    pose slot; THAT is the glass swap.
+//   GLASS REG ±25    Restored (v7.2 had reverted it to ±1 — a quarter of
+//                    a phone-width, nowhere near out of shot). ±25
+//                    carries the glass unit fully out of frame. Glass
+//                    reg is now ALSO a first-class pose/path parameter:
+//                    saved in slots, interpolated by motion paths,
+//                    wireable in compound motion — so the swap move
+//                    (drive out → crack OFF → drive back) can be
+//                    choreographed by the rig.
+//   BEZEL PARENTING  Reverted to what it has always been: pane + bezel +
+//                    crack are ONE glass unit and travel together.
+//   pathPreview      v7.2 set it once and never cleared it — one path
+//                    scrub killed render damping for the whole session.
+//                    Now a one-frame flag re-armed by the path engine.
+//   swap             Dead code (reinstated in phaseMap, consumed
+//                    nowhere). Removed again.
+//   front-glass      v7.1's exact-name routing is KEPT — "Back Glass"
+//                    can no longer be caught by a generic glass test.
 //
 // ============================================
 // v7.2.0 — PATH LIBRARY CONSOLIDATION + COMPOUND CONTROL
@@ -53,8 +77,8 @@ gsap.registerPlugin(ScrollTrigger);
 //
 //   The top-left slider is the original teardown timeline `p`. Motion-path
 //   scrub/preview lives below the path nodes. Reflection controls no longer
-//   depend on a master checkbox, and the authored black bezel stays with the
-//   phone body instead of riding the transparent moving glass pane.
+//   depend on a master checkbox. (Its bezel decoupling is REVERTED in
+//   v7.3.0 — the bezel rides the glass unit, as it always has.)
 //
 // ============================================
 // v7.0 — PRODUCTION MOTION STUDIO
@@ -107,6 +131,17 @@ gsap.registerPlugin(ScrollTrigger);
 //                        no dependency on localStorage.
 //
 // ============================================
+// v3.11 — THE CRACK IS THE GLASS (the law this hybrid restores)
+//
+//   A crack has no velocity of its own. The cracked pane is a CHILD of
+//   the glass unit; its only truths are whether it exists and where the
+//   fracture sits on the pane. crack ON/OFF is saved into the pose slot
+//   with everything else — pose A wears the crack, pose B does not.
+//   v3.11.1 added depthTest:false: docked at p=0 the pane is not reliably
+//   proud of the opaque OLED slab (the Blender mesh defect), so the crack
+//   lost the depth test and vanished at p=0 only.
+//
+// ============================================
 // v3.9 — GLASS MATERIAL, IBL SOFTNESS, AND THE CRACKED-GLASS LAYER
 //
 //   THE HARD CIRCLE     It is not a light. It is a REFLECTION. Glass_Front
@@ -116,236 +151,19 @@ gsap.registerPlugin(ScrollTrigger);
 //                       A mirror reflects a softbox as a hard-edged bright
 //                       shape. That is the circle.
 //
-//                       Two independent softeners, both now dials:
-//                         GLASS.rough   blurs what the GLASS reflects.
-//                                       This is the local one. Roughness
-//                                       convolves the env map through its
-//                                       prefiltered mips, so raising it
-//                                       spreads the highlight instead of
-//                                       dimming it. THE dial for this.
-//                         LIGHT.blur    blurs the IBL ITSELF, so every
-//                                       reflective surface softens at
-//                                       once. Version-dependent: drei's
-//                                       Environment gained `blur` at some
-//                                       point; on an older build the prop
-//                                       is simply ignored, no error. If
-//                                       nothing happens when you drag it,
-//                                       that is why — use GLASS.rough.
-//                         LIGHT.preset  changes the reflected SHAPES
-//                                       outright. "studio" has the hard
-//                                       boxes; "apartment"/"city"/"lobby"
-//                                       reflect softer, messier worlds.
+//   SHINIER GLASS       Glass_Front is MeshPhysicalMaterial: the clearcoat
+//                       is a second specular layer over the base, with its
+//                       own roughness — the lacquer-over-paint model.
 //
-//   SHINIER GLASS       Glass_Front is now MeshPhysicalMaterial, not
-//                       MeshStandardMaterial. That buys a CLEARCOAT: a
-//                       second specular layer over the base, with its own
-//                       roughness. It is the lacquer-over-paint model, and
-//                       it is what separates "a dark surface" from "glass".
-//                       clearcoat is constructed non-zero so the shader
-//                       compiles the chunk in; dialling it afterwards is a
-//                       free uniform write, not a recompile.
-//
-//   CRACKED GLASS       No Blender. No second GLB. Probed the deployed
-//                       asset: Glass_Front is a FLAT 1216-vert plane and
-//                       it already carries TEXCOORD_0. So the cracked pane
-//                       is its geometry, cloned in code, with a crack PNG
-//                       on it — the identical pattern to Screen.png and
-//                       internals.jpg, which already work.
-//
-//                       Coexistence, which you flagged as the hard part,
-//                       is not a problem at all: it is just a third group
-//                       under the pivot. It rides GLASS_REG and the glass
-//                       explode by default, so it looks welded to the
-//                       pane; CRACK.exit then sends it off on its OWN path
-//                       as it goes. The crossfade is scrollState.swap,
-//                       which runs across the existing HOLD phase — so the
-//                       choreography is already the repair story: the
-//                       cracked pane lifts off during the explode, is
-//                       discarded across the hold, and the clean pane
-//                       re-seats on the reassemble. No new timeline.
-//
-//                       crackTexture is an OPTIONAL prop. Absent, the
-//                       whole layer costs nothing and renders nothing.
+//   CRACKED GLASS       No Blender. No second GLB. Glass_Front is a FLAT
+//                       1216-vert plane with TEXCOORD_0, so the cracked
+//                       pane is its geometry, cloned in code, with a crack
+//                       PNG on it. crackTexture is an optional prop; absent,
+//                       the whole layer costs nothing and renders nothing.
 //
 // ============================================
-// v3.8.7 — KEYBOARD DRIVE: TAP vs HOLD
-//
-//   The arrow keys felt slow because the repeat was coming from the
-//   OPERATING SYSTEM: a ~500 ms dead pause, then a fixed ~30/sec chatter,
-//   every step the same size. That is a text-entry repeat curve, not a
-//   navigation one.
-//
-//   Split the two gestures, because they want opposite things:
-//
-//     TAP   one keydown -> exactly ONE nudge at the full grain step.
-//           Unchanged. This is the precision gesture and it stays exact.
-//
-//     HOLD  after KEYS.delay ms, a rAF loop takes over at 60 fps and
-//           ramps the per-frame step from 0.25x grain up to 1.5x grain
-//           over KEYS.ramp ms. No OS pause, no chatter, and it lands
-//           roughly 3-6x faster than the old repeat at full glide while
-//           still starting gently enough to stop where you meant to.
-//
-//   OS key-repeat events (ev.repeat) are now DISCARDED — the rAF loop owns
-//   the hold, so the two cannot fight each other.
-//
-//   Speed is therefore controlled on two axes, both of them reachable:
-//     GRAIN  fine / mid / coarse — the size of one tap. G key, and now
-//            three clickable chips in the dashboard.
-//     GAIN   the "hold speed" dial — scales the hold ramp only. Taps are
-//            untouched by it.
-//
-// ============================================
-// v3.8.6 — compound-motion ratio range widened to +/-20 (was +/-5), in
-//          BOTH clamps: the Leva "ratio" control and the dashboard's range
-//          slider. Step coarsened 0.01 -> 0.05 so a full sweep is still one
-//          drag rather than 800 of them. WIRE.ratio itself was never
-//          clamped in code — only the two UI widgets were.
-//
-// ============================================
-// v3.8.5 — THE TWO BLACK RIM TRIMS
-//
-//   PROBED FROM THE DEPLOYED GLB, not inferred. Three prims stack at the
-//   front face (metres):
-//
-//     Glass_Front        z -0.0051 (FLAT PLANE, 0 thick)   71 x 155 mm
-//     Glass_Bezel        z -0.0051 -> -0.0046  (0.5 mm)    75 x 159 mm
-//     Display_OLED.001   z -0.0042 -> -0.0038  (0.4 mm)    75 x 159 mm
-//
-//   The bezel and the OLED carry IDENTICAL footprints, both 2 mm larger
-//   per side than the front glass, and they sit 0.4 mm apart in Z. Neither
-//   is a plane — both are SLABS, so both have a side-wall RIM running the
-//   whole perimeter. Both rims render black (the bezel by design; the OLED
-//   rim because v3.8's two-way split sent everything that was not the
-//   front cap to the black material). Two black slab rims, 0.4 mm apart,
-//   only visible at a grazing angle. That is the doubled trim, exactly.
-//
-//   The BEZEL band is wanted — it is the phone's real black border, and
-//   2 mm is dimensionally right for a 14 Pro. The OLED rim is pure
-//   artefact: on a real panel that manufacturing edge is buried under the
-//   bezel, and here it is being drawn as a second line.
-//
-//   Fix: THREE-way split, not two.
-//     nz <  faceCut   -> screen  (front cap)
-//     nz > -faceCut   -> black   (back cap; still occludes from behind)
-//     otherwise       -> RIM     -> its own material, visible = false
-//
-//   The rim now renders nothing at all. The back cap survives, so the slab
-//   is still solid from the rear. Rim visibility is a dial ("show OLED
-//   rim") in case anything unexpected shows through, and there is a "hide
-//   bezel" toggle beside it so each trim can be isolated on demand and the
-//   attribution confirmed by eye rather than by argument.
-//
-// ============================================
-// v3.8.4 — OLED FACE-SPLIT THRESHOLD (the jagged corner lip)
-//
-//   The jagged, alternating rainbow edge on the OLED's top corners —
-//   visible ONLY from a grazing angle, never from above — was not the
-//   mesh. It was v3.8's own face classifier.
-//
-//   splitOledGeometry sorted the slab's triangles by the RAW SIGN of the
-//   face normal's Z:
-//
-//       front cap   nz ~ -1   -> screen      correct
-//       back cap    nz ~ +1   -> black       correct
-//       the RIM     nz ~  0   -> COIN TOSS   <-- the bug
-//
-//   The cut sat at exactly 0. The slab's rim is perpendicular to Z, so its
-//   normals land ON the boundary — and around a rounded corner the rim
-//   tilts, so half of those triangles wobble a hair negative and were
-//   handed the SCREEN TEXTURE. That is the jagged lip. It hides from a
-//   face-on view because the rim is the one surface you cannot see from
-//   straight on, and it concentrates at the corners because that is where
-//   the rim sweeps through the threshold.
-//
-//   Fix: normalise the face normal and cut in the EMPTY half of the
-//   distribution (OLED.faceCut = -0.5) instead of on the boundary. The cap
-//   clears it by 0.5; the rim misses it by 0.5. No rim triangle can take
-//   the screen material at any corner radius.
-//
-//   Live dial. The index buffer and groups are rebuilt in place from a
-//   cached per-triangle nz table — the scene graph is never re-traversed,
-//   so this is safe to drag at runtime. Slide it to 0 to reproduce the
-//   v3.8 bug on demand; that IS the proof. (?oled=-0.5)
-//
-//   RESIDUAL: if a stepped SILHOUETTE survives at faceCut -0.9, that part
-//   is the mesh's corner tessellation and no shader can fix it — that is a
-//   Blender bevel/segment-count job on the OLED slab, same drawer as the
-//   Glass_Bezel flank.
-//
-// ============================================
-// v3.8.3 — CONTACT SHADOW REMOVED
-//
-//   The horizontal line running clean across the screen AND out past the
-//   phone's silhouette on both sides was never a shadow ON the phone — it
-//   was ContactShadows itself. It is a ground plane at y = -0.7 and the
-//   camera sits at y = 0, so it was being viewed almost perfectly edge-on:
-//   a plane seen edge-on collapses to a line. Its opacity ran
-//   0.5 * (1 - rotate), so it was at FULL strength at the start of the
-//   timeline (the hero pose being captured) and faded out by the settle —
-//   which is why it only ever showed up here.
-//
-//   Nothing is lost by deleting it: the background is transparent, the
-//   phone is floating, and there is no ground for it to contact. The
-//   shadowRef and its per-frame opacity write go with it.
-//
-// ============================================
-// v3.8.2 — REVERT: PILL ROUTING + CAMERA HIDING
-//
-//   Two v3.8 interventions are withdrawn on request. Everything else
-//   from v3.8 / v3.8.1 stands untouched.
-//
-//   PILL ROUTING       WITHDRAWN. "Display Dynamic Island" no longer
-//     (reverted)       mounts in the glass group. It falls through the
-//                      traverse to body.push() exactly as it did before
-//                      v3.8 — so it carries NO GLASS_REG, NO 2.0×
-//                      explode, and sits in the body's frame. The
-//                      GLASS_GROUP_MATERIALS set and the 5b routing
-//                      block are gone.
-//
-//   STRAY CAMERA       WITHDRAWN. HIDDEN_MATERIALS and the hide branch
-//     (reverted)       are gone. "Front Camera (Center + Outer Ring)"
-//                      and "Display Camera Hole (Outer Bright)" render
-//                      again, in the body group, as they did before.
-//
-//   normMat            Removed with them — it existed only to feed those
-//     (removed)        two Sets and had no other caller.
-//
-//   Glass_Front cutout is UNAFFECTED by this revert. The pill hole is
-//   authored in the GLB geometry; no code path ever filled it, in any
-//   version. It stays hollow.
-//
-// ============================================
-// v3.8.1 — RETAINED
-//
-//   BEZEL DIALS        depthTest restored to true; anti-flicker handed to
-//                      polygonOffset. env / rough / offset are live dials
-//                      (?bezel=env,rough,offset).
-//
-//   TRANSLUCENT COATS  The old `opacity < 1 → paint it black` rule is gone.
-//                      Gloss coats (Rear Camera Island + Apple Logo, Flash
-//                      Bright, the camera-hole brights) render as AUTHORED
-//                      — real colour, real alpha, depthWrite off so they
-//                      cannot fight the surface they sit on. Only
-//                      alpha ≤ 0.05 films are still hidden.
-//
-// ============================================
-// v3.8 — RETAINED
-//
-//   LIGHTING RIG       Five stacked sources + NoToneMapping was the cream
-//                      blowout. Now one key, one fill, a low ambient, and
-//                      the IBL scaled by scene.environmentIntensity —
-//                      every one on a Leva dial, ACES Filmic tone mapping
-//                      with an exposure dial. (?light=amb,key,fill,env,exp)
-//
-//   OLED BACK FACE     Display_OLED is a SOLID SLAB (118.62 units of front-
-//                      facing area, 118.63 back-facing), so FrontSide drew
-//                      the UI on the phone's back too. Fixed by splitting
-//                      the index by face-normal Z into two geometry groups
-//                      and handing the mesh a MATERIAL ARRAY [screen, black].
-//                      Front is -Z (Glass_Front z -0.0051, Back Glass +0.005).
-//
-// ============================================
+// v3.8.x — lighting rig + ACES, OLED slab three-way face split, bezel
+//          dials, contact shadow removed, keyboard tap-vs-hold drive.
 // v3.7 — trackball ring (orientation-independent), 100 pose slots, labels.
 // v3.6 — timeline locks abolished, auto target routing, smooth square-up.
 // v3.5 — glass-reg baked (x -0.03, y 0.09, z 0.07), Leva reinstated.
@@ -449,8 +267,14 @@ const MODEL = {
   targetSize: 1.6,
 };
 
-const GLASS_REG_RANGE = 25;
 const GLASS_REG = { x: -0.03, y: 0.09, z: 0.07 };
+
+// ±25 (v3.11, restored). The model measures ~15.7 local units tall fitted
+// to 1.6 world units, so 1 slider unit ≈ 0.1 world units and the visible
+// frame is ~3.1 world units across. Clearing the frame needs ≈19 units;
+// ±25 carries the whole glass unit (pane + bezel + crack) clean out of
+// shot and back. That is the swap move.
+const GLASS_REG_RANGE = 25;
 
 // ============================================
 // LIGHT (v3.8) — the whole lighting rig as one tunable config.
@@ -546,9 +370,10 @@ const OLED = {
 // Overridable: ?glass=rough,env,opacity,clearcoat,ccRough
 // ---------------------------------------------------------
 const GLASS = {
+  color: 0xa8b6b0,
   rough: 0.12,
   env: 1.4,
-  opacity: 0.15,
+  opacity: 0.18,
   clearcoat: 1.0,
   ccRough: 0.06,
 };
@@ -585,8 +410,12 @@ const SHINE = {
 };
 
 // ---------------------------------------------------------
-// CRACK — a boolean and a registration. Nothing else.
-// `on` is saved into the pose slot, so the swap IS the pose change.
+// CRACK — a boolean and a registration. Nothing else. (v3.11 law)
+//
+// ON/OFF is saved into the pose slot with everything else — THAT is the
+// glass swap: pose A wears the crack, pose B does not. exit is where the
+// fracture pattern sits on the pane (X/Y only — a crack has no depth or
+// opacity of its own). Timeline progress never overrides `on`.
 // Overridable: ?crack=on,exitX,exitY
 // ---------------------------------------------------------
 const CRACK = {
@@ -641,13 +470,13 @@ const DEV = {
   shineMat: null, // deterministic sweep / glint shader
   setEnv: null, // Scene's setter — preset/blur need a React re-render
   refreshEnvironment: null, // custom Lightformer props need a React render
-  pathPreview: false, // path engine already owns easing; bypass render damping
+  pathPreview: false, // ONE-FRAME flag: path engine owns easing this frame
 };
 
 function applyPremiumGlassMaterial() {
   const mat = DEV.glassMat;
   if (!mat) return;
-  mat.color.setHex(0x000000);
+  mat.color.setHex(GLASS.color);
   mat.roughness = GLASS.rough;
   mat.envMapIntensity = GLASS.env;
   mat.clearcoat = GLASS.clearcoat;
@@ -764,6 +593,8 @@ const DRIVE_READERS = {
   lift: () => SETTLE.arcLift,
   pscale: () => SETTLE.scale,
   shine: () => SHINE.progress,
+  // v7.3 — glass reg and crack registration are first-class pose/path
+  // parameters: saved in slots, interpolated by paths, wireable.
   glassRegX: () => GLASS_REG.x,
   glassRegY: () => GLASS_REG.y,
   glassRegZ: () => GLASS_REG.z,
@@ -795,6 +626,12 @@ const DRIVE_CLAMPS = {
   crackExitX: [-4, 4],
   crackExitY: [-4, 4],
 };
+
+// Pose slots and motion paths may carry keys that no longer exist as Leva
+// controls (crackOpacity, crackExitZ, crackSpin* …). Every write to Leva
+// is filtered through this set so unknown keys never reach it and legacy
+// slots warp cleanly.
+const LEVA_KEYS = new Set([...Object.keys(DRIVE_READERS), "crackOn"]);
 
 function changeGizmoContext(targetMode) {
   if (DEV.gizmoDragging) return;
@@ -835,11 +672,11 @@ const WIREABLE_OPTIONS = {
   "Phone roll °": "settleZ",
   "Start tilt °": "tilt",
   "Glass reflection progress": "shine",
-  "Glass ↔": "glassRegX",
-  "Glass ↕": "glassRegY",
-  "Glass depth": "glassRegZ",
-  "Crack ↔": "crackExitX",
-  "Crack ↕": "crackExitY",
+  "Glass reg ↔ (X)": "glassRegX",
+  "Glass reg ↕ (Y)": "glassRegY",
+  "Glass reg depth (Z)": "glassRegZ",
+  "Crack ← →": "crackExitX",
+  "Crack ↑ ↓": "crackExitY",
 };
 
 const WIRE = {
@@ -1411,15 +1248,20 @@ function applyPoseParamsDirect(pose) {
   if (Number.isFinite(pose.shine)) {
     SHINE.progress = Math.max(0, Math.min(1, pose.shine));
   }
+  // v7.3 — glass registration is a pose/path parameter. This is the swap
+  // choreography: drive the unit out along a path, flip crack OFF at the
+  // out-of-shot node, drive it back in clean.
   if ([pose.glassRegX, pose.glassRegY, pose.glassRegZ].every(Number.isFinite)) {
-    GLASS_REG.x = pose.glassRegX;
-    GLASS_REG.y = pose.glassRegY;
-    GLASS_REG.z = pose.glassRegZ;
+    const clampReg = (v) =>
+      Math.max(-GLASS_REG_RANGE, Math.min(GLASS_REG_RANGE, v));
+    GLASS_REG.x = clampReg(pose.glassRegX);
+    GLASS_REG.y = clampReg(pose.glassRegY);
+    GLASS_REG.z = clampReg(pose.glassRegZ);
   }
+  if (typeof pose.crackOn === "boolean") CRACK.on = pose.crackOn;
   if ([pose.crackExitX, pose.crackExitY].every(Number.isFinite)) {
     CRACK.exit = [pose.crackExitX, pose.crackExitY];
   }
-  if (typeof pose.crackOn === "boolean") CRACK.on = pose.crackOn;
   if (Number.isFinite(pose.p)) {
     const p = Math.max(0, Math.min(1, pose.p));
     DEV.lastP = p;
@@ -1432,7 +1274,11 @@ function applyPoseParamsDirect(pose) {
 function syncPoseControls(pose) {
   if (!pose || !DEV.setLeva) return;
   WIRE.suspended = true;
-  DEV.setLeva({ ...pose, drive: driveLabel() });
+  const writes = { drive: driveLabel() };
+  for (const k of Object.keys(pose)) {
+    if (LEVA_KEYS.has(k)) writes[k] = pose[k];
+  }
+  DEV.setLeva(writes);
   WIRE.suspended = false;
 }
 
@@ -1589,6 +1435,9 @@ function downloadJSON(filename, value) {
 function readPoseParams() {
   const o = {};
   for (const k of Object.keys(DRIVE_READERS)) o[k] = DRIVE_READERS[k]();
+  // glassRegX/Y/Z and crackExitX/Y flow through DRIVE_READERS above.
+  // crackOn rides in the slot with everything else. THAT is the glass
+  // swap: slot A = cracked, slot B = same pose, crack off.
   o.crackOn = CRACK.on;
   o.p = DEV.lastP;
   return o;
@@ -1601,9 +1450,12 @@ function takeSnapshot(slot) {
 function warpToParams(snap) {
   if (!snap || !DEV.setLeva) return;
   WIRE.suspended = true;
-  const { p, ...rest } = snap;
-  DEV.setLeva(rest);
-  if (typeof p === "number") jumpToP(p);
+  const writes = {};
+  for (const k of Object.keys(snap)) {
+    if (LEVA_KEYS.has(k)) writes[k] = snap[k];
+  }
+  DEV.setLeva(writes);
+  if (typeof snap.p === "number") jumpToP(snap.p);
   WIRE.suspended = false;
 }
 
@@ -1858,6 +1710,7 @@ function serialiseParams(params) {
   );
   params.set("envp", LIGHT.preset);
   params.set("envb", LIGHT.blur.toFixed(2));
+  // on, exitX, exitY. That is the entire crack channel. (v3.11 law)
   params.set(
     "crack",
     [CRACK.on ? 1 : 0, CRACK.exit[0], CRACK.exit[1]]
@@ -2419,7 +2272,9 @@ function DevControls({ initialP }) {
       { collapsed: false }
     ),
 
-    // ---- Claude v3.11.1: crack state + registration only. ----
+    // ---- CRACKED PANE (v3.11 law). ON or OFF, and where the fracture
+    // sits on the pane. Nothing else is true about a crack. The boolean
+    // saves into every pose slot — THAT is the glass swap. Shortcut: C. ----
     "💥 cracked pane": folder(
       {
         crackOn: {
@@ -2453,6 +2308,50 @@ function DevControls({ initialP }) {
         },
       },
       { collapsed: true }
+    ),
+
+    // ---- GLASS REGISTRATION (±25, v3.11 restored). 1 unit ≈ 0.1 world
+    // units; the frame is ~3.1 world units across, so ±25 carries the whole
+    // glass unit (pane + bezel + crack) clean out of shot and back — that is
+    // the swap move. Saved in pose slots, interpolated by motion paths, and
+    // wireable in compound motion for fine work on a range this wide. ----
+    "🔲 glass registration (±25 — drives the pane OUT of shot)": folder(
+      {
+        glassRegX: {
+          value: GLASS_REG.x,
+          min: -GLASS_REG_RANGE,
+          max: GLASS_REG_RANGE,
+          step: 0.05,
+          label: "glass ← → (X)",
+          onChange: (v) => {
+            GLASS_REG.x = v;
+            wireTap("glassRegX", v);
+          },
+        },
+        glassRegY: {
+          value: GLASS_REG.y,
+          min: -GLASS_REG_RANGE,
+          max: GLASS_REG_RANGE,
+          step: 0.05,
+          label: "glass ↑ ↓ (Y)",
+          onChange: (v) => {
+            GLASS_REG.y = v;
+            wireTap("glassRegY", v);
+          },
+        },
+        glassRegZ: {
+          value: GLASS_REG.z,
+          min: -GLASS_REG_RANGE,
+          max: GLASS_REG_RANGE,
+          step: 0.05,
+          label: "glass depth (Z)",
+          onChange: (v) => {
+            GLASS_REG.z = v;
+            wireTap("glassRegZ", v);
+          },
+        },
+      },
+      { collapsed: false }
     ),
 
     // ---- v3.8.1 BEZEL — the black-rim cause is UNRESOLVED, so this is a
@@ -2840,44 +2739,6 @@ function DevControls({ initialP }) {
       },
       { collapsed: true }
     ),
-    "🔲 glass registration  (±25 — drives the pane OUT of shot)": folder(
-      {
-        glassRegY: {
-          value: GLASS_REG.y,
-          min: -GLASS_REG_RANGE,
-          max: GLASS_REG_RANGE,
-          step: 0.05,
-          label: "glass ↑ ↓ (Y)",
-          onChange: (v) => {
-            GLASS_REG.y = v;
-            wireTap("glassRegY", v);
-          },
-        },
-        glassRegX: {
-          value: GLASS_REG.x,
-          min: -GLASS_REG_RANGE,
-          max: GLASS_REG_RANGE,
-          step: 0.05,
-          label: "glass ← → (X)",
-          onChange: (v) => {
-            GLASS_REG.x = v;
-            wireTap("glassRegX", v);
-          },
-        },
-        glassRegZ: {
-          value: GLASS_REG.z,
-          min: -GLASS_REG_RANGE,
-          max: GLASS_REG_RANGE,
-          step: 0.05,
-          label: "glass depth (Z)",
-          onChange: (v) => {
-            GLASS_REG.z = v;
-            wireTap("glassRegZ", v);
-          },
-        },
-      },
-      { collapsed: true }
-    ),
   }));
 
   useEffect(() => {
@@ -3082,7 +2943,7 @@ function DevDashboard() {
   const [selectedPathNode, setSelectedPathNode] = useState(-1);
   const [pathProgress, setPathProgress] = useState(0);
   const [pathPlaying, setPathPlaying] = useState(false);
-  const [status, setStatus] = useState("v7.2.1 Claude glass restored");
+  const [status, setStatus] = useState("v7.3 hybrid ready — glass reg ±25, crack ON/OFF");
   const [library, setLibrary] = useState(loadMotionLibrary);
   const [libraryId, setLibraryId] = useState("");
   const [importText, setImportText] = useState("");
@@ -3686,7 +3547,7 @@ function DevDashboard() {
   if (collapsed) {
     return (
       <div ref={panelRef} style={UI.panelCollapsed}>
-        <b style={{ color: "#2e7d52", letterSpacing: 1 }}>iGLASS v7.2.1</b>
+        <b style={{ color: "#2e7d52", letterSpacing: 1 }}>iGLASS v7.3.0</b>
         <span style={chipStyle(false)} onClick={() => setCollapsed(false)}>▸ open</span>
       </div>
     );
@@ -3695,7 +3556,7 @@ function DevDashboard() {
   return (
     <div ref={panelRef} style={UI.panel}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <b style={{ color: "#2e7d52", letterSpacing: 1 }}>iGLASS PRODUCTION STUDIO v7.2.1</b>
+        <b style={{ color: "#2e7d52", letterSpacing: 1 }}>iGLASS PRODUCTION STUDIO v7.3.0</b>
         <span style={chipStyle(false)} onClick={() => setCollapsed(true)}>▾ hide</span>
       </div>
       <div style={{ ...UI.hint, marginTop: 3, color: status.startsWith("import failed") ? "#a02b2b" : "#5a6b60" }}>{status}</div>
@@ -4588,14 +4449,14 @@ function DevGizmo() {
 //   ?size=1.6                  MODEL.targetSize
 //   ?pscale=0.8                SETTLE.scale
 //   ?spos / ?srot / ?sscale    STAGE transform
-//   ?glassreg=x,y,z            moving front-pane registration
+//   ?glassreg=x,y,z            glass-unit registration (clamped to ±25)
 //   ?light=amb,key,fill,env,exp   v3.8 lighting rig
 //   ?bezel=env,rough,offset       v3.8.1 bezel dials
 //   ?oled=-0.5,0                  OLED face-split cut, rim on/off
 //   ?glass=rough,env,opac,cc,ccr  v3.9 front-glass material
 //   ?glassfx=...                   deterministic sweep/glint/environment
 //   ?envp=studio   ?envb=0        reflected world + IBL blur
-//   ?crack=opac,exX,exY,exZ       cracked-pane strength + discard path
+//   ?crack=on,exX,exY             crack ON/OFF + fracture registration
 //   ?motion=<base64url-json>       self-contained slot-based motion path
 //   ?mp=0.5                       freeze motion-path progress for capture
 //   ?snap=1                    deterministic capture (Playwright)
@@ -4669,9 +4530,11 @@ function resolveRuntimeConfig() {
   if (glassregParam) {
     const parts = glassregParam.split(",").map((v) => parseFloat(v));
     if (parts.length === 3 && parts.every((v) => !isNaN(v))) {
-      GLASS_REG.x = parts[0];
-      GLASS_REG.y = parts[1];
-      GLASS_REG.z = parts[2];
+      const clampReg = (v) =>
+        Math.max(-GLASS_REG_RANGE, Math.min(GLASS_REG_RANGE, v));
+      GLASS_REG.x = clampReg(parts[0]);
+      GLASS_REG.y = clampReg(parts[1]);
+      GLASS_REG.z = clampReg(parts[2]);
     }
   }
 
@@ -4783,11 +4646,12 @@ function resolveRuntimeConfig() {
   if (crackParam) {
     const q = crackParam.split(",").map((v) => parseFloat(v));
     if (q.length === 3 && q.every((v) => !isNaN(v))) {
+      // v7.3 / v3.11 format: on, exitX, exitY.
       CRACK.on = q[0] > 0.5;
       CRACK.exit = [q[1], q[2]];
     } else if (q.length === 5 && q.every((v) => !isNaN(v))) {
-      // v7.2 legacy: on, opacity, X, Y, Z.
-      CRACK.on = q[0] > 0.5;
+      // v7.2 legacy: on, opacity, X, Y, Z. Opacity ≤ 0 meant invisible.
+      CRACK.on = q[0] > 0.5 && q[1] > 0.001;
       CRACK.exit = [q[2], q[3]];
     } else if (q.length === 4 && q.every((v) => !isNaN(v))) {
       // v7.1 legacy: opacity, X, Y, Z.
@@ -4849,16 +4713,10 @@ function phaseMap(p) {
       ? 0
       : smoothstep((p - reassembleEnd) / (1 - reassembleEnd));
 
-  // The cracked pane is discarded across the HOLD — the beat where the
-  // phone is already open. 0 = still cracked, 1 = clean pane only.
-  const swap =
-    p <= explodeEnd
-      ? 0
-      : p >= holdEnd
-      ? 1
-      : smoothstep((p - explodeEnd) / (holdEnd - explodeEnd));
-
-  return { explode, rotate, swap };
+  // No swap channel. The glass swap is pose choreography — crack ON/OFF
+  // saved in slots plus glass registration driven by a motion path — not
+  // a timeline phase. (v3.11 law; v7.2's reinstated swap fed nothing.)
+  return { explode, rotate };
 }
 
 // ============================================
@@ -4887,7 +4745,6 @@ const scrollState = {
   oledOffset: 0,
   phoneOffset: 0,
   rotate: 0,
-  swap: 0,
 };
 
 // ---------------------------------------------------------
@@ -5094,13 +4951,16 @@ function IPhoneExploded({
   // body group, which is where they lived before v3.8 and where they
   // belong again (v3.8.2 revert).
   //
-  // Claude v3.11.1 glass unit: Front Window + Bezel + crack.
-  // Render order: Body 0 → coats 1 → OLED 1 → Glass 3 → CRACK 4 → Bezel 5
+  // Bezel rides WITH the glass — pane + bezel + crack are one glass unit
+  // and leave the frame together (the parenting it has always had;
+  // v7.1's decoupling is reverted).
+  // Render order: Body 0 → coats 1 → OLED 1 → Glass Front 3 → Bezel 5
   // ---------------------------------------------------------
-  const { glassMeshes, oledMeshes, bodyMeshes, crackGeo } = useMemo(() => {
+  const { glassMeshes, oledMeshes, bodyMeshes, bezelMeshes, crackGeo } = useMemo(() => {
     const glass = [];
     const oled = [];
     const body = [];
+    const bezel = [];
     let crack = null;
     DEV.bezelMeshes = [];
 
@@ -5136,24 +4996,27 @@ function IPhoneExploded({
         DEV.bezelMat = bezelMat; // live handle for the Leva folder
         DEV.bezelMeshes.push(child); // live handle for the isolate toggle
         child.renderOrder = 5; // above the crack overlay (4)
-        glass.push(child);
+        bezel.push(child);
         return;
       }
 
       // ---- 2. GLASS FRONT ----
-      // The Dynamic Island cutout is authored into this geometry. Nothing
-      // here fills it, in any version — it stays a true hole.
-      if (
+      // Exact front-glass names only (v7.1's genuine fix, kept): "Back
+      // Glass" must never be caught by a generic glass test. The Dynamic
+      // Island cutout is authored into this geometry. Nothing here fills
+      // it, in any version — it stays a true hole.
+      const isFrontGlass =
         name.includes("glass_front") ||
         name.includes("glass front") ||
-        (name.includes("glass") && !name.includes("bezel"))
-      ) {
+        name.includes("front_glass") ||
+        name.includes("front glass");
+      if (isFrontGlass) {
         // MeshPHYSICAL, not Standard. The clearcoat is the whole point: a
         // second specular layer with its own roughness. Constructed with a
         // non-zero clearcoat so the shader compiles the chunk in — dialling
         // it to 0 later is then a uniform write, not a recompile.
         const glassMat = new THREE.MeshPhysicalMaterial({
-          color: new THREE.Color(0x000000),
+          color: new THREE.Color(GLASS.color),
           roughness: GLASS.rough,
           metalness: 0.0,
           transparent: true,
@@ -5325,7 +5188,7 @@ function IPhoneExploded({
     // pose relative to the body, expressed in the exact frame the body
     // already rendered in — so pivot fit, rest quaternion, internals plane
     // and explode distances need no retune.
-    const allMeshes = [...glass, ...oled, ...body];
+    const allMeshes = [...glass, ...oled, ...body, ...bezel];
     const anchorMesh = body[0] || allMeshes[0];
     if (anchorMesh) {
       const anchorLocal = anchorMesh.matrix.clone();
@@ -5342,19 +5205,19 @@ function IPhoneExploded({
       glassMeshes: glass,
       oledMeshes: oled,
       bodyMeshes: body,
+      bezelMeshes: bezel,
       crackGeo: crack,
     };
   }, [clonedScene, oledTexture, maxAniso]);
 
   // ---------------------------------------------------------
-  // CRACKED-PANE MATERIAL (v3.9)
+  // CRACKED-PANE MATERIAL (v3.9 / v3.11)
   //
   // The PNG is white/grey crack lines on TRANSPARENT. transparent:true
   // means the PNG's own alpha carves the shape, so the pane is invisible
   // everywhere except along the fractures — which sit ON TOP of the clean
-  // glass beneath. depthWrite off so it cannot fight the pane it lies on;
-  // polygonOffset -3 so it wins over the glass's -2 where they are exactly
-  // coplanar (they are — it is the same geometry).
+  // glass beneath. depthWrite off so it cannot fight the pane it lies on.
+  // Visibility is BINARY (CRACK.on) — a crack has no opacity dial.
   // ---------------------------------------------------------
   const crackMat = useMemo(() => {
     const m = new THREE.MeshPhysicalMaterial({
@@ -5364,8 +5227,9 @@ function IPhoneExploded({
       roughness: 0.06,
       metalness: 0.0,
       depthWrite: false,
-      // The source GLB's front pane can sit fractionally behind the opaque
-      // OLED at the docked pose. The crack is the outermost visual surface,
+      // v3.11.1 fix, carried: the source GLB's front pane can sit
+      // fractionally behind the opaque OLED at the docked pose (the
+      // Blender mesh defect). The crack is the outermost visual surface,
       // so it must not be rejected by the OLED's depth buffer.
       depthTest: false,
       envMapIntensity: GLASS.env,
@@ -5573,7 +5437,13 @@ function IPhoneExploded({
   // ANIMATION
   // ---------------------------------------------------------
   useFrame((state) => {
+    // pathPreview is a ONE-FRAME flag. The path engine re-arms it on every
+    // pose write it makes, so damping stays bypassed for the whole playback
+    // or scrub — but the moment the engine stops writing, damping is
+    // restored. (The v7.2 defect: set once, never cleared — one path scrub
+    // killed render damping for the rest of the session.)
     const damp = CAPTURE_SNAP || DEV.pathPreview ? 1 : 0.1;
+    DEV.pathPreview = false;
 
     // ---- v3.8 LIGHT apply. Runs in production too (URL-driven look
     // channel). scene.environmentIntensity scales the IBL contribution;
@@ -5643,7 +5513,11 @@ function IPhoneExploded({
     }
 
     if (glassGroupRef.current) {
-      // GLASS_REG rides only the transparent Front Window in v7.1.
+      // THE GLASS UNIT: pane + bezel + crack, one assembly. ±25 on the
+      // registration is enough to carry it clean out of frame and back —
+      // that is the swap move. X/Y are written directly (a swap is a move
+      // you are DRIVING, not a spring); Z keeps its lerp so the explode
+      // still eases.
       const target = -(scrollState.glassOffset * explodeDistance * 2.0);
       glassGroupRef.current.position.z = THREE.MathUtils.lerp(
         glassGroupRef.current.position.z,
@@ -5654,17 +5528,13 @@ function IPhoneExploded({
       glassGroupRef.current.position.y = GLASS_REG.y;
     }
 
-    // ---- CRACKED PANE ----
-    // It is a child of the moving front glass. Only its optional discard
-    // offset is local; the parent's GLASS_REG/explode transform supplies the
-    // pane motion. This prevents the crack and glass transforms diverging.
+    // ---- CRACKED PANE (v3.11 law) ----
+    // A child of the moving glass unit. It has no travel of its own — its
+    // only transform is where the fracture pattern sits on the pane, and
+    // its only other truth is whether it is there at all.
     if (crackGroupRef.current && hasCrack) {
-      const g = crackGroupRef.current;
-      g.position.set(CRACK.exit[0], CRACK.exit[1], 0);
-
-      if (DEV.crackMat) {
-        DEV.crackMat.visible = CRACK.on;
-      }
+      crackGroupRef.current.position.set(CRACK.exit[0], CRACK.exit[1], 0);
+      if (DEV.crackMat) DEV.crackMat.visible = CRACK.on;
     }
 
     if (oledGroupRef.current) {
@@ -5732,10 +5602,15 @@ function IPhoneExploded({
         }}
       >
         <group ref={pivotRef}>
-          {/* MOVING GLASS — transparent Front Window only. */}
+          {/* MOVING GLASS UNIT — Front Window + Bezel + the crack riding on
+              it. A real screen assembly includes its bezel; they leave the
+              frame together. That is the swap. */}
           <group ref={glassGroupRef}>
             {glassMeshes.map((m, i) => (
               <primitive key={`glass-${i}`} object={m} />
+            ))}
+            {bezelMeshes.map((m, i) => (
+              <primitive key={`bezel-${i}`} object={m} />
             ))}
             {crackGeo && (
               <mesh
@@ -5970,10 +5845,9 @@ export default function CrossSection3DScrollGLB(props) {
 
   useEffect(() => {
     const applyProgress = (p) => {
-      const { explode, rotate, swap } = phaseMap(p);
+      const { explode, rotate } = phaseMap(p);
       scrollState.explosion = explode;
       scrollState.rotate = rotate;
-      scrollState.swap = swap;
       scrollState.glassOffset = mapRange(
         explode,
         glassStagger[0],
@@ -6235,7 +6109,7 @@ export default function CrossSection3DScrollGLB(props) {
             internalsTexture={internalsTexture}
             crackTexture={crackTexture}
             explodeDistance={explodeDistance}
-            dev={dev}
+          dev={dev}
           />
         </Canvas>
       </div>
@@ -6246,4 +6120,3 @@ export default function CrossSection3DScrollGLB(props) {
 useGLTF.preload(defaultProps.modelPath);
 useTexture.preload(defaultProps.screenTexture);
 useTexture.preload(defaultProps.internalsTexture);
-useTexture.preload(defaultProps.crackTexture);
