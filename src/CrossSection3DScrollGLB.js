@@ -18,6 +18,14 @@ import { Leva, useControls, button, folder } from "leva";
 gsap.registerPlugin(ScrollTrigger);
 
 // ============================================
+// v7.0 — PRODUCTION MOTION STUDIO
+//
+//   Simplified production preset, one compound-motion editor, unified top
+//   playhead with live node following, reusable motion snippets, and A/B/C
+//   path comparison. The clean-glass sweep now begins visibly at 0 and sits
+//   over a neutral transparent pane instead of a black-tinted substrate.
+//
+// ============================================
 // v6.0 — PREMIUM GLASS LAB
 //
 //   Deterministic clean-glass reflection sweep, Fresnel edge sheen,
@@ -496,22 +504,13 @@ const OLED = {
 //   ccRough    the clearcoat's OWN roughness. Lets the coat highlight stay
 //              tight while the base reflection goes soft, or vice versa.
 // Overridable: ?glass=rough,env,opacity,clearcoat,ccRough
-//              ?glassphys=physical,transmission,thickness,ior,specular,
-//                         iridescence,iridescenceIOR
 // ---------------------------------------------------------
 const GLASS = {
   rough: 0.12,
   env: 1.4,
-  opacity: 0.15,
+  opacity: 0.0,
   clearcoat: 1.0,
   ccRough: 0.06,
-  physical: false,
-  transmission: 0.97,
-  thickness: 0.08,
-  ior: 1.5,
-  specular: 1.0,
-  iridescence: 0.06,
-  iridescenceIOR: 1.3,
 };
 
 // ---------------------------------------------------------
@@ -533,11 +532,6 @@ const SHINE = {
   stripWidth: 0.035,
   angleDeg: -18,
   persistent: 0.035,
-  fresnel: 0.075,
-  fresnelPower: 4.0,
-  bevel: true,
-  bevelStrength: 0.14,
-  bevelWidth: 0.018,
   glint: true,
   glintStrength: 0.7,
   glintSize: 0.12,
@@ -616,8 +610,7 @@ const DEV = {
   oledRimMat: null, // live handle — the "show OLED rim" toggle
   glassMat: null, // live handle — the front-glass folder
   crackMat: null, // live handle — the cracked-pane folder
-  shineMat: null, // v6 deterministic sweep / Fresnel / glint shader
-  bevelMat: null, // v6 generated perimeter edge
+  shineMat: null, // deterministic sweep / glint shader
   setEnv: null, // Scene's setter — preset/blur need a React re-render
   refreshEnvironment: null, // custom Lightformer props need a React render
   pathPreview: false, // path engine already owns easing; bypass render damping
@@ -626,20 +619,12 @@ const DEV = {
 function applyPremiumGlassMaterial() {
   const mat = DEV.glassMat;
   if (!mat) return;
-  mat.color.setHex(GLASS.physical ? 0xffffff : 0x000000);
+  mat.color.setHex(0xffffff);
   mat.roughness = GLASS.rough;
   mat.envMapIntensity = GLASS.env;
   mat.clearcoat = GLASS.clearcoat;
   mat.clearcoatRoughness = GLASS.ccRough;
-  mat.opacity = GLASS.physical ? 1 : GLASS.opacity;
-  mat.transmission = GLASS.physical ? GLASS.transmission : 0;
-  mat.thickness = GLASS.thickness;
-  mat.ior = GLASS.ior;
-  mat.specularIntensity = GLASS.specular;
-  mat.iridescence = GLASS.iridescence;
-  mat.iridescenceIOR = GLASS.iridescenceIOR;
-  // Transmission changes shader defines in some Three releases.
-  mat.needsUpdate = true;
+  mat.opacity = GLASS.opacity;
 }
 
 // The dashboard and R3F scene deliberately meet through one tiny live bridge.
@@ -648,10 +633,13 @@ const MOTION_DEV = {
   path: null,
   progress: 0,
   selectedNode: -1,
+  activeNode: -1,
   showPath: true,
   showGhosts: true,
   editHandles: false,
   diagnostics: null,
+  comparePaths: [],
+  compareActive: -1,
   version: 0,
   moveHandle: null,
   selectNode: null,
@@ -859,6 +847,8 @@ const SLOT_THUMB_KEY = "iglass_pose_slot_thumbs_v1";
 const SLOT_COUNT = 150;
 const MOTION_PATH_KEY = "iglass_motion_path_v1";
 const MOTION_LIBRARY_KEY = "iglass_motion_path_library_v1";
+const MOTION_SNIPPET_KEY = "iglass_motion_snippets_v1";
+const MOTION_COMPARE_KEY = "iglass_motion_compare_v1";
 
 const MOTION_EASES = {
   linear: (t) => t,
@@ -888,9 +878,10 @@ const POSE_ROTATION_KEYS = new Set(POSE_ROTATION_GROUPS.flat());
 function defaultMotionPath() {
   return {
     version: 2,
+    productionPresetVersion: 1,
     name: "Untitled path",
     trajectory: "curve",
-    curveType: "centripetal",
+    curveType: "catmullrom",
     tension: 0.5,
     arcLength: true,
     continuous: true,
@@ -906,6 +897,20 @@ function defaultMotionPath() {
     loop: true,
     nodes: [],
   };
+}
+
+function applyProductionPreset(path) {
+  return normaliseMotionPath({
+    ...path,
+    trajectory: "curve",
+    curveType: "catmullrom",
+    arcLength: true,
+    continuous: true,
+    globalEase: "linear",
+    orientationMode: "quaternion",
+    bank: 0,
+    productionPresetVersion: 1,
+  });
 }
 
 function normaliseMotionPath(saved) {
@@ -924,6 +929,7 @@ function normaliseMotionPath(saved) {
             Array.isArray(n.position) && n.position.length === 3 && n.position.every(Number.isFinite)
               ? n.position.map(Number)
               : null,
+          pose: n.pose && typeof n.pose === "object" ? { ...n.pose } : null,
         }))
     : [];
   return {
@@ -965,7 +971,11 @@ function loadMotionPath() {
   try {
     const raw = window.localStorage.getItem(MOTION_PATH_KEY);
     const saved = raw ? JSON.parse(raw) : null;
-    if (saved && Array.isArray(saved.nodes)) return normaliseMotionPath(saved);
+    if (saved && Array.isArray(saved.nodes)) {
+      return saved.productionPresetVersion === 1
+        ? normaliseMotionPath(saved)
+        : applyProductionPreset(saved);
+    }
   } catch (e) {
     /* corrupted store -> fresh path */
   }
@@ -983,7 +993,9 @@ function persistMotionPath(path) {
 function compileMotionPath(path, slots) {
   const nodes = path.nodes
     .map((node) => {
-      const pose = slots[node.slot] || null;
+      const pose = node.pose && typeof node.pose === "object"
+        ? node.pose
+        : slots[node.slot] || null;
       const position =
         Array.isArray(node.position) && node.position.every(Number.isFinite)
           ? node.position.map(Number)
@@ -1024,6 +1036,25 @@ function motionPathDuration(path) {
       (path.continuous ? 0 : Math.max(0, Number(node.hold) || 0)),
     0
   );
+}
+
+function nearestMotionNode(path, progress) {
+  if (!path || !path.nodes?.length) return -1;
+  if (path.nodes.length === 1) return 0;
+  const pose = sampleMotionPath(path, Math.max(0, Math.min(1, progress)));
+  if (!pose) return -1;
+  const point = new THREE.Vector3(pose.sposX, pose.sposY, pose.sposZ);
+  let nearest = 0;
+  let nearestDistance = Infinity;
+  path.nodes.forEach((node, i) => {
+    if (!Array.isArray(node.position)) return;
+    const distance = point.distanceToSquared(new THREE.Vector3(...node.position));
+    if (distance < nearestDistance) {
+      nearestDistance = distance;
+      nearest = i;
+    }
+  });
+  return nearest;
 }
 
 function attachMotionCurve(path) {
@@ -1747,20 +1778,6 @@ function serialiseParams(params) {
       .join(",")
   );
   params.set(
-    "glassphys",
-    [
-      GLASS.physical ? 1 : 0,
-      GLASS.transmission,
-      GLASS.thickness,
-      GLASS.ior,
-      GLASS.specular,
-      GLASS.iridescence,
-      GLASS.iridescenceIOR,
-    ]
-      .map((v) => Number(v).toFixed(3))
-      .join(",")
-  );
-  params.set(
     "glassfx",
     [
       SHINE.enabled ? 1 : 0,
@@ -1770,11 +1787,6 @@ function serialiseParams(params) {
       SHINE.stripWidth,
       SHINE.angleDeg,
       SHINE.persistent,
-      SHINE.fresnel,
-      SHINE.fresnelPower,
-      SHINE.bevel ? 1 : 0,
-      SHINE.bevelStrength,
-      SHINE.bevelWidth,
       SHINE.glint ? 1 : 0,
       SHINE.glintStrength,
       SHINE.glintSize,
@@ -2038,7 +2050,7 @@ function captureStageFromObject() {
 function jumpToP(v) {
   DEV.lastP = v;
   if (DEV.applyProgress) DEV.applyProgress(v);
-  if (DEV.setLeva) DEV.setLeva({ p: v, drive: driveLabel() });
+  if (DEV.setLeva) DEV.setLeva({ drive: driveLabel() });
 }
 
 const LEVA_LIGHT = {
@@ -2067,53 +2079,10 @@ function DevControls({ initialP }) {
   const [, set] = useControls(() => ({
     drive: { value: driveLabel(), editable: false },
 
-    // ---- v3.8 LIGHTING — open by default. This is the dial set that
-    // replaces the hard-coded five-source blowout. Match the Blender
-    // reference by eye, then read the numbers off 📋 copy URL / 📸 save
-    // card and they get baked as the compiled LIGHT defaults. ----
+    // ---- v7 LIGHTING. The stable key/fill/IBL values remain internal;
+    // only the two production decisions stay exposed. ----
     "💡 lighting": folder(
       {
-        amb: {
-          value: LIGHT.amb,
-          min: 0,
-          max: 1.5,
-          step: 0.01,
-          label: "ambient fill",
-          onChange: (v) => {
-            LIGHT.amb = v;
-          },
-        },
-        key: {
-          value: LIGHT.key,
-          min: 0,
-          max: 5,
-          step: 0.05,
-          label: "key light",
-          onChange: (v) => {
-            LIGHT.key = v;
-          },
-        },
-        fill: {
-          value: LIGHT.fill,
-          min: 0,
-          max: 3,
-          step: 0.05,
-          label: "fill / rim light",
-          onChange: (v) => {
-            LIGHT.fill = v;
-          },
-        },
-        env: {
-          value: LIGHT.env,
-          min: 0,
-          max: 3,
-          step: 0.05,
-          label: "studio reflections",
-          onChange: (v) => {
-            LIGHT.env = v;
-            DEV.dirtyLight = true;
-          },
-        },
         exp: {
           value: LIGHT.exp,
           min: 0.1,
@@ -2131,17 +2100,6 @@ function DevControls({ initialP }) {
           label: "reflected world (the circle's shape)",
           onChange: (v) => {
             LIGHT.preset = v;
-            if (DEV.setEnv) DEV.setEnv(LIGHT.preset, LIGHT.blur);
-          },
-        },
-        envBlur: {
-          value: LIGHT.blur,
-          min: 0,
-          max: 1,
-          step: 0.01,
-          label: "IBL blur (softens EVERY reflection)",
-          onChange: (v) => {
-            LIGHT.blur = v;
             if (DEV.setEnv) DEV.setEnv(LIGHT.preset, LIGHT.blur);
           },
         },
@@ -2182,7 +2140,7 @@ function DevControls({ initialP }) {
           min: 0,
           max: 1,
           step: 0.01,
-          label: "tint / darkness",
+          label: "neutral pane opacity",
           onChange: (v) => {
             GLASS.opacity = v;
             applyPremiumGlassMaterial();
@@ -2216,88 +2174,9 @@ function DevControls({ initialP }) {
 
     // ---- v6 PREMIUM GLASS LAB. `shine` is part of every saved pose and
     // motion path. All other values define the look and ride copy URL / the
-    // capture manifest through ?glassphys and ?glassfx. ----
+    // capture manifest through ?glassfx. ----
     "💎 premium glass lab": folder(
       {
-        "material / coating": folder(
-          {
-            glassPhysical: {
-              value: GLASS.physical,
-              label: "physical transmission",
-              onChange: (v) => {
-                GLASS.physical = v;
-                applyPremiumGlassMaterial();
-              },
-            },
-            glassTransmission: {
-              value: GLASS.transmission,
-              min: 0,
-              max: 1,
-              step: 0.01,
-              label: "transmission",
-              onChange: (v) => {
-                GLASS.transmission = v;
-                applyPremiumGlassMaterial();
-              },
-            },
-            glassThickness: {
-              value: GLASS.thickness,
-              min: 0,
-              max: 1,
-              step: 0.005,
-              label: "optical thickness",
-              onChange: (v) => {
-                GLASS.thickness = v;
-                applyPremiumGlassMaterial();
-              },
-            },
-            glassIOR: {
-              value: GLASS.ior,
-              min: 1,
-              max: 2.333,
-              step: 0.01,
-              label: "index of refraction",
-              onChange: (v) => {
-                GLASS.ior = v;
-                applyPremiumGlassMaterial();
-              },
-            },
-            glassSpecular: {
-              value: GLASS.specular,
-              min: 0,
-              max: 2,
-              step: 0.01,
-              label: "specular intensity",
-              onChange: (v) => {
-                GLASS.specular = v;
-                applyPremiumGlassMaterial();
-              },
-            },
-            glassIridescence: {
-              value: GLASS.iridescence,
-              min: 0,
-              max: 1,
-              step: 0.01,
-              label: "coating iridescence",
-              onChange: (v) => {
-                GLASS.iridescence = v;
-                applyPremiumGlassMaterial();
-              },
-            },
-            glassIridescenceIOR: {
-              value: GLASS.iridescenceIOR,
-              min: 1,
-              max: 2.333,
-              step: 0.01,
-              label: "iridescence IOR",
-              onChange: (v) => {
-                GLASS.iridescenceIOR = v;
-                applyPremiumGlassMaterial();
-              },
-            },
-          },
-          { collapsed: true }
-        ),
         "reflection sweep": folder(
           {
             shineEnabled: {
@@ -2370,58 +2249,6 @@ function DevControls({ initialP }) {
             },
           },
           { collapsed: false }
-        ),
-        "Fresnel / micro-bevel": folder(
-          {
-            shineFresnel: {
-              value: SHINE.fresnel,
-              min: 0,
-              max: 0.5,
-              step: 0.0025,
-              label: "grazing-angle edge sheen",
-              onChange: (v) => {
-                SHINE.fresnel = v;
-              },
-            },
-            shineFresnelPower: {
-              value: SHINE.fresnelPower,
-              min: 0.5,
-              max: 10,
-              step: 0.1,
-              label: "Fresnel falloff",
-              onChange: (v) => {
-                SHINE.fresnelPower = v;
-              },
-            },
-            shineBevel: {
-              value: SHINE.bevel,
-              label: "generated edge on",
-              onChange: (v) => {
-                SHINE.bevel = v;
-              },
-            },
-            shineBevelStrength: {
-              value: SHINE.bevelStrength,
-              min: 0,
-              max: 1,
-              step: 0.005,
-              label: "edge brightness",
-              onChange: (v) => {
-                SHINE.bevelStrength = v;
-              },
-            },
-            shineBevelWidth: {
-              value: SHINE.bevelWidth,
-              min: 0.002,
-              max: 0.12,
-              step: 0.001,
-              label: "optical bevel width",
-              onChange: (v) => {
-                SHINE.bevelWidth = v;
-              },
-            },
-          },
-          { collapsed: true }
         ),
         "controlled glint / halo": folder(
           {
@@ -2706,7 +2533,7 @@ function DevControls({ initialP }) {
       { collapsed: true }
     ),
 
-    "🔗 wiring": folder(
+    "🔗 triple compound motion": folder(
       {
         wire: {
           value: false,
@@ -2763,23 +2590,6 @@ function DevControls({ initialP }) {
           },
         },
         "↺ reset run": button(wireResetRun),
-      },
-      { collapsed: true }
-    ),
-    "⏱ timeline": folder(
-      {
-        p: {
-          value: initialP,
-          min: 0,
-          max: 1,
-          step: 0.001,
-          label: "playhead p",
-          onChange: (v) => {
-            DEV.lastP = v;
-            if (DEV.applyProgress) DEV.applyProgress(v);
-            if (DEV.setLeva) DEV.setLeva({ drive: driveLabel() });
-          },
-        },
       },
       { collapsed: false }
     ),
@@ -3255,7 +3065,7 @@ function DevDashboard() {
   const [selectedPathNode, setSelectedPathNode] = useState(-1);
   const [pathProgress, setPathProgress] = useState(0);
   const [pathPlaying, setPathPlaying] = useState(false);
-  const [status, setStatus] = useState("v5 ready");
+  const [status, setStatus] = useState("v7 production preset ready");
   const [library, setLibrary] = useState(loadMotionLibrary);
   const [libraryId, setLibraryId] = useState("");
   const [importText, setImportText] = useState("");
@@ -3271,10 +3081,24 @@ function DevDashboard() {
   const [bridgeStyle, setBridgeStyle] = useState("tangent");
   const [bridgeStrength, setBridgeStrength] = useState(1);
   const [bridgeArc, setBridgeArc] = useState(0.35);
+  const [snippets, setSnippets] = useState(() => {
+    const saved = loadSlotRecord(MOTION_SNIPPET_KEY, []);
+    return Array.isArray(saved) ? saved : [];
+  });
+  const [snippetName, setSnippetName] = useState("Motion snippet");
+  const [snippetStart, setSnippetStart] = useState(1);
+  const [snippetEnd, setSnippetEnd] = useState(2);
+  const [snippetRelative, setSnippetRelative] = useState(true);
+  const [compareBanks, setCompareBanks] = useState(() => {
+    const saved = loadSlotRecord(MOTION_COMPARE_KEY, []);
+    return Array.from({ length: 3 }, (_, i) => saved?.[i] || null);
+  });
+  const [compareActive, setCompareActive] = useState(-1);
   const pathProgressRef = useRef(0);
   const pathPlaybackRef = useRef({ raf: 0, lastUi: 0 });
   const historyRef = useRef({ undo: [], redo: [] });
   const handleHistoryStartRef = useRef(null);
+  const nodeChipRefs = useRef([]);
 
   const compiledPath = useMemo(
     () => compileMotionPath(motionPath, slots),
@@ -3283,6 +3107,16 @@ function DevDashboard() {
   const diagnostics = useMemo(
     () => motionDiagnostics(compiledPath),
     [compiledPath]
+  );
+  const activePathNode = useMemo(
+    () => nearestMotionNode(compiledPath, pathProgress),
+    [compiledPath, pathProgress]
+  );
+  const compareCompiled = useMemo(
+    () => compareBanks.map((bank) =>
+      bank?.path ? compileMotionPath(normaliseMotionPath(bank.path), slots) : null
+    ),
+    [compareBanks, slots]
   );
 
   useEffect(() => {
@@ -3296,13 +3130,23 @@ function DevDashboard() {
     MOTION_DEV.path = compiledPath;
     MOTION_DEV.progress = pathProgress;
     MOTION_DEV.selectedNode = selectedPathNode;
+    MOTION_DEV.activeNode = activePathNode;
     MOTION_DEV.showPath = motionPath.showPath;
     MOTION_DEV.showGhosts = motionPath.showGhosts;
     MOTION_DEV.editHandles = motionPath.editHandles;
     MOTION_DEV.diagnostics = diagnostics;
+    MOTION_DEV.comparePaths = compareCompiled;
+    MOTION_DEV.compareActive = compareActive;
     MOTION_DEV.progress = pathProgress;
     MOTION_DEV.version++;
-  }, [compiledPath, diagnostics, selectedPathNode, motionPath.showPath, motionPath.showGhosts, motionPath.editHandles]);
+  }, [compiledPath, diagnostics, selectedPathNode, activePathNode, compareCompiled, compareActive, motionPath.showPath, motionPath.showGhosts, motionPath.editHandles]);
+
+  useEffect(() => {
+    const chip = nodeChipRefs.current[activePathNode];
+    if (chip?.scrollIntoView) {
+      chip.scrollIntoView({ block: "nearest", inline: "center", behavior: "smooth" });
+    }
+  }, [activePathNode]);
 
   useEffect(() => {
     MOTION_DEV.moveHandle = (index, position, finished) => {
@@ -3696,6 +3540,145 @@ function DevDashboard() {
     setStatus(`generated ${count} ${bridgeStyle} bridge poses in slots ${free.map((i) => i + 1).join(", ")}`);
   };
 
+  const persistSnippets = (next) => {
+    setSnippets(next);
+    persistSlotRecord(MOTION_SNIPPET_KEY, next);
+  };
+
+  const saveMotionSnippet = () => {
+    if (!motionPath.nodes.length) {
+      setStatus("snippet needs at least one motion-path node");
+      return;
+    }
+    const lo = Math.max(0, Math.min(motionPath.nodes.length - 1, Number(snippetStart) - 1));
+    const hi = Math.max(lo, Math.min(motionPath.nodes.length - 1, Number(snippetEnd) - 1));
+    const source = motionPath.nodes.slice(lo, hi + 1);
+    if (source.some((node) => !slots[node.slot] && !node.pose)) {
+      setStatus("snippet blocked: one of the selected nodes has a missing pose slot");
+      return;
+    }
+    const nodes = source.map((node) => {
+      const pose = node.pose || slots[node.slot];
+      const position = node.position || [pose.sposX, pose.sposY, pose.sposZ];
+      return {
+        pose: { ...pose },
+        position: position.map(Number),
+        duration: Number(node.duration) || 1.25,
+        hold: Number(node.hold) || 0,
+        ease: node.ease || "linear",
+      };
+    });
+    const snippet = {
+      id: `snippet-${Date.now()}`,
+      name: snippetName.trim() || `Nodes ${lo + 1}–${hi + 1}`,
+      savedAt: new Date().toISOString(),
+      nodes,
+    };
+    persistSnippets([...snippets, snippet].slice(-40));
+    setStatus(`saved compound snippet “${snippet.name}” (${nodes.length} nodes)`);
+  };
+
+  const appendMotionSnippet = (snippet) => {
+    const count = snippet?.nodes?.length || 0;
+    if (!count) return;
+    const free = slots.map((pose, i) => (!pose ? i : -1)).filter((i) => i >= 0).slice(0, count);
+    if (free.length < count) {
+      setStatus(`snippet needs ${count} empty pose slots`);
+      return;
+    }
+    const first = new THREE.Vector3(...snippet.nodes[0].position);
+    const destination =
+      snippetRelative && compiledPath.nodes.length
+        ? new THREE.Vector3(...compiledPath.nodes[compiledPath.nodes.length - 1].position)
+        : first.clone();
+    const delta = destination.sub(first);
+    const nextSlots = [...slots];
+    const meta = { ...slotMeta };
+    const appended = snippet.nodes.map((item, i) => {
+      const position = new THREE.Vector3(...item.position).add(delta);
+      const pose = {
+        ...item.pose,
+        sposX: Number((item.pose.sposX + delta.x).toFixed(4)),
+        sposY: Number((item.pose.sposY + delta.y).toFixed(4)),
+        sposZ: Number((item.pose.sposZ + delta.z).toFixed(4)),
+      };
+      nextSlots[free[i]] = pose;
+      meta[free[i]] = {
+        name: `${snippet.name} ${i + 1}`,
+        updatedAt: new Date().toISOString(),
+      };
+      return {
+        slot: free[i],
+        position: position.toArray().map((v) => Number(v.toFixed(4))),
+        duration:
+          motionPath.nodes.length || i > 0
+            ? Math.max(0.1, Number(item.duration) || 1.25)
+            : 0,
+        hold: motionPath.continuous ? 0 : Math.max(0, Number(item.hold) || 0),
+        ease: motionPath.continuous ? "linear" : item.ease || "linear",
+      };
+    });
+    setSlots(nextSlots);
+    setSlotMeta(meta);
+    persistSlots(nextSlots);
+    persistSlotRecord(SLOT_META_KEY, meta);
+    commitMotionPath({ ...motionPath, nodes: [...motionPath.nodes, ...appended] });
+    setSelectedPathNode(motionPath.nodes.length);
+    setStatus(`appended “${snippet.name}” into slots ${free.map((i) => i + 1).join(", ")}`);
+  };
+
+  const deleteMotionSnippet = (id) => {
+    persistSnippets(snippets.filter((snippet) => snippet.id !== id));
+  };
+
+  const persistCompareBanks = (next) => {
+    setCompareBanks(next);
+    persistSlotRecord(MOTION_COMPARE_KEY, next);
+  };
+
+  const captureCompareBank = (index) => {
+    const next = [...compareBanks];
+    const embeddedPath = {
+      ...normaliseMotionPath(motionPath),
+      nodes: motionPath.nodes.map((node) => ({
+        ...node,
+        pose: slots[node.slot] ? { ...slots[node.slot] } : node.pose || null,
+      })),
+    };
+    next[index] = {
+      name: motionPath.name || `Path ${String.fromCharCode(65 + index)}`,
+      savedAt: new Date().toISOString(),
+      path: embeddedPath,
+    };
+    persistCompareBanks(next);
+    setCompareActive(index);
+    setStatus(`captured current motion as comparison ${String.fromCharCode(65 + index)}`);
+  };
+
+  const loadCompareBank = (index) => {
+    const bank = compareBanks[index];
+    if (!bank?.path) return;
+    const nextPath = normaliseMotionPath(bank.path);
+    const nextCompiled = compileMotionPath(nextPath, slots);
+    commitMotionPath(nextPath);
+    setCompareActive(index);
+    pathProgressRef.current = 0;
+    setPathProgress(0);
+    const pose = sampleMotionPath(nextCompiled, 0);
+    if (pose) {
+      applyPoseParamsDirect(pose);
+      syncPoseControls(pose);
+    }
+    setStatus(`loaded comparison ${String.fromCharCode(65 + index)} · ${bank.name}`);
+  };
+
+  const clearCompareBank = (index) => {
+    const next = [...compareBanks];
+    next[index] = null;
+    persistCompareBanks(next);
+    if (compareActive === index) setCompareActive(-1);
+  };
+
   const persistLibrary = (next) => {
     setLibrary(next);
     persistSlotRecord(MOTION_LIBRARY_KEY, next);
@@ -3742,12 +3725,14 @@ function DevDashboard() {
   const exportStudio = () => {
     downloadJSON(`${(motionPath.name || "motion-path").replace(/[^a-z0-9-_]+/gi, "-")}.json`, {
       type: "iglass-motion-studio",
-      version: 2,
+      version: 3,
       exportedAt: new Date().toISOString(),
       slots,
       slotMeta,
       slotThumbs,
       path: motionPath,
+      snippets,
+      compareBanks,
     });
   };
 
@@ -3769,6 +3754,11 @@ function DevDashboard() {
         persistSlots(nextSlots);
         persistSlotRecord(SLOT_META_KEY, meta);
         persistSlotRecord(SLOT_THUMB_KEY, thumbs);
+        if (Array.isArray(parsed.snippets)) persistSnippets(parsed.snippets);
+        if (Array.isArray(parsed.compareBanks)) {
+          const banks = Array.from({ length: 3 }, (_, i) => parsed.compareBanks[i] || null);
+          persistCompareBanks(banks);
+        }
         commitMotionPath(normaliseMotionPath(parsed.path));
       } else if (Array.isArray(parsed.nodes) && parsed.nodes.every((n) => Number.isInteger(n.slot))) {
         commitMotionPath(normaliseMotionPath(parsed));
@@ -3786,8 +3776,8 @@ function DevDashboard() {
   const filledCount = slots.filter(Boolean).length;
   const selectedNode = motionPath.nodes[selectedPathNode] || null;
   const selectedPosition = selectedNode
-    ? selectedNode.position || (slots[selectedNode.slot]
-        ? [slots[selectedNode.slot].sposX, slots[selectedNode.slot].sposY, slots[selectedNode.slot].sposZ]
+    ? selectedNode.position || ((selectedNode.pose || slots[selectedNode.slot])
+        ? [(selectedNode.pose || slots[selectedNode.slot]).sposX, (selectedNode.pose || slots[selectedNode.slot]).sposY, (selectedNode.pose || slots[selectedNode.slot]).sposZ]
         : [0, 0, 0])
     : null;
   const pathReady = compiledPath.nodes.length >= 2;
@@ -3802,11 +3792,17 @@ function DevDashboard() {
     borderRadius: 4,
     padding: 3,
   };
+  const xyzNumber = {
+    ...smallNumber,
+    width: 72,
+    fontSize: 10,
+    padding: "4px 7px 4px 4px",
+  };
 
   if (collapsed) {
     return (
       <div ref={panelRef} style={UI.panelCollapsed}>
-        <b style={{ color: "#2e7d52", letterSpacing: 1 }}>iGLASS v5</b>
+        <b style={{ color: "#2e7d52", letterSpacing: 1 }}>iGLASS v7</b>
         <span style={chipStyle(false)} onClick={() => setCollapsed(false)}>▸ open</span>
       </div>
     );
@@ -3815,10 +3811,47 @@ function DevDashboard() {
   return (
     <div ref={panelRef} style={UI.panel}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <b style={{ color: "#2e7d52", letterSpacing: 1 }}>iGLASS MOTION STUDIO v5</b>
+        <b style={{ color: "#2e7d52", letterSpacing: 1 }}>iGLASS PRODUCTION STUDIO v7</b>
         <span style={chipStyle(false)} onClick={() => setCollapsed(true)}>▾ hide</span>
       </div>
       <div style={{ ...UI.hint, marginTop: 3, color: status.startsWith("import failed") ? "#a02b2b" : "#5a6b60" }}>{status}</div>
+
+      <div style={{ marginTop: 6, padding: 6, border: "1px solid #a9cfba", borderRadius: 7, background: "#f6fbf8" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, fontWeight: 700, color: "#2e7d52" }}>
+          <span>{pathReady ? "MOTION PATH PLAYHEAD" : "RIG TIMELINE PLAYHEAD"}</span>
+          <span>
+            {pathReady && activePathNode >= 0 ? `node ${activePathNode + 1}/${compiledPath.nodes.length} · ` : ""}
+            {(pathReady ? pathProgress : DEV.lastP).toFixed(3)}
+          </span>
+        </div>
+        <input
+          type="range"
+          min={0}
+          max={1}
+          step={0.001}
+          value={pathReady ? pathProgress : DEV.lastP}
+          style={{ width: "100%", accentColor: "#2e7d52" }}
+          onChange={(e) => {
+            const value = Number(e.target.value);
+            pauseMotionPath(false);
+            if (pathReady) applyPathAt(value);
+            else {
+              jumpToP(value);
+              force((n) => n + 1);
+            }
+          }}
+          onPointerUp={() => {
+            if (pathReady) syncPoseControls(sampleMotionPath(compiledPath, pathProgressRef.current));
+          }}
+        />
+        <div style={UI.row}>
+          <span style={chipStyle(pathPlaying, true)} onClick={() => pathPlaying ? pauseMotionPath(true) : playMotionPath()}>
+            {pathPlaying ? "❚❚ pause" : "▶ preview"}
+          </span>
+          <span style={chipStyle(false)} onClick={() => pathReady ? (pauseMotionPath(false), applyPathAt(0, true)) : jumpToP(0)}>↺ start</span>
+          <span style={{ ...UI.hint, margin: "2px 0 0 5px" }}>phone + node highlight stay linked</span>
+        </div>
+      </div>
 
       <details open>
         <summary style={UI.head}>rig navigation</summary>
@@ -3842,36 +3875,6 @@ function DevDashboard() {
             <span key={v} style={chipStyle(DEV.gizmo === v)} onClick={() => setGizmoMode(v)}>{label}</span>
           ))}
         </div>
-      </details>
-
-      <details open>
-        <summary style={UI.head}>🔗 triple compound motion</summary>
-        <div style={UI.row}>
-          <span style={chipStyle(WIRE.enabled, true)} onClick={() => { WIRE.enabled = !WIRE.enabled; if (WIRE.enabled) wireAnchors(); }}>
-            {WIRE.enabled ? "● triple on" : "○ triple off"}
-          </span>
-          <span style={chipStyle(false)} onClick={wireResetRun}>↺ anchors</span>
-        </div>
-        <div style={{ ...UI.row, marginTop: 3 }}>
-          <select style={{ ...SEL_STYLE, maxWidth: 116 }} value={WIRE.master} onChange={(e) => { WIRE.master = e.target.value; if (WIRE.enabled) wireAnchors(); }}>
-            {WIREABLE.map((k) => <option key={k} value={k}>{HUMAN_LABELS[k] || k}</option>)}
-          </select>
-          <span style={{ fontSize: 9, margin: "0 4px" }}>master</span>
-        </div>
-        {[["A", "drivenA", "ratioA"], ["B", "drivenB", "ratioB"]].map(([label, drivenKey, ratioKey]) => (
-          <div key={label}>
-            <div style={{ ...UI.row, marginTop: 3 }}>
-              <b style={{ width: 16, fontSize: 9 }}>{label}</b>
-              <select style={{ ...SEL_STYLE, maxWidth: 170 }} value={WIRE[drivenKey]} onChange={(e) => { WIRE[drivenKey] = e.target.value; if (WIRE.enabled) wireAnchors(); }}>
-                {WIREABLE.map((k) => <option key={k} value={k}>{HUMAN_LABELS[k] || k}</option>)}
-              </select>
-            </div>
-            <div style={UI.row}>
-              <input type="range" min={-180} max={180} step={0.05} value={WIRE[ratioKey]} style={{ width: 220, accentColor: "#2e7d52" }} onChange={(e) => { WIRE[ratioKey] = Number(e.target.value); force((n) => n + 1); }} />
-              <span style={{ fontSize: 9 }}>×{WIRE[ratioKey].toFixed(2)}</span>
-            </div>
-          </div>
-        ))}
       </details>
 
       <details open>
@@ -3922,14 +3925,27 @@ function DevDashboard() {
       <details open>
         <summary style={UI.head}>🎬 motion path ({compiledPath.nodes.length}/{motionPath.nodes.length}) · {pathDuration.toFixed(2)}s</summary>
         <input value={motionPath.name} style={{ ...SEL_STYLE, maxWidth: "100%", width: 276 }} onChange={(e) => commitMotionPath({ ...motionPath, name: e.target.value }, false)} />
-        <div style={{ ...UI.row, minHeight: 24 }}>
+        <div style={{ ...UI.row, minHeight: 28, flexWrap: "nowrap", overflowX: "auto", scrollBehavior: "smooth" }}>
           {!motionPath.nodes.length && <span style={UI.hint}>Ctrl-click named pose slots in travel order.</span>}
           {motionPath.nodes.map((node, i) => {
-            const valid = !!slots[node.slot];
-            const active = i === selectedPathNode;
+            const valid = !!slots[node.slot] || !!node.pose;
+            const active = i === activePathNode;
+            const selected = i === selectedPathNode;
             return (
-              <span key={`${node.slot}-${i}`} style={{ ...chipStyle(active), borderColor: valid ? undefined : "#bd3f3f", background: valid ? chipStyle(active).background : "#fff0f0", color: valid ? chipStyle(active).color : "#8b2020" }} onClick={() => { setSelectedPathNode(i); setBridgeFrom(i); setBridgeTo(i + 1); }}>
-                {i + 1}:S{node.slot + 1}
+              <span
+                ref={(el) => { nodeChipRefs.current[i] = el; }}
+                key={`${node.slot}-${i}`}
+                style={{
+                  ...chipStyle(active),
+                  flex: "0 0 auto",
+                  borderColor: valid ? (selected ? "#173d2a" : undefined) : "#bd3f3f",
+                  boxShadow: selected ? "0 0 0 1px #173d2a" : active ? "0 0 0 2px rgba(46,125,82,.22)" : "none",
+                  background: valid ? chipStyle(active).background : "#fff0f0",
+                  color: valid ? chipStyle(active).color : "#8b2020",
+                }}
+                onClick={() => { setSelectedPathNode(i); setBridgeFrom(i); setBridgeTo(i + 1); }}
+              >
+                {active ? "▶" : ""}{i + 1}:S{node.slot + 1}
               </span>
             );
           })}
@@ -3946,7 +3962,7 @@ function DevDashboard() {
             </div>
             <div style={{ ...UI.row, marginTop: 3 }}>
               {["x", "y", "z"].map((axis, j) => (
-                <label key={axis} style={{ fontSize: 9, marginRight: 4 }}>{axis} <input type="number" step={0.01} value={Number(selectedPosition[j]).toFixed(3)} style={smallNumber} onChange={(e) => { const p = [...selectedPosition]; p[j] = Number(e.target.value); updateSelectedPathNode({ position: p }); }} /></label>
+                <label key={axis} style={{ fontSize: 10, marginRight: 4 }}>{axis.toUpperCase()} <input type="number" step={0.01} value={Number(selectedPosition[j]).toFixed(3)} style={xyzNumber} onChange={(e) => { const p = [...selectedPosition]; p[j] = Number(e.target.value); updateSelectedPathNode({ position: p }); }} /></label>
               ))}
               <span style={chipStyle(false)} title="return this handle to its pose position" onClick={() => updateSelectedPathNode({ position: null })}>reset xyz</span>
             </div>
@@ -3960,6 +3976,13 @@ function DevDashboard() {
           </div>
         )}
 
+        <div style={{ ...UI.row, marginTop: 6, padding: "4px 5px", borderRadius: 6, background: "#eaf5ee" }}>
+          <b style={{ fontSize: 9, color: "#2e7d52", marginRight: 5 }}>PRODUCTION PRESET</b>
+          <span style={{ fontSize: 9 }}>Catmull–Rom uniform · arc length · continuous · linear · quaternion</span>
+          <span style={chipStyle(false)} onClick={() => commitMotionPath(applyProductionPreset(motionPath))}>apply</span>
+        </div>
+        <details>
+          <summary style={{ ...UI.head, marginTop: 5 }}>advanced path settings</summary>
         <div style={{ ...UI.row, marginTop: 5 }}>
           <select style={SEL_STYLE} value={motionPath.trajectory} onChange={(e) => commitMotionPath({ ...motionPath, trajectory: e.target.value })}>
             <option value="curve">Catmull-Rom</option><option value="line">straight</option>
@@ -3985,15 +4008,13 @@ function DevDashboard() {
         </div>
         {motionPath.orientationMode === "lookAt" && <div style={UI.row}>{["x", "y", "z"].map((axis, i) => <label key={axis} style={{ fontSize: 9 }}>{axis}<input type="number" step={0.05} value={motionPath.lookAt[i]} style={smallNumber} onChange={(e) => { const lookAt = [...motionPath.lookAt]; lookAt[i] = Number(e.target.value); commitMotionPath({ ...motionPath, lookAt }); }} /></label>)}</div>}
         {motionPath.orientationMode !== "quaternion" && <div style={UI.row}><span style={{ fontSize: 9 }}>orientation offset°</span>{["x", "y", "z"].map((axis, i) => <label key={axis} style={{ fontSize: 9 }}>{axis}<input type="number" step={1} value={motionPath.orientationOffset[i]} style={smallNumber} onChange={(e) => { const orientationOffset = [...motionPath.orientationOffset]; orientationOffset[i] = Number(e.target.value); commitMotionPath({ ...motionPath, orientationOffset }); }} /></label>)}</div>}
+        </details>
         <div style={UI.row}>
           <span style={chipStyle(motionPath.showPath)} onClick={() => commitMotionPath({ ...motionPath, showPath: !motionPath.showPath }, false)}>3D path</span>
           <span style={chipStyle(motionPath.showGhosts)} onClick={() => commitMotionPath({ ...motionPath, showGhosts: !motionPath.showGhosts }, false)}>ghosts</span>
           <span style={chipStyle(motionPath.editHandles)} onClick={() => commitMotionPath({ ...motionPath, editHandles: !motionPath.editHandles }, false)}>drag handles</span>
         </div>
-        <input type="range" min={0} max={1} step={0.001} value={pathProgress} disabled={!pathReady} style={{ width: "100%", accentColor: "#2e7d52" }} onChange={(e) => { pauseMotionPath(false); applyPathAt(Number(e.target.value)); }} onPointerUp={() => syncPoseControls(sampleMotionPath(compiledPath, pathProgressRef.current))} />
         <div style={UI.row}>
-          <span style={chipStyle(pathPlaying, true)} onClick={() => pathPlaying ? pauseMotionPath(true) : playMotionPath()}>{pathPlaying ? "❚❚ pause" : "▶ preview"}</span>
-          <span style={chipStyle(false)} onClick={() => { pauseMotionPath(false); applyPathAt(0, true); }}>↺ start</span>
           <span style={chipStyle(false)} onClick={undoPath}>undo</span>
           <span style={chipStyle(false)} onClick={redoPath}>redo</span>
           <span style={chipStyle(false)} onClick={() => { commitMotionPath(defaultMotionPath()); setSelectedPathNode(-1); }}>clear</span>
@@ -4002,6 +4023,47 @@ function DevDashboard() {
           <span style={chipStyle(false, true)} onClick={async () => setStatus(await copyMotionPreviewURL(motionPath, slots) ? "self-contained preview URL copied" : "preview URL needs at least two valid nodes and clipboard permission")}>🔗 preview URL</span>
           <span style={chipStyle(false, true)} onClick={async () => setStatus(await copyMotionManifest(motionPath, slots) ? "deterministic mp manifest copied" : "manifest needs at least two valid nodes and clipboard permission")}>🎞 mp manifest</span>
         </div>
+      </details>
+
+      <details open>
+        <summary style={UI.head}>🧪 path comparison A / B / C</summary>
+        <div style={UI.hint}>Capture up to three alternatives. Their trajectories remain visible together; load any bank and use the same top playhead for an exact comparison.</div>
+        {[0, 1, 2].map((index) => {
+          const bank = compareBanks[index];
+          const letter = String.fromCharCode(65 + index);
+          const color = ["#2677d9", "#e6862e", "#8b5cc7"][index];
+          return (
+            <div key={letter} style={{ ...UI.row, flexWrap: "nowrap", marginTop: 4, padding: "3px 4px", border: `1px solid ${compareActive === index ? color : "#d5e2d9"}`, borderRadius: 6 }}>
+              <b style={{ width: 18, color }}>{letter}</b>
+              <span style={{ flex: 1, fontSize: 9, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{bank?.name || "empty comparison bank"}</span>
+              <span style={chipStyle(false)} onClick={() => captureCompareBank(index)}>save</span>
+              <span style={{ ...chipStyle(!!bank), opacity: bank ? 1 : 0.4 }} onClick={() => loadCompareBank(index)}>load</span>
+              {bank && <span style={chipStyle(false)} onClick={() => clearCompareBank(index)}>×</span>}
+            </div>
+          );
+        })}
+      </details>
+
+      <details open>
+        <summary style={UI.head}>🧩 compound motion snippets ({snippets.length})</summary>
+        <div style={UI.hint}>A snippet stores a short ordered run of full poses, XYZ handles and timing. Appending it creates independent pose slots so the motion can be edited normally.</div>
+        <input value={snippetName} placeholder="snippet name" style={{ ...SEL_STYLE, width: 276, maxWidth: "100%" }} onChange={(e) => setSnippetName(e.target.value)} />
+        <div style={{ ...UI.row, marginTop: 4 }}>
+          <label style={{ fontSize: 9 }}>from node <input type="number" min={1} max={Math.max(1, motionPath.nodes.length)} value={snippetStart} style={smallNumber} onChange={(e) => setSnippetStart(e.target.value)} /></label>
+          <label style={{ fontSize: 9 }}>to <input type="number" min={1} max={Math.max(1, motionPath.nodes.length)} value={snippetEnd} style={smallNumber} onChange={(e) => setSnippetEnd(e.target.value)} /></label>
+          <span style={chipStyle(false, true)} onClick={saveMotionSnippet}>save snippet</span>
+        </div>
+        <div style={UI.row}>
+          <span style={chipStyle(snippetRelative, true)} onClick={() => setSnippetRelative(!snippetRelative)}>{snippetRelative ? "relative append on" : "absolute append"}</span>
+          <span style={UI.hint}>relative starts at the current path end</span>
+        </div>
+        {snippets.slice().reverse().map((snippet) => (
+          <div key={snippet.id} style={{ ...UI.row, flexWrap: "nowrap", marginTop: 3, borderTop: "1px solid #e6eee9", paddingTop: 3 }}>
+            <span style={{ flex: 1, fontSize: 9, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{snippet.name} · {snippet.nodes.length} nodes</span>
+            <span style={chipStyle(false, true)} onClick={() => appendMotionSnippet(snippet)}>append</span>
+            <span style={chipStyle(false)} onClick={() => deleteMotionSnippet(snippet.id)}>×</span>
+          </div>
+        ))}
       </details>
 
       <details>
@@ -4408,26 +4470,55 @@ function MotionPathOverlay() {
     return object;
   }, [revision, path]);
 
+  const compareLines = useMemo(() => {
+    const colors = [0x2677d9, 0xe6862e, 0x8b5cc7];
+    return (MOTION_DEV.comparePaths || []).map((comparePath, index) => {
+      if (!comparePath || comparePath.nodes.length < 2) return null;
+      const points = Array.from({ length: 121 }, (_, i) => {
+        const pose = sampleMotionPath(comparePath, i / 120);
+        return new THREE.Vector3(pose.sposX, pose.sposY, pose.sposZ);
+      });
+      const geometry = new THREE.BufferGeometry().setFromPoints(points);
+      const material = new THREE.LineBasicMaterial({
+        color: colors[index],
+        transparent: true,
+        opacity: MOTION_DEV.compareActive === index ? 0.82 : 0.34,
+        depthTest: false,
+      });
+      const object = new THREE.Line(geometry, material);
+      object.renderOrder = 8998;
+      return object;
+    });
+  }, [revision]);
+
   useEffect(() => () => {
     if (line) {
       line.geometry.dispose();
       line.material.dispose();
     }
-  }, [line]);
+    compareLines.forEach((compareLine) => {
+      if (!compareLine) return;
+      compareLine.geometry.dispose();
+      compareLine.material.dispose();
+    });
+  }, [line, compareLines]);
 
   if (!path || !MOTION_DEV.showPath || path.nodes.length < 2) return null;
   const ghostProgress = [0, 0.25, 0.5, 0.75, 1];
 
   return (
     <group name="iglass-motion-path-overlay">
+      {compareLines.map((compareLine, index) => compareLine && (
+        <primitive key={`compare-${index}`} object={compareLine} />
+      ))}
       {line && <primitive object={line} />}
       {path.nodes.map((node, i) => (
         <group key={`${i}-${node.slot ?? "embedded"}`} position={node.position}>
           <mesh renderOrder={9001} onClick={(e) => { e.stopPropagation(); if (MOTION_DEV.selectNode) MOTION_DEV.selectNode(i); }}>
-            <sphereGeometry args={[i === MOTION_DEV.selectedNode ? 0.055 : 0.038, 16, 12]} />
-            <meshBasicMaterial color={i === MOTION_DEV.selectedNode ? "#ffb020" : "#2e7d52"} depthTest={false} transparent opacity={0.95} />
+            <sphereGeometry args={[i === MOTION_DEV.activeNode ? 0.065 : i === MOTION_DEV.selectedNode ? 0.052 : 0.038, 16, 12]} />
+            <meshBasicMaterial color={i === MOTION_DEV.activeNode ? "#ff4f7b" : i === MOTION_DEV.selectedNode ? "#ffb020" : "#2e7d52"} depthTest={false} transparent opacity={0.95} />
           </mesh>
-          <Html center distanceFactor={6} style={{ pointerEvents: "none", font: "700 10px ui-monospace", color: "#173d2a", background: "rgba(255,255,255,.85)", borderRadius: 8, padding: "1px 4px" }}>
+          <Html center distanceFactor={6} style={{ pointerEvents: "none", font: "700 10px ui-monospace", color: i === MOTION_DEV.activeNode ? "#ffffff" : "#173d2a", background: i === MOTION_DEV.activeNode ? "#ff4f7b" : "rgba(255,255,255,.85)", borderRadius: 8, padding: "1px 4px" }}>
             {i + 1}
           </Html>
         </group>
@@ -4659,8 +4750,7 @@ function DevGizmo() {
 //   ?bezel=env,rough,offset       v3.8.1 bezel dials
 //   ?oled=-0.5,0                  OLED face-split cut, rim on/off
 //   ?glass=rough,env,opac,cc,ccr  v3.9 front-glass material
-//   ?glassphys=...                 v6 transmission + coating material
-//   ?glassfx=...                   v6 deterministic sweep/glint/environment
+//   ?glassfx=...                   deterministic sweep/glint/environment
 //   ?envp=studio   ?envb=0        reflected world + IBL blur
 //   ?crack=opac,exX,exY,exZ       cracked-pane strength + discard path
 //   ?motion=<base64url-json>       self-contained slot-based motion path
@@ -4777,23 +4867,10 @@ function resolveRuntimeConfig() {
       GLASS.ccRough = q[4];
     }
   }
-  const glassPhysParam = params.get("glassphys");
-  if (glassPhysParam) {
-    const q = glassPhysParam.split(",").map((v) => parseFloat(v));
-    if (q.length === 7 && q.every((v) => !isNaN(v))) {
-      GLASS.physical = q[0] === 1;
-      GLASS.transmission = q[1];
-      GLASS.thickness = q[2];
-      GLASS.ior = q[3];
-      GLASS.specular = q[4];
-      GLASS.iridescence = q[5];
-      GLASS.iridescenceIOR = q[6];
-    }
-  }
   const glassFxParam = params.get("glassfx");
   if (glassFxParam) {
     const q = glassFxParam.split(",").map((v) => parseFloat(v));
-    if (q.length === 23 && q.every((v) => !isNaN(v))) {
+    if (q.length === 18 && q.every((v) => !isNaN(v))) {
       SHINE.enabled = q[0] === 1;
       SHINE.progress = q[1];
       SHINE.sweepStrength = q[2];
@@ -4801,11 +4878,26 @@ function resolveRuntimeConfig() {
       SHINE.stripWidth = q[4];
       SHINE.angleDeg = q[5];
       SHINE.persistent = q[6];
-      SHINE.fresnel = q[7];
-      SHINE.fresnelPower = q[8];
-      SHINE.bevel = q[9] === 1;
-      SHINE.bevelStrength = q[10];
-      SHINE.bevelWidth = q[11];
+      SHINE.glint = q[7] === 1;
+      SHINE.glintStrength = q[8];
+      SHINE.glintSize = q[9];
+      SHINE.glintAt = q[10];
+      SHINE.glintSpread = q[11];
+      SHINE.glintX = q[12];
+      SHINE.glintY = q[13];
+      SHINE.customEnv = q[14] === 1;
+      SHINE.envBroad = q[15];
+      SHINE.envStrip = q[16];
+      SHINE.envRim = q[17];
+    } else if (q.length === 23 && q.every((v) => !isNaN(v))) {
+      // v6 compatibility: deliberately skip removed coating/Fresnel fields.
+      SHINE.enabled = q[0] === 1;
+      SHINE.progress = q[1];
+      SHINE.sweepStrength = q[2];
+      SHINE.broadWidth = q[3];
+      SHINE.stripWidth = q[4];
+      SHINE.angleDeg = q[5];
+      SHINE.persistent = q[6];
       SHINE.glint = q[12] === 1;
       SHINE.glintStrength = q[13];
       SHINE.glintSize = q[14];
@@ -5191,17 +5283,11 @@ function IPhoneExploded({
         // non-zero clearcoat so the shader compiles the chunk in — dialling
         // it to 0 later is then a uniform write, not a recompile.
         const glassMat = new THREE.MeshPhysicalMaterial({
-          color: new THREE.Color(GLASS.physical ? 0xffffff : 0x000000),
+          color: new THREE.Color(0xffffff),
           roughness: GLASS.rough,
           metalness: 0.0,
           transparent: true,
-          opacity: GLASS.physical ? 1 : GLASS.opacity,
-          transmission: GLASS.physical ? GLASS.transmission : 0,
-          thickness: GLASS.thickness,
-          ior: GLASS.ior,
-          specularIntensity: GLASS.specular,
-          iridescence: GLASS.iridescence,
-          iridescenceIOR: GLASS.iridescenceIOR,
+          opacity: GLASS.opacity,
           depthWrite: false,
           envMapIntensity: GLASS.env,
           clearcoat: GLASS.clearcoat,
@@ -5437,11 +5523,6 @@ function IPhoneExploded({
         uStripWidth: { value: SHINE.stripWidth },
         uAngle: { value: THREE.MathUtils.degToRad(SHINE.angleDeg) },
         uPersistent: { value: SHINE.persistent },
-        uFresnel: { value: SHINE.fresnel },
-        uFresnelPower: { value: SHINE.fresnelPower },
-        uBevel: { value: SHINE.bevel ? 1 : 0 },
-        uBevelStrength: { value: SHINE.bevelStrength },
-        uBevelWidth: { value: SHINE.bevelWidth },
         uGlint: { value: SHINE.glint ? 1 : 0 },
         uGlintStrength: { value: SHINE.glintStrength },
         uGlintSize: { value: SHINE.glintSize },
@@ -5450,17 +5531,11 @@ function IPhoneExploded({
         uGlintPoint: { value: new THREE.Vector2(SHINE.glintX, SHINE.glintY) },
       },
       vertexShader: `
-        uniform float uFresnelPower;
         varying vec2 vUv;
-        varying float vFresnel;
 
         void main() {
           vUv = uv;
           vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-          vec3 viewDirection = normalize(-mvPosition.xyz);
-          vec3 viewNormal = normalize(normalMatrix * normal);
-          float facing = clamp(dot(viewNormal, viewDirection), 0.0, 1.0);
-          vFresnel = pow(1.0 - facing, max(0.01, uFresnelPower));
           gl_Position = projectionMatrix * mvPosition;
         }
       `,
@@ -5475,10 +5550,6 @@ function IPhoneExploded({
         uniform float uStripWidth;
         uniform float uAngle;
         uniform float uPersistent;
-        uniform float uFresnel;
-        uniform float uBevel;
-        uniform float uBevelStrength;
-        uniform float uBevelWidth;
         uniform float uGlint;
         uniform float uGlintStrength;
         uniform float uGlintSize;
@@ -5486,7 +5557,6 @@ function IPhoneExploded({
         uniform float uGlintSpread;
         uniform vec2 uGlintPoint;
         varying vec2 vUv;
-        varying float vFresnel;
 
         float gaussian(float x, float width) {
           float q = x / max(width, 0.0001);
@@ -5500,21 +5570,16 @@ function IPhoneExploded({
           vec2 rp = mat2(c, -s, s, c) * p;
 
           // Travel beyond both pane edges so progress 0/1 have clean holds.
-          float centre = mix(-1.10, 1.10, clamp(uProgress, 0.0, 1.0));
+          // At progress 0 the strip already touches the pane's left edge.
+          // Use clean-glass shine on/off when an entirely blank frame is wanted.
+          float centre = mix(-0.62, 0.62, clamp(uProgress, 0.0, 1.0));
           float broad = gaussian(rp.x - centre, uBroadWidth);
           float strip = gaussian(rp.x - centre, uStripWidth);
           float sweep = (0.32 * broad + strip) * uSweepStrength;
 
-          // A quiet stationary coating reflection remains after the sweep.
+          // A quiet stationary panel reflection remains after the sweep.
           float settled = smoothstep(0.04, 0.22, uProgress);
           float panel = gaussian(rp.x + 0.24, 0.42) * uPersistent * settled;
-          float fresnel = vFresnel * uFresnel * settled;
-
-          // Optical bevel band. The generated EdgesGeometry below also
-          // catches the real outer and Dynamic Island perimeter edges.
-          float edgeDistance = min(min(vUv.x, 1.0 - vUv.x), min(vUv.y, 1.0 - vUv.y));
-          float edge = (1.0 - smoothstep(0.0, max(0.001, uBevelWidth), edgeDistance));
-          edge *= uBevel * uBevelStrength * settled;
 
           // One art-directed sparkle with a soft halo and four restrained
           // rays. Its envelope is keyed to progress, not time.
@@ -5533,8 +5598,8 @@ function IPhoneExploded({
 
           vec3 warmWhite = vec3(1.0, 0.975, 0.92);
           vec3 coolWhite = vec3(0.76, 0.90, 1.0);
-          vec3 rgb = warmWhite * (sweep + panel + edge + glint)
-                   + coolWhite * (0.45 * fresnel + 0.18 * broad * uSweepStrength);
+          vec3 rgb = warmWhite * (sweep + panel + glint)
+                   + coolWhite * (0.18 * broad * uSweepStrength);
           float gate = clamp(uEnabled * uCleanMix, 0.0, 1.0);
           gl_FragColor = vec4(rgb, gate);
         }
@@ -5552,33 +5617,12 @@ function IPhoneExploded({
     return m;
   }, []);
 
-  const bevelGeo = useMemo(
-    () => (crackGeo ? new THREE.EdgesGeometry(crackGeo, 20) : null),
-    [crackGeo]
-  );
-  const bevelMat = useMemo(() => {
-    const m = new THREE.LineBasicMaterial({
-      color: new THREE.Color(0xd9efff),
-      transparent: true,
-      opacity: 0,
-      depthWrite: false,
-      depthTest: true,
-      blending: THREE.AdditiveBlending,
-      toneMapped: false,
-    });
-    DEV.bevelMat = m;
-    return m;
-  }, []);
-
   useEffect(() => {
     return () => {
       shineMat.dispose();
-      bevelMat.dispose();
-      if (bevelGeo) bevelGeo.dispose();
       if (DEV.shineMat === shineMat) DEV.shineMat = null;
-      if (DEV.bevelMat === bevelMat) DEV.bevelMat = null;
     };
-  }, [shineMat, bevelMat, bevelGeo]);
+  }, [shineMat]);
 
   // ---------------------------------------------------------
   // MEASURED PIVOT — render-frame Box3 measurement.
@@ -5701,7 +5745,7 @@ function IPhoneExploded({
     // ---- v6 PREMIUM GLASS. Pure state writes: no clock, no random seed. ----
     if (shineMat) {
       const u = shineMat.uniforms;
-      const cleanMix = hasCrack ? scrollState.swap : 1;
+      const cleanMix = 1;
       u.uEnabled.value = SHINE.enabled ? 1 : 0;
       u.uCleanMix.value = cleanMix;
       u.uProgress.value = SHINE.progress;
@@ -5710,11 +5754,6 @@ function IPhoneExploded({
       u.uStripWidth.value = SHINE.stripWidth;
       u.uAngle.value = THREE.MathUtils.degToRad(SHINE.angleDeg);
       u.uPersistent.value = SHINE.persistent;
-      u.uFresnel.value = SHINE.fresnel;
-      u.uFresnelPower.value = SHINE.fresnelPower;
-      u.uBevel.value = SHINE.bevel ? 1 : 0;
-      u.uBevelStrength.value = SHINE.bevelStrength;
-      u.uBevelWidth.value = SHINE.bevelWidth;
       u.uGlint.value = SHINE.glint ? 1 : 0;
       u.uGlintStrength.value = SHINE.glintStrength;
       u.uGlintSize.value = SHINE.glintSize;
@@ -5722,17 +5761,6 @@ function IPhoneExploded({
       u.uGlintSpread.value = SHINE.glintSpread;
       u.uGlintPoint.value.set(SHINE.glintX, SHINE.glintY);
       shineMat.visible = SHINE.enabled && cleanMix > 0.001;
-
-      if (bevelMat) {
-        const settled = THREE.MathUtils.smoothstep(SHINE.progress, 0.04, 0.22);
-        bevelMat.opacity = Math.min(
-          1,
-          (SHINE.bevel && SHINE.enabled ? SHINE.bevelStrength : 0) *
-            settled *
-            cleanMix
-        );
-        bevelMat.visible = bevelMat.opacity > 0.001;
-      }
     }
 
     if (glassGroupRef.current) {
@@ -5849,13 +5877,6 @@ function IPhoneExploded({
                 geometry={crackGeo}
                 material={shineMat}
                 renderOrder={6}
-              />
-            )}
-            {bevelGeo && (
-              <lineSegments
-                geometry={bevelGeo}
-                material={bevelMat}
-                renderOrder={7}
               />
             )}
           </group>
