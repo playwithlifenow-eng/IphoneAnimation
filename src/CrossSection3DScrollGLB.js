@@ -267,6 +267,95 @@ const MODEL = {
   targetSize: 1.6,
 };
 
+// ============================================
+// RESPONSIVE CAMERA FIT
+//
+// The authored composition is 1440 × 900 with an 80 px horizontal and
+// 60 px vertical safe area. Three.js PerspectiveCamera.fov is vertical,
+// so a narrower aspect ratio reduces the horizontal world-space view.
+//
+// This multiplier lives on a NEW outer group. It therefore scales the
+// complete authored composition without writing to modelGroupRef, whose
+// scale is already owned by the settle/path animation.
+// ============================================
+const RESPONSIVE_FIT_DEFAULTS = Object.freeze({
+  enabled: true,
+  referenceWidth: 1440,
+  referenceHeight: 900,
+  paddingX: 80,
+  paddingY: 60,
+  minScale: 0.05,
+});
+
+function parsePositiveSize(raw, fallbackWidth, fallbackHeight) {
+  if (!raw) return { width: fallbackWidth, height: fallbackHeight };
+
+  const match = raw
+    .trim()
+    .match(/^(\d+(?:\.\d+)?)\s*[x,]\s*(\d+(?:\.\d+)?)$/i);
+  if (!match) return { width: fallbackWidth, height: fallbackHeight };
+
+  return {
+    width: Math.max(1, Number(match[1])),
+    height: Math.max(1, Number(match[2])),
+  };
+}
+
+function parsePadding(raw, fallbackX, fallbackY) {
+  if (!raw) return { x: fallbackX, y: fallbackY };
+
+  const parts = raw.split(",").map((value) => Number(value.trim()));
+  if (parts.length !== 2 || parts.some((value) => !Number.isFinite(value))) {
+    return { x: fallbackX, y: fallbackY };
+  }
+
+  return {
+    x: Math.max(0, parts[0]),
+    y: Math.max(0, parts[1]),
+  };
+}
+
+function calculateResponsiveFitScale(width, height, config) {
+  if (!config.enabled || width <= 0 || height <= 0) return 1;
+
+  const currentPaddingX = Math.min(
+    config.paddingX,
+    Math.max(0, width / 2 - 0.5)
+  );
+  const currentPaddingY = Math.min(
+    config.paddingY,
+    Math.max(0, height / 2 - 0.5)
+  );
+  const referencePaddingX = Math.min(
+    config.paddingX,
+    Math.max(0, config.referenceWidth / 2 - 0.5)
+  );
+  const referencePaddingY = Math.min(
+    config.paddingY,
+    Math.max(0, config.referenceHeight / 2 - 0.5)
+  );
+
+  // Horizontal world-space capacity with a fixed vertical FOV is
+  // proportional to safe CSS width / CSS height.
+  const currentSafeAspect = (width - currentPaddingX * 2) / height;
+  const referenceSafeAspect =
+    (config.referenceWidth - referencePaddingX * 2) /
+    config.referenceHeight;
+  const horizontalFit = currentSafeAspect / referenceSafeAspect;
+
+  // Vertical FOV is fixed, but fixed CSS padding consumes a different
+  // fraction of that view as the iframe height changes.
+  const currentSafeHeightFraction =
+    (height - currentPaddingY * 2) / height;
+  const referenceSafeHeightFraction =
+    (config.referenceHeight - referencePaddingY * 2) /
+    config.referenceHeight;
+  const verticalFit =
+    currentSafeHeightFraction / referenceSafeHeightFraction;
+
+  return Math.max(config.minScale, Math.min(1, horizontalFit, verticalFit));
+}
+
 const GLASS_REG = { x: -0.03, y: 0.09, z: 0.07 };
 
 // ±25 (v3.11, restored). The model measures ~15.7 local units tall fitted
@@ -4459,6 +4548,9 @@ function DevGizmo() {
 //   ?crack=on,exX,exY             crack ON/OFF + fracture registration
 //   ?motion=<base64url-json>       self-contained slot-based motion path
 //   ?mp=0.5                       freeze motion-path progress for capture
+//   ?fit=0                        disable responsive camera fit
+//   ?fitref=1440x900              authored reference viewport
+//   ?padding=80,60                horizontal,vertical safe-area padding
 //   ?snap=1                    deterministic capture (Playwright)
 //   ?dev=1                     Pose Studio
 // ============================================
@@ -4693,7 +4785,34 @@ function resolveRuntimeConfig() {
   let freezeP = !isNaN(pParam) ? Math.max(0, Math.min(1, pParam)) : null;
   if (dev && freezeP === null) freezeP = 0.5;
 
-  return { mode, bg, freezeP, dev, motionPath, motionFreezeP };
+  const fitReference = parsePositiveSize(
+    params.get("fitref"),
+    RESPONSIVE_FIT_DEFAULTS.referenceWidth,
+    RESPONSIVE_FIT_DEFAULTS.referenceHeight
+  );
+  const fitPadding = parsePadding(
+    params.get("padding"),
+    RESPONSIVE_FIT_DEFAULTS.paddingX,
+    RESPONSIVE_FIT_DEFAULTS.paddingY
+  );
+  const responsiveFit = {
+    ...RESPONSIVE_FIT_DEFAULTS,
+    enabled: params.get("fit") !== "0",
+    referenceWidth: fitReference.width,
+    referenceHeight: fitReference.height,
+    paddingX: fitPadding.x,
+    paddingY: fitPadding.y,
+  };
+
+  return {
+    mode,
+    bg,
+    freezeP,
+    dev,
+    motionPath,
+    motionFreezeP,
+    responsiveFit,
+  };
 }
 
 function phaseMap(p) {
@@ -5729,6 +5848,13 @@ function PremiumReflectionEnvironment({ preset, blur, revision }) {
   );
 }
 
+function ResponsiveCameraFit({ config, children }) {
+  const { width, height } = useThree((state) => state.size);
+  const scale = calculateResponsiveFitScale(width, height, config);
+
+  return <group scale={scale}>{children}</group>;
+}
+
 function Scene({
   modelPath,
   screenTexture,
@@ -5736,6 +5862,7 @@ function Scene({
   crackTexture,
   explodeDistance,
   dev,
+  responsiveFit,
 }) {
   const [envPreset, setEnvPreset] = useState(LIGHT.preset);
   const [envBlur, setEnvBlur] = useState(LIGHT.blur);
@@ -5800,15 +5927,17 @@ function Scene({
         revision={envRevision}
       />
 
-      <IPhoneExploded
-        modelPath={modelPath}
-        screenTexture={screenTexture}
-        internalsTexture={internalsTexture}
-        crackTexture={crackTexture}
-        explodeDistance={explodeDistance}
-      />
+      <ResponsiveCameraFit config={responsiveFit}>
+        <IPhoneExploded
+          modelPath={modelPath}
+          screenTexture={screenTexture}
+          internalsTexture={internalsTexture}
+          crackTexture={crackTexture}
+          explodeDistance={explodeDistance}
+        />
 
-      {dev && <MotionPathOverlay />}
+        {dev && <MotionPathOverlay />}
+      </ResponsiveCameraFit>
       {dev && <DevGizmo />}
     </>
   );
@@ -5819,6 +5948,7 @@ function Scene({
 //
 // Direct Vercel usage:
 //   ?simulate=1440x900
+//   ?simulate=1440x900&padding=80,60
 //
 // The outer page is only a workbench. The actual Motion Studio runs inside
 // a same-origin iframe whose layout viewport is the requested CSS size.
@@ -5839,8 +5969,25 @@ function resolveFramerViewportSimulator() {
 
   const width = Math.max(1, Number(match[1]));
   const height = Math.max(1, Number(match[2]));
+  const reference = parsePositiveSize(
+    params.get("fitref"),
+    RESPONSIVE_FIT_DEFAULTS.referenceWidth,
+    RESPONSIVE_FIT_DEFAULTS.referenceHeight
+  );
+  // No padding parameter means a true zero-padding comparison in simulator
+  // mode. The production scene itself defaults to 80,60.
+  const padding = parsePadding(params.get("padding"), 0, 0);
+  const paddingX = Math.min(padding.x, Math.max(0, width / 2 - 0.5));
+  const paddingY = Math.min(padding.y, Math.max(0, height / 2 - 0.5));
 
-  return { width, height };
+  return {
+    width,
+    height,
+    referenceWidth: reference.width,
+    referenceHeight: reference.height,
+    paddingX,
+    paddingY,
+  };
 }
 
 function FramerViewportSimulator({ config }) {
@@ -5867,11 +6014,20 @@ function FramerViewportSimulator({ config }) {
   const childURL = useMemo(() => {
     const url = new URL(window.location.href);
     url.searchParams.delete("simulate");
-    url.searchParams.delete("padding");
+    url.searchParams.set(
+      "fitref",
+      `${config.referenceWidth}x${config.referenceHeight}`
+    );
+    url.searchParams.set("padding", `${config.paddingX},${config.paddingY}`);
     url.searchParams.set("dev", "1");
     url.searchParams.set("mode", "scroll");
     return url.toString();
-  }, []);
+  }, [
+    config.paddingX,
+    config.paddingY,
+    config.referenceHeight,
+    config.referenceWidth,
+  ]);
 
   const gutter = window.self !== window.top ? 0 : 48;
   const scale = Math.max(
@@ -5917,6 +6073,59 @@ function FramerViewportSimulator({ config }) {
           }}
         />
 
+        {(config.paddingX > 0 || config.paddingY > 0) && (
+          <div
+            aria-hidden="true"
+            style={{
+              position: "absolute",
+              inset: 0,
+              zIndex: 2147483645,
+              pointerEvents: "none",
+            }}
+          >
+            {config.paddingX > 0 && (
+              <>
+                <div
+                  style={{
+                    position: "absolute",
+                    inset: `0 auto 0 0`,
+                    width: config.paddingX,
+                    background: "rgba(0, 168, 107, 0.08)",
+                  }}
+                />
+                <div
+                  style={{
+                    position: "absolute",
+                    inset: `0 0 0 auto`,
+                    width: config.paddingX,
+                    background: "rgba(0, 168, 107, 0.08)",
+                  }}
+                />
+              </>
+            )}
+            {config.paddingY > 0 && (
+              <>
+                <div
+                  style={{
+                    position: "absolute",
+                    inset: `0 ${config.paddingX}px auto ${config.paddingX}px`,
+                    height: config.paddingY,
+                    background: "rgba(0, 168, 107, 0.08)",
+                  }}
+                />
+                <div
+                  style={{
+                    position: "absolute",
+                    inset: `auto ${config.paddingX}px 0 ${config.paddingX}px`,
+                    height: config.paddingY,
+                    background: "rgba(0, 168, 107, 0.08)",
+                  }}
+                />
+              </>
+            )}
+          </div>
+        )}
+
         <div
           aria-hidden="true"
           style={{
@@ -5957,6 +6166,7 @@ function CrossSection3DScrollGLBScene(props) {
     dev,
     motionPath: runtimeMotionPath,
     motionFreezeP,
+    responsiveFit,
   } = useMemo(resolveRuntimeConfig, []);
 
   const containerRef = useRef(null);
@@ -6228,7 +6438,8 @@ function CrossSection3DScrollGLBScene(props) {
             internalsTexture={internalsTexture}
             crackTexture={crackTexture}
             explodeDistance={explodeDistance}
-          dev={dev}
+            dev={dev}
+            responsiveFit={responsiveFit}
           />
         </Canvas>
       </div>
