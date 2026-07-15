@@ -19,6 +19,14 @@ import { Leva, useControls, button, folder } from "leva";
 gsap.registerPlugin(ScrollTrigger);
 
 // ============================================
+// v7.2.0 — PATH LIBRARY CONSOLIDATION + COMPOUND CONTROL
+//
+//   Separated front glass keeps a visible neutral optical body. Saved motion
+//   paths and unlimited versions now live in one playable list. The redundant
+//   snippet/A-B-C systems and their diagnostic UI are removed. Compound
+//   motion uses human labels and Driven B can be disabled for double motion.
+//
+// ============================================
 // v7.1.2 — TRANSPARENT SWEEP + RESTORED CRACK STATE
 //
 //   The sweep shader now writes zero alpha wherever it has no visible
@@ -531,9 +539,10 @@ const OLED = {
 // Overridable: ?glass=rough,env,opacity,clearcoat,ccRough
 // ---------------------------------------------------------
 const GLASS = {
+  color: 0xa8b6b0,
   rough: 0.12,
   env: 1.4,
-  opacity: 0.0,
+  opacity: 0.18,
   clearcoat: 1.0,
   ccRough: 0.06,
 };
@@ -634,7 +643,7 @@ const DEV = {
 function applyPremiumGlassMaterial() {
   const mat = DEV.glassMat;
   if (!mat) return;
-  mat.color.setHex(0xffffff);
+  mat.color.setHex(GLASS.color);
   mat.roughness = GLASS.rough;
   mat.envMapIntensity = GLASS.env;
   mat.clearcoat = GLASS.clearcoat;
@@ -652,9 +661,6 @@ const MOTION_DEV = {
   showPath: true,
   showGhosts: true,
   editHandles: false,
-  diagnostics: null,
-  comparePaths: [],
-  compareActive: -1,
   version: 0,
   moveHandle: null,
   selectNode: null,
@@ -796,10 +802,31 @@ const WIREABLE = [
   "settleX", "settleY", "settleZ", "tilt", "shine",
 ];
 
+const WIREABLE_OPTIONS = {
+  "Stage ↔": "sposX",
+  "Stage ↕": "sposY",
+  "Stage depth": "sposZ",
+  "Stage pitch °": "srotX",
+  "Stage yaw °": "srotY",
+  "Stage roll °": "srotZ",
+  "Stage zoom": "sscale",
+  "Phone final ↔": "shift",
+  "Phone final ↕": "vshift",
+  "Travel arc lift": "lift",
+  "Final size": "pscale",
+  "Phone fit size": "size",
+  "Phone pitch °": "settleX",
+  "Phone yaw °": "settleY",
+  "Phone roll °": "settleZ",
+  "Start tilt °": "tilt",
+  "Glass reflection progress": "shine",
+};
+
 const WIRE = {
   enabled: false,
   master: "sposZ",
   drivenA: "sposY",
+  drivenBEnabled: true,
   drivenB: "srotY",
   ratioA: 1.0,
   ratioB: 45.0,
@@ -812,7 +839,9 @@ const WIRE = {
 function wireAnchors() {
   WIRE.masterAnchor = DRIVE_READERS[WIRE.master]();
   WIRE.drivenAnchorA = DRIVE_READERS[WIRE.drivenA]();
-  WIRE.drivenAnchorB = DRIVE_READERS[WIRE.drivenB]();
+  if (WIRE.drivenBEnabled) {
+    WIRE.drivenAnchorB = DRIVE_READERS[WIRE.drivenB]();
+  }
 }
 
 function wireTap(param, value) {
@@ -828,7 +857,9 @@ function wireTap(param, value) {
     writes[key] = Number(Math.min(hi, Math.max(lo, next)).toFixed(4));
   };
   drive(WIRE.drivenA, WIRE.drivenAnchorA, WIRE.ratioA);
-  drive(WIRE.drivenB, WIRE.drivenAnchorB, WIRE.ratioB);
+  if (WIRE.drivenBEnabled) {
+    drive(WIRE.drivenB, WIRE.drivenAnchorB, WIRE.ratioB);
+  }
   if (!Object.keys(writes).length) return;
   WIRE.suspended = true;
   DEV.setLeva(writes);
@@ -843,7 +874,11 @@ function wireResetRun() {
   if (WIRE.drivenA !== WIRE.master) {
     writes[WIRE.drivenA] = Number(WIRE.drivenAnchorA.toFixed(4));
   }
-  if (WIRE.drivenB !== WIRE.master && WIRE.drivenB !== WIRE.drivenA) {
+  if (
+    WIRE.drivenBEnabled &&
+    WIRE.drivenB !== WIRE.master &&
+    WIRE.drivenB !== WIRE.drivenA
+  ) {
     writes[WIRE.drivenB] = Number(WIRE.drivenAnchorB.toFixed(4));
   }
   WIRE.suspended = true;
@@ -862,8 +897,7 @@ const SLOT_THUMB_KEY = "iglass_pose_slot_thumbs_v1";
 const SLOT_COUNT = 150;
 const MOTION_PATH_KEY = "iglass_motion_path_v1";
 const MOTION_LIBRARY_KEY = "iglass_motion_path_library_v1";
-const MOTION_SNIPPET_KEY = "iglass_motion_snippets_v1";
-const MOTION_COMPARE_KEY = "iglass_motion_compare_v1";
+const LEGACY_MOTION_COMPARE_KEY = "iglass_motion_compare_v1";
 
 const MOTION_EASES = {
   linear: (t) => t,
@@ -1322,48 +1356,6 @@ function sampleMotionPath(path, progress) {
   return sampleAtTrack(path, 1);
 }
 
-function poseStageQuaternion(pose) {
-  return poseQuaternion(pose, ["srotX", "srotY", "srotZ"]);
-}
-
-function motionDiagnostics(path, samples = 96) {
-  if (!path || path.nodes.length < 2) return null;
-  const duration = Math.max(0.001, motionPathDuration(path));
-  const dt = duration / samples;
-  const poses = Array.from({ length: samples + 1 }, (_, i) => sampleMotionPath(path, i / samples));
-  const speed = [];
-  const angular = [];
-  for (let i = 1; i < poses.length; i++) {
-    const a = poses[i - 1];
-    const b = poses[i];
-    speed.push(
-      new THREE.Vector3(a.sposX, a.sposY, a.sposZ).distanceTo(
-        new THREE.Vector3(b.sposX, b.sposY, b.sposZ)
-      ) / dt
-    );
-    angular.push((poseStageQuaternion(a).angleTo(poseStageQuaternion(b)) * 180 / Math.PI) / dt);
-  }
-  const acceleration = speed.slice(1).map((v, i) => Math.abs(v - speed[i]) / dt);
-  const jerk = acceleration.slice(1).map((v, i) => Math.abs(v - acceleration[i]) / dt);
-  const max = (arr) => (arr.length ? Math.max(...arr) : 0);
-  const mean = (arr) => (arr.length ? arr.reduce((s, v) => s + v, 0) / arr.length : 0);
-  const discontinuities = jerk
-    .map((v, i) => ({ v, progress: (i + 2) / samples }))
-    .filter(({ v }) => v > Math.max(1e-6, mean(jerk) * 4))
-    .slice(0, 12);
-  return {
-    speed,
-    angular,
-    acceleration,
-    jerk,
-    maxSpeed: max(speed),
-    maxAngular: max(angular),
-    maxAcceleration: max(acceleration),
-    maxJerk: max(jerk),
-    discontinuities,
-  };
-}
-
 function applyPoseParamsDirect(pose) {
   if (!pose) return;
   const rad = Math.PI / 180;
@@ -1524,7 +1516,25 @@ function persistSlotRecord(key, value) {
 
 function loadMotionLibrary() {
   const saved = loadSlotRecord(MOTION_LIBRARY_KEY, []);
-  return Array.isArray(saved) ? saved : [];
+  const library = Array.isArray(saved) ? saved : [];
+
+  // One-time, lossless migration of the former fixed A/B/C comparison banks
+  // into the unlimited path list. The old key is left untouched as backup.
+  const legacy = loadSlotRecord(LEGACY_MOTION_COMPARE_KEY, []);
+  if (!Array.isArray(legacy)) return library;
+  const migrated = legacy
+    .map((bank, index) => {
+      if (!bank?.path) return null;
+      const id = `legacy-comparison-${index}`;
+      return {
+        id,
+        name: bank.name || `Comparison ${String.fromCharCode(65 + index)}`,
+        versions: [{ savedAt: bank.savedAt || new Date().toISOString(), path: bank.path }],
+      };
+    })
+    .filter(Boolean)
+    .filter((entry) => !library.some((savedEntry) => savedEntry.id === entry.id));
+  return [...library, ...migrated];
 }
 
 function capturePoseThumbnail() {
@@ -2571,7 +2581,7 @@ function DevControls({ initialP }) {
         },
         master: {
           value: WIRE.master,
-          options: WIREABLE,
+          options: WIREABLE_OPTIONS,
           onChange: (v) => {
             WIRE.master = v;
             if (WIRE.enabled) wireAnchors();
@@ -2579,7 +2589,7 @@ function DevControls({ initialP }) {
         },
         drivenA: {
           value: WIRE.drivenA,
-          options: WIREABLE,
+          options: WIREABLE_OPTIONS,
           label: "driven A",
           onChange: (v) => {
             WIRE.drivenA = v;
@@ -2596,9 +2606,17 @@ function DevControls({ initialP }) {
             WIRE.ratioA = v;
           },
         },
+        drivenBOn: {
+          value: WIRE.drivenBEnabled,
+          label: "driven B on (triple)",
+          onChange: (v) => {
+            WIRE.drivenBEnabled = v;
+            if (WIRE.enabled) wireAnchors();
+          },
+        },
         drivenB: {
           value: WIRE.drivenB,
-          options: WIREABLE,
+          options: WIREABLE_OPTIONS,
           label: "driven B",
           onChange: (v) => {
             WIRE.drivenB = v;
@@ -3009,26 +3027,6 @@ const UI = {
   hint: { fontSize: 9, color: "#8aa094", lineHeight: 1.5, marginTop: 8 },
 };
 
-const HUMAN_LABELS = {
-  sposX: "Stage ← →",
-  sposY: "Stage ↑ ↓",
-  sposZ: "Stage depth",
-  srotX: "Stage pitch °",
-  srotY: "Stage yaw °",
-  srotZ: "Stage roll °",
-  sscale: "Stage zoom",
-  shift: "Phone final ← →",
-  vshift: "Phone final ↑ ↓",
-  lift: "Travel arc lift",
-  pscale: "Final size",
-  size: "Phone fit size",
-  settleX: "Phone pitch °",
-  settleY: "Phone yaw °",
-  settleZ: "Phone roll °",
-  tilt: "Start tilt °",
-  shine: "Glass shine sweep",
-};
-
 const chipStyle = (active, wide) => ({
   padding: wide ? "4px 9px" : "3px 6px",
   margin: 2,
@@ -3067,20 +3065,6 @@ const slotStyle = (filled) => ({
   cursor: "pointer",
 });
 
-function MotionSparkline({ values, color = "#2e7d52", height = 34 }) {
-  if (!values || values.length < 2) return null;
-  const max = Math.max(1e-9, ...values);
-  const points = values
-    .map((v, i) => `${(i / (values.length - 1)) * 276},${height - (v / max) * (height - 3)}`)
-    .join(" ");
-  return (
-    <svg width="100%" height={height} viewBox={`0 0 276 ${height}`} preserveAspectRatio="none">
-      <line x1="0" y1={height - 1} x2="276" y2={height - 1} stroke="#d5e2d9" />
-      <polyline points={points} fill="none" stroke={color} strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
-    </svg>
-  );
-}
-
 function DevDashboard() {
   const [, force] = useState(0);
   const panelRef = useRef(null);
@@ -3095,7 +3079,7 @@ function DevDashboard() {
   const [selectedPathNode, setSelectedPathNode] = useState(-1);
   const [pathProgress, setPathProgress] = useState(0);
   const [pathPlaying, setPathPlaying] = useState(false);
-  const [status, setStatus] = useState("v7 production preset ready");
+  const [status, setStatus] = useState("v7.2 production preset ready");
   const [library, setLibrary] = useState(loadMotionLibrary);
   const [libraryId, setLibraryId] = useState("");
   const [importText, setImportText] = useState("");
@@ -3111,19 +3095,6 @@ function DevDashboard() {
   const [bridgeStyle, setBridgeStyle] = useState("tangent");
   const [bridgeStrength, setBridgeStrength] = useState(1);
   const [bridgeArc, setBridgeArc] = useState(0.35);
-  const [snippets, setSnippets] = useState(() => {
-    const saved = loadSlotRecord(MOTION_SNIPPET_KEY, []);
-    return Array.isArray(saved) ? saved : [];
-  });
-  const [snippetName, setSnippetName] = useState("Motion snippet");
-  const [snippetStart, setSnippetStart] = useState(1);
-  const [snippetEnd, setSnippetEnd] = useState(2);
-  const [snippetRelative, setSnippetRelative] = useState(true);
-  const [compareBanks, setCompareBanks] = useState(() => {
-    const saved = loadSlotRecord(MOTION_COMPARE_KEY, []);
-    return Array.from({ length: 3 }, (_, i) => saved?.[i] || null);
-  });
-  const [compareActive, setCompareActive] = useState(-1);
   const pathProgressRef = useRef(0);
   const pathPlaybackRef = useRef({ raf: 0, lastUi: 0 });
   const historyRef = useRef({ undo: [], redo: [] });
@@ -3135,19 +3106,9 @@ function DevDashboard() {
     () => compileMotionPath(motionPath, slots),
     [motionPath, slots]
   );
-  const diagnostics = useMemo(
-    () => motionDiagnostics(compiledPath),
-    [compiledPath]
-  );
   const activePathNode = useMemo(
     () => nearestMotionNode(compiledPath, pathProgress),
     [compiledPath, pathProgress]
-  );
-  const compareCompiled = useMemo(
-    () => compareBanks.map((bank) =>
-      bank?.path ? compileMotionPath(normaliseMotionPath(bank.path), slots) : null
-    ),
-    [compareBanks, slots]
   );
 
   useEffect(() => {
@@ -3165,12 +3126,9 @@ function DevDashboard() {
     MOTION_DEV.showPath = motionPath.showPath;
     MOTION_DEV.showGhosts = motionPath.showGhosts;
     MOTION_DEV.editHandles = motionPath.editHandles;
-    MOTION_DEV.diagnostics = diagnostics;
-    MOTION_DEV.comparePaths = compareCompiled;
-    MOTION_DEV.compareActive = compareActive;
     MOTION_DEV.progress = pathProgress;
     MOTION_DEV.version++;
-  }, [compiledPath, diagnostics, selectedPathNode, activePathNode, compareCompiled, compareActive, motionPath.showPath, motionPath.showGhosts, motionPath.editHandles]);
+  }, [compiledPath, selectedPathNode, activePathNode, motionPath.showPath, motionPath.showGhosts, motionPath.editHandles]);
 
   useEffect(() => {
     const chip = nodeChipRefs.current[activePathNode];
@@ -3265,20 +3223,31 @@ function DevDashboard() {
     return true;
   };
 
-  const playMotionPath = () => {
+  const playMotionPath = (
+    pathToPlay = compiledPath,
+    settings = motionPath,
+    restart = false
+  ) => {
     pauseMotionPath(false);
-    const total = motionPathDuration(compiledPath);
-    if (compiledPath.nodes.length < 2 || total <= 0) return;
-    let startProgress = pathProgressRef.current >= 0.999 ? 0 : pathProgressRef.current;
+    const total = motionPathDuration(pathToPlay);
+    if (pathToPlay.nodes.length < 2 || total <= 0) return;
+    let startProgress =
+      restart || pathProgressRef.current >= 0.999
+        ? 0
+        : pathProgressRef.current;
     const startSeconds = startProgress * total;
     const startedAt = performance.now();
-    const speed = Math.max(0.1, Number(motionPath.speed) || 1);
+    const speed = Math.max(0.1, Number(settings.speed) || 1);
+    pathProgressRef.current = startProgress;
+    setPathProgress(startProgress);
     setPathPlaying(true);
     const tick = (now) => {
       const seconds = startSeconds + ((now - startedAt) / 1000) * speed;
       const done = seconds >= total;
-      const progress = motionPath.loop ? (seconds % total) / total : Math.min(1, seconds / total);
-      const pose = sampleMotionPath(compiledPath, progress);
+      const progress = settings.loop
+        ? (seconds % total) / total
+        : Math.min(1, seconds / total);
+      const pose = sampleMotionPath(pathToPlay, progress);
       if (pose) {
         pathProgressRef.current = progress;
         MOTION_DEV.progress = progress;
@@ -3288,10 +3257,10 @@ function DevDashboard() {
         }
         applyPoseParamsDirect(pose);
       }
-      if (done && !motionPath.loop) {
+      if (done && !settings.loop) {
         pathPlaybackRef.current.raf = 0;
         setPathPlaying(false);
-        syncPoseControls(sampleMotionPath(compiledPath, 1));
+        syncPoseControls(sampleMotionPath(pathToPlay, 1));
         return;
       }
       pathPlaybackRef.current.raf = requestAnimationFrame(tick);
@@ -3573,159 +3542,32 @@ function DevDashboard() {
     setStatus(`generated ${count} ${bridgeStyle} bridge poses in slots ${free.map((i) => i + 1).join(", ")}`);
   };
 
-  const persistSnippets = (next) => {
-    setSnippets(next);
-    persistSlotRecord(MOTION_SNIPPET_KEY, next);
-  };
-
-  const saveMotionSnippet = () => {
-    if (!motionPath.nodes.length) {
-      setStatus("snippet needs at least one motion-path node");
-      return;
-    }
-    const lo = Math.max(0, Math.min(motionPath.nodes.length - 1, Number(snippetStart) - 1));
-    const hi = Math.max(lo, Math.min(motionPath.nodes.length - 1, Number(snippetEnd) - 1));
-    const source = motionPath.nodes.slice(lo, hi + 1);
-    if (source.some((node) => !slots[node.slot] && !node.pose)) {
-      setStatus("snippet blocked: one of the selected nodes has a missing pose slot");
-      return;
-    }
-    const nodes = source.map((node) => {
-      const pose = node.pose || slots[node.slot];
-      const position = node.position || [pose.sposX, pose.sposY, pose.sposZ];
-      return {
-        pose: { ...pose },
-        position: position.map(Number),
-        duration: Number(node.duration) || 1.25,
-        hold: Number(node.hold) || 0,
-        ease: node.ease || "linear",
-      };
-    });
-    const snippet = {
-      id: `snippet-${Date.now()}`,
-      name: snippetName.trim() || `Nodes ${lo + 1}–${hi + 1}`,
-      savedAt: new Date().toISOString(),
-      nodes,
-    };
-    persistSnippets([...snippets, snippet].slice(-40));
-    setStatus(`saved compound snippet “${snippet.name}” (${nodes.length} nodes)`);
-  };
-
-  const appendMotionSnippet = (snippet) => {
-    const count = snippet?.nodes?.length || 0;
-    if (!count) return;
-    const free = slots.map((pose, i) => (!pose ? i : -1)).filter((i) => i >= 0).slice(0, count);
-    if (free.length < count) {
-      setStatus(`snippet needs ${count} empty pose slots`);
-      return;
-    }
-    const first = new THREE.Vector3(...snippet.nodes[0].position);
-    const destination =
-      snippetRelative && compiledPath.nodes.length
-        ? new THREE.Vector3(...compiledPath.nodes[compiledPath.nodes.length - 1].position)
-        : first.clone();
-    const delta = destination.sub(first);
-    const nextSlots = [...slots];
-    const meta = { ...slotMeta };
-    const appended = snippet.nodes.map((item, i) => {
-      const position = new THREE.Vector3(...item.position).add(delta);
-      const pose = {
-        ...item.pose,
-        sposX: Number((item.pose.sposX + delta.x).toFixed(4)),
-        sposY: Number((item.pose.sposY + delta.y).toFixed(4)),
-        sposZ: Number((item.pose.sposZ + delta.z).toFixed(4)),
-      };
-      nextSlots[free[i]] = pose;
-      meta[free[i]] = {
-        name: `${snippet.name} ${i + 1}`,
-        updatedAt: new Date().toISOString(),
-      };
-      return {
-        slot: free[i],
-        position: position.toArray().map((v) => Number(v.toFixed(4))),
-        duration:
-          motionPath.nodes.length || i > 0
-            ? Math.max(0.1, Number(item.duration) || 1.25)
-            : 0,
-        hold: motionPath.continuous ? 0 : Math.max(0, Number(item.hold) || 0),
-        ease: motionPath.continuous ? "linear" : item.ease || "linear",
-      };
-    });
-    setSlots(nextSlots);
-    setSlotMeta(meta);
-    persistSlots(nextSlots);
-    persistSlotRecord(SLOT_META_KEY, meta);
-    commitMotionPath({ ...motionPath, nodes: [...motionPath.nodes, ...appended] });
-    setSelectedPathNode(motionPath.nodes.length);
-    setStatus(`appended “${snippet.name}” into slots ${free.map((i) => i + 1).join(", ")}`);
-  };
-
-  const deleteMotionSnippet = (id) => {
-    persistSnippets(snippets.filter((snippet) => snippet.id !== id));
-  };
-
-  const persistCompareBanks = (next) => {
-    setCompareBanks(next);
-    persistSlotRecord(MOTION_COMPARE_KEY, next);
-  };
-
-  const captureCompareBank = (index) => {
-    const next = [...compareBanks];
-    const embeddedPath = {
-      ...normaliseMotionPath(motionPath),
-      nodes: motionPath.nodes.map((node) => ({
-        ...node,
-        pose: slots[node.slot] ? { ...slots[node.slot] } : node.pose || null,
-      })),
-    };
-    next[index] = {
-      name: motionPath.name || `Path ${String.fromCharCode(65 + index)}`,
-      savedAt: new Date().toISOString(),
-      path: embeddedPath,
-    };
-    persistCompareBanks(next);
-    setCompareActive(index);
-    setStatus(`captured current motion as comparison ${String.fromCharCode(65 + index)}`);
-  };
-
-  const loadCompareBank = (index) => {
-    const bank = compareBanks[index];
-    if (!bank?.path) return;
-    const nextPath = normaliseMotionPath(bank.path);
-    const nextCompiled = compileMotionPath(nextPath, slots);
-    commitMotionPath(nextPath);
-    setCompareActive(index);
-    pathProgressRef.current = 0;
-    setPathProgress(0);
-    const pose = sampleMotionPath(nextCompiled, 0);
-    if (pose) {
-      applyPoseParamsDirect(pose);
-      syncPoseControls(pose);
-    }
-    setStatus(`loaded comparison ${String.fromCharCode(65 + index)} · ${bank.name}`);
-  };
-
-  const clearCompareBank = (index) => {
-    const next = [...compareBanks];
-    next[index] = null;
-    persistCompareBanks(next);
-    if (compareActive === index) setCompareActive(-1);
-  };
-
   const persistLibrary = (next) => {
     setLibrary(next);
     persistSlotRecord(MOTION_LIBRARY_KEY, next);
   };
 
-  const savePathVersion = (asNew = false) => {
-    const id = asNew || !libraryId ? `path-${Date.now()}` : libraryId;
-    const version = { savedAt: new Date().toISOString(), path: motionPath };
-    let next;
+  const embedMotionPath = (path) => ({
+    ...normaliseMotionPath(path),
+    nodes: path.nodes.map((node) => ({
+      ...node,
+      pose: node.pose || (slots[node.slot] ? { ...slots[node.slot] } : null),
+    })),
+  });
+
+  const savePathVersion = (asNew = false, targetId = libraryId) => {
+    const id = asNew || !targetId ? `path-${Date.now()}` : targetId;
     const existing = library.find((entry) => entry.id === id);
+    const embeddedPath = {
+      ...embedMotionPath(motionPath),
+      name: existing?.name || motionPath.name,
+    };
+    const version = { savedAt: new Date().toISOString(), path: embeddedPath };
+    let next;
     if (existing) {
       next = library.map((entry) =>
         entry.id === id
-          ? { ...entry, name: motionPath.name, versions: [...entry.versions, version].slice(-20) }
+          ? { ...entry, versions: [...entry.versions, version] }
           : entry
       );
     } else {
@@ -3744,15 +3586,26 @@ function DevDashboard() {
     setStatus(`loaded ${entry.name} v${versionIndex + 1}`);
   };
 
-  const duplicateLibraryPath = () => {
-    const entry = library.find((x) => x.id === libraryId);
-    if (!entry) return;
-    const source = entry.versions[entry.versions.length - 1].path;
-    const id = `path-${Date.now()}`;
-    const path = { ...normaliseMotionPath(source), name: `${entry.name} copy` };
-    persistLibrary([...library, { id, name: path.name, versions: [{ savedAt: new Date().toISOString(), path }] }]);
-    setLibraryId(id);
-    commitMotionPath(path);
+  const playLibraryVersion = (
+    entry,
+    versionIndex = entry.versions.length - 1
+  ) => {
+    const version = entry.versions[versionIndex];
+    if (!version) return;
+    const path = normaliseMotionPath(version.path);
+    const playable = compileMotionPath(path, slots);
+    if (playable.nodes.length < 2) {
+      setStatus(`${entry.name} needs at least two valid nodes`);
+      return;
+    }
+    pauseMotionPath(false);
+    historyRef.current.undo.push(motionPath);
+    historyRef.current.undo = historyRef.current.undo.slice(-60);
+    historyRef.current.redo = [];
+    setMotionPath(path);
+    setLibraryId(entry.id);
+    setStatus(`playing ${entry.name} v${versionIndex + 1}`);
+    playMotionPath(playable, path, true);
   };
 
   const exportStudio = () => {
@@ -3764,8 +3617,7 @@ function DevDashboard() {
       slotMeta,
       slotThumbs,
       path: motionPath,
-      snippets,
-      compareBanks,
+      library,
     });
   };
 
@@ -3787,11 +3639,7 @@ function DevDashboard() {
         persistSlots(nextSlots);
         persistSlotRecord(SLOT_META_KEY, meta);
         persistSlotRecord(SLOT_THUMB_KEY, thumbs);
-        if (Array.isArray(parsed.snippets)) persistSnippets(parsed.snippets);
-        if (Array.isArray(parsed.compareBanks)) {
-          const banks = Array.from({ length: 3 }, (_, i) => parsed.compareBanks[i] || null);
-          persistCompareBanks(banks);
-        }
+        if (Array.isArray(parsed.library)) persistLibrary(parsed.library);
         commitMotionPath(normaliseMotionPath(parsed.path));
       } else if (Array.isArray(parsed.nodes) && parsed.nodes.every((n) => Number.isInteger(n.slot))) {
         commitMotionPath(normaliseMotionPath(parsed));
@@ -3835,7 +3683,7 @@ function DevDashboard() {
   if (collapsed) {
     return (
       <div ref={panelRef} style={UI.panelCollapsed}>
-        <b style={{ color: "#2e7d52", letterSpacing: 1 }}>iGLASS v7.1.2</b>
+        <b style={{ color: "#2e7d52", letterSpacing: 1 }}>iGLASS v7.2.0</b>
         <span style={chipStyle(false)} onClick={() => setCollapsed(false)}>▸ open</span>
       </div>
     );
@@ -3844,7 +3692,7 @@ function DevDashboard() {
   return (
     <div ref={panelRef} style={UI.panel}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <b style={{ color: "#2e7d52", letterSpacing: 1 }}>iGLASS PRODUCTION STUDIO v7.1.2</b>
+        <b style={{ color: "#2e7d52", letterSpacing: 1 }}>iGLASS PRODUCTION STUDIO v7.2.0</b>
         <span style={chipStyle(false)} onClick={() => setCollapsed(true)}>▾ hide</span>
       </div>
       <div style={{ ...UI.hint, marginTop: 3, color: status.startsWith("import failed") ? "#a02b2b" : "#5a6b60" }}>{status}</div>
@@ -4084,44 +3932,56 @@ function DevDashboard() {
       </details>
 
       <details open>
-        <summary style={UI.head}>🧪 path comparison A / B / C</summary>
-        <div style={UI.hint}>Capture up to three alternatives. Their trajectories remain visible together; load any bank and use the same top playhead for an exact comparison.</div>
-        {[0, 1, 2].map((index) => {
-          const bank = compareBanks[index];
-          const letter = String.fromCharCode(65 + index);
-          const color = ["#2677d9", "#e6862e", "#8b5cc7"][index];
+        <summary style={UI.head}>🧪 path comparison / saved paths ({library.length})</summary>
+        <div style={UI.hint}>Save any number of complete paths. Each path keeps unlimited versions; PLAY runs its latest version from the start.</div>
+        <div style={UI.row}>
+          <span style={chipStyle(false, true)} onClick={() => savePathVersion(true)}>save current as new path</span>
+        </div>
+        {!library.length && <div style={UI.hint}>No saved paths yet.</div>}
+        {library.map((entry, entryIndex) => {
+          const latestIndex = entry.versions.length - 1;
+          const latestVersion = entry.versions[latestIndex];
+          const latestPath = latestVersion
+            ? normaliseMotionPath(latestVersion.path)
+            : defaultMotionPath();
+          const latestCompiled = compileMotionPath(latestPath, slots);
+          const duration = motionPathDuration(latestCompiled);
+          const active = libraryId === entry.id;
           return (
-            <div key={letter} style={{ ...UI.row, flexWrap: "nowrap", marginTop: 4, padding: "3px 4px", border: `1px solid ${compareActive === index ? color : "#d5e2d9"}`, borderRadius: 6 }}>
-              <b style={{ width: 18, color }}>{letter}</b>
-              <span style={{ flex: 1, fontSize: 9, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{bank?.name || "empty comparison bank"}</span>
-              <span style={chipStyle(false)} onClick={() => captureCompareBank(index)}>save</span>
-              <span style={{ ...chipStyle(!!bank), opacity: bank ? 1 : 0.4 }} onClick={() => loadCompareBank(index)}>load</span>
-              {bank && <span style={chipStyle(false)} onClick={() => clearCompareBank(index)}>×</span>}
+            <div
+              key={entry.id}
+              style={{ marginTop: 5, padding: "4px 5px", border: `1px solid ${active ? "#2e7d52" : "#d5e2d9"}`, borderRadius: 7, background: active ? "#f2f8f4" : "#ffffff" }}
+            >
+              <div style={{ ...UI.row, flexWrap: "nowrap" }}>
+                <b style={{ width: 20, fontSize: 9, color: "#2e7d52" }}>{entryIndex + 1}</b>
+                <span style={{ flex: 1, fontSize: 9, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={entry.name}>
+                  {entry.name} · {latestCompiled.nodes.length} nodes · {duration.toFixed(2)}s · {entry.versions.length}v
+                </span>
+                <span style={chipStyle(false)} onClick={() => loadLibraryVersion(entry)}>load</span>
+                <span style={chipStyle(false)} onClick={() => savePathVersion(false, entry.id)}>+ version</span>
+                <span style={chipStyle(false)} onClick={() => { if (window.confirm("Delete this saved path and all versions?")) { persistLibrary(library.filter((item) => item.id !== entry.id)); if (libraryId === entry.id) setLibraryId(""); } }}>×</span>
+                <span style={chipStyle(true, true)} onClick={() => playLibraryVersion(entry)}>▶ PLAY</span>
+              </div>
+              <div style={{ ...UI.row, marginLeft: 18 }}>
+                {entry.versions.map((version, versionIndex) => (
+                  <span
+                    key={`${version.savedAt}-${versionIndex}`}
+                    style={chipStyle(false)}
+                    title={`Load ${entry.name} version ${versionIndex + 1}`}
+                    onClick={() => loadLibraryVersion(entry, versionIndex)}
+                  >
+                    v{versionIndex + 1}
+                  </span>
+                ))}
+              </div>
             </div>
           );
         })}
-      </details>
-
-      <details open>
-        <summary style={UI.head}>🧩 compound motion snippets ({snippets.length})</summary>
-        <div style={UI.hint}>A snippet stores a short ordered run of full poses, XYZ handles and timing. Appending it creates independent pose slots so the motion can be edited normally.</div>
-        <input value={snippetName} placeholder="snippet name" style={{ ...SEL_STYLE, width: 276, maxWidth: "100%" }} onChange={(e) => setSnippetName(e.target.value)} />
-        <div style={{ ...UI.row, marginTop: 4 }}>
-          <label style={{ fontSize: 9 }}>from node <input type="number" min={1} max={Math.max(1, motionPath.nodes.length)} value={snippetStart} style={smallNumber} onChange={(e) => setSnippetStart(e.target.value)} /></label>
-          <label style={{ fontSize: 9 }}>to <input type="number" min={1} max={Math.max(1, motionPath.nodes.length)} value={snippetEnd} style={smallNumber} onChange={(e) => setSnippetEnd(e.target.value)} /></label>
-          <span style={chipStyle(false, true)} onClick={saveMotionSnippet}>save snippet</span>
-        </div>
         <div style={UI.row}>
-          <span style={chipStyle(snippetRelative, true)} onClick={() => setSnippetRelative(!snippetRelative)}>{snippetRelative ? "relative append on" : "absolute append"}</span>
-          <span style={UI.hint}>relative starts at the current path end</span>
+          <span style={chipStyle(false)} onClick={exportStudio}>download JSON</span>
+          <span style={chipStyle(showImport)} onClick={() => setShowImport(!showImport)}>import JSON</span>
         </div>
-        {snippets.slice().reverse().map((snippet) => (
-          <div key={snippet.id} style={{ ...UI.row, flexWrap: "nowrap", marginTop: 3, borderTop: "1px solid #e6eee9", paddingTop: 3 }}>
-            <span style={{ flex: 1, fontSize: 9, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{snippet.name} · {snippet.nodes.length} nodes</span>
-            <span style={chipStyle(false, true)} onClick={() => appendMotionSnippet(snippet)}>append</span>
-            <span style={chipStyle(false)} onClick={() => deleteMotionSnippet(snippet.id)}>×</span>
-          </div>
-        ))}
+        {showImport && <div><textarea value={importText} placeholder="Paste a studio JSON export or editable path JSON" style={{ width: 276, height: 90, fontSize: 9 }} onChange={(e) => setImportText(e.target.value)} /><div><span style={chipStyle(false, true)} onClick={importStudio}>apply import</span></div></div>}
       </details>
 
       <details>
@@ -4154,46 +4014,6 @@ function DevDashboard() {
           <span style={chipStyle(false, true)} onClick={generateBridge}>generate</span>
         </div>
         <div style={UI.hint}>Uses the incoming and outgoing neighbours to preserve tangents; generated bridge poses occupy the first free slots.</div>
-      </details>
-
-      <details>
-        <summary style={UI.head}>📈 velocity diagnostics</summary>
-        {diagnostics ? <>
-          <div style={{ fontSize: 9 }}>linear velocity · max {diagnostics.maxSpeed.toFixed(2)} units/s</div>
-          <MotionSparkline values={diagnostics.speed} />
-          <div style={{ fontSize: 9 }}>angular velocity · max {diagnostics.maxAngular.toFixed(1)} °/s</div>
-          <MotionSparkline values={diagnostics.angular} color="#7960a8" />
-          <div style={{ fontSize: 9 }}>accel {diagnostics.maxAcceleration.toFixed(2)} · jerk {diagnostics.maxJerk.toFixed(2)} · flagged {diagnostics.discontinuities.length}</div>
-        </> : <div style={UI.hint}>Add at least two valid path nodes.</div>}
-      </details>
-
-      <details>
-        <summary style={UI.head}>🗂 named paths / versions / transfer</summary>
-        <div style={UI.row}>
-          <select style={{ ...SEL_STYLE, maxWidth: 180 }} value={libraryId} onChange={(e) => setLibraryId(e.target.value)}>
-            <option value="">select saved path…</option>
-            {library.map((entry) => <option key={entry.id} value={entry.id}>{entry.name} · {entry.versions.length}v</option>)}
-          </select>
-          <span style={chipStyle(false)} onClick={() => savePathVersion(true)}>save new</span>
-          <span style={chipStyle(false)} onClick={() => savePathVersion(false)}>save version</span>
-        </div>
-        {libraryId && (() => {
-          const entry = library.find((x) => x.id === libraryId);
-          if (!entry) return null;
-          return <div style={UI.row}>
-            {entry.versions.slice(-6).map((v, j) => {
-              const index = entry.versions.length - Math.min(6, entry.versions.length) + j;
-              return <span key={v.savedAt} style={chipStyle(false)} onClick={() => loadLibraryVersion(entry, index)}>v{index + 1}</span>;
-            })}
-            <span style={chipStyle(false)} onClick={duplicateLibraryPath}>duplicate</span>
-            <span style={chipStyle(false)} onClick={() => { if (window.confirm("Delete this saved path and its versions?")) { persistLibrary(library.filter((x) => x.id !== libraryId)); setLibraryId(""); } }}>delete</span>
-          </div>;
-        })()}
-        <div style={UI.row}>
-          <span style={chipStyle(false)} onClick={exportStudio}>download JSON</span>
-          <span style={chipStyle(showImport)} onClick={() => setShowImport(!showImport)}>import JSON</span>
-        </div>
-        {showImport && <div><textarea value={importText} placeholder="Paste a v5 studio JSON export or editable path JSON" style={{ width: 276, height: 90, fontSize: 9 }} onChange={(e) => setImportText(e.target.value)} /><div><span style={chipStyle(false, true)} onClick={importStudio}>apply import</span></div></div>}
       </details>
 
       <details>
@@ -4528,47 +4348,18 @@ function MotionPathOverlay() {
     return object;
   }, [revision, path]);
 
-  const compareLines = useMemo(() => {
-    const colors = [0x2677d9, 0xe6862e, 0x8b5cc7];
-    return (MOTION_DEV.comparePaths || []).map((comparePath, index) => {
-      if (!comparePath || comparePath.nodes.length < 2) return null;
-      const points = Array.from({ length: 121 }, (_, i) => {
-        const pose = sampleMotionPath(comparePath, i / 120);
-        return new THREE.Vector3(pose.sposX, pose.sposY, pose.sposZ);
-      });
-      const geometry = new THREE.BufferGeometry().setFromPoints(points);
-      const material = new THREE.LineBasicMaterial({
-        color: colors[index],
-        transparent: true,
-        opacity: MOTION_DEV.compareActive === index ? 0.82 : 0.34,
-        depthTest: false,
-      });
-      const object = new THREE.Line(geometry, material);
-      object.renderOrder = 8998;
-      return object;
-    });
-  }, [revision]);
-
   useEffect(() => () => {
     if (line) {
       line.geometry.dispose();
       line.material.dispose();
     }
-    compareLines.forEach((compareLine) => {
-      if (!compareLine) return;
-      compareLine.geometry.dispose();
-      compareLine.material.dispose();
-    });
-  }, [line, compareLines]);
+  }, [line]);
 
   if (!path || !MOTION_DEV.showPath || path.nodes.length < 2) return null;
   const ghostProgress = [0, 0.25, 0.5, 0.75, 1];
 
   return (
     <group name="iglass-motion-path-overlay">
-      {compareLines.map((compareLine, index) => compareLine && (
-        <primitive key={`compare-${index}`} object={compareLine} />
-      ))}
       {line && <primitive object={line} />}
       {path.nodes.map((node, i) => (
         <group key={`${i}-${node.slot ?? "embedded"}`} position={node.position}>
@@ -4591,15 +4382,6 @@ function MotionPathOverlay() {
         );
       })}
       <PathPlayhead path={path} />
-      {MOTION_DEV.diagnostics && MOTION_DEV.diagnostics.discontinuities.map(({ progress }, i) => {
-        const pose = sampleMotionPath(path, progress);
-        return (
-          <mesh key={`spike-${i}`} position={[pose.sposX, pose.sposY, pose.sposZ]} renderOrder={9003}>
-            <octahedronGeometry args={[0.055, 0]} />
-            <meshBasicMaterial color="#dc3545" depthTest={false} />
-          </mesh>
-        );
-      })}
       <PathHandleGizmo path={path} index={MOTION_DEV.selectedNode} />
     </group>
   );
@@ -5368,7 +5150,7 @@ function IPhoneExploded({
         // non-zero clearcoat so the shader compiles the chunk in — dialling
         // it to 0 later is then a uniform write, not a recompile.
         const glassMat = new THREE.MeshPhysicalMaterial({
-          color: new THREE.Color(0xffffff),
+          color: new THREE.Color(GLASS.color),
           roughness: GLASS.rough,
           metalness: 0.0,
           transparent: true,
