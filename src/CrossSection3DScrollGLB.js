@@ -19,6 +19,12 @@ import { Leva, useControls, button, folder } from "leva";
 gsap.registerPlugin(ScrollTrigger);
 
 // ============================================
+// v7.2.1 — CLAUDE v3.11.1 GLASS/CRACK RESTORATION
+//
+//   Front glass, bezel membership, crack state, crack registration and the
+//   crack material are restored from Claude's v3.11.1 implementation.
+//
+// ============================================
 // v7.2.0 — PATH LIBRARY CONSOLIDATION + COMPOUND CONTROL
 //
 //   Separated front glass keeps a visible neutral optical body. Saved motion
@@ -443,6 +449,7 @@ const MODEL = {
   targetSize: 1.6,
 };
 
+const GLASS_REG_RANGE = 25;
 const GLASS_REG = { x: -0.03, y: 0.09, z: 0.07 };
 
 // ============================================
@@ -539,10 +546,9 @@ const OLED = {
 // Overridable: ?glass=rough,env,opacity,clearcoat,ccRough
 // ---------------------------------------------------------
 const GLASS = {
-  color: 0xa8b6b0,
   rough: 0.12,
   env: 1.4,
-  opacity: 0.18,
+  opacity: 0.15,
   clearcoat: 1.0,
   ccRough: 0.06,
 };
@@ -579,15 +585,13 @@ const SHINE = {
 };
 
 // ---------------------------------------------------------
-// CRACK — explicit state + registration, restored from v3.11.1.
-// Timeline progress never overrides `on`; saved poses decide whether the
-// moving front pane is cracked or clean.
-// Overridable: ?crack=on,opacity,exitX,exitY,exitZ
+// CRACK — a boolean and a registration. Nothing else.
+// `on` is saved into the pose slot, so the swap IS the pose change.
+// Overridable: ?crack=on,exitX,exitY
 // ---------------------------------------------------------
 const CRACK = {
   on: true,
-  opacity: 1.0,
-  exit: [0, 0, 0],
+  exit: [0, 0],
 };
 
 // 1x1 fully transparent PNG. useTexture cannot be called conditionally
@@ -643,7 +647,7 @@ const DEV = {
 function applyPremiumGlassMaterial() {
   const mat = DEV.glassMat;
   if (!mat) return;
-  mat.color.setHex(GLASS.color);
+  mat.color.setHex(0x000000);
   mat.roughness = GLASS.rough;
   mat.envMapIntensity = GLASS.env;
   mat.clearcoat = GLASS.clearcoat;
@@ -760,6 +764,11 @@ const DRIVE_READERS = {
   lift: () => SETTLE.arcLift,
   pscale: () => SETTLE.scale,
   shine: () => SHINE.progress,
+  glassRegX: () => GLASS_REG.x,
+  glassRegY: () => GLASS_REG.y,
+  glassRegZ: () => GLASS_REG.z,
+  crackExitX: () => CRACK.exit[0],
+  crackExitY: () => CRACK.exit[1],
 };
 
 const DRIVE_CLAMPS = {
@@ -780,6 +789,11 @@ const DRIVE_CLAMPS = {
   lift: [-0.5, 0.5],
   pscale: [0.2, 1.5],
   shine: [0, 1],
+  glassRegX: [-GLASS_REG_RANGE, GLASS_REG_RANGE],
+  glassRegY: [-GLASS_REG_RANGE, GLASS_REG_RANGE],
+  glassRegZ: [-GLASS_REG_RANGE, GLASS_REG_RANGE],
+  crackExitX: [-4, 4],
+  crackExitY: [-4, 4],
 };
 
 function changeGizmoContext(targetMode) {
@@ -800,6 +814,7 @@ const WIREABLE = [
   "sposX", "sposY", "sposZ", "srotX", "srotY", "srotZ", "sscale",
   "shift", "vshift", "lift", "pscale", "size",
   "settleX", "settleY", "settleZ", "tilt", "shine",
+  "glassRegX", "glassRegY", "glassRegZ", "crackExitX", "crackExitY",
 ];
 
 const WIREABLE_OPTIONS = {
@@ -820,6 +835,11 @@ const WIREABLE_OPTIONS = {
   "Phone roll °": "settleZ",
   "Start tilt °": "tilt",
   "Glass reflection progress": "shine",
+  "Glass ↔": "glassRegX",
+  "Glass ↕": "glassRegY",
+  "Glass depth": "glassRegZ",
+  "Crack ↔": "crackExitX",
+  "Crack ↕": "crackExitY",
 };
 
 const WIRE = {
@@ -1391,13 +1411,15 @@ function applyPoseParamsDirect(pose) {
   if (Number.isFinite(pose.shine)) {
     SHINE.progress = Math.max(0, Math.min(1, pose.shine));
   }
+  if ([pose.glassRegX, pose.glassRegY, pose.glassRegZ].every(Number.isFinite)) {
+    GLASS_REG.x = pose.glassRegX;
+    GLASS_REG.y = pose.glassRegY;
+    GLASS_REG.z = pose.glassRegZ;
+  }
+  if ([pose.crackExitX, pose.crackExitY].every(Number.isFinite)) {
+    CRACK.exit = [pose.crackExitX, pose.crackExitY];
+  }
   if (typeof pose.crackOn === "boolean") CRACK.on = pose.crackOn;
-  if (Number.isFinite(pose.crackOpacity)) {
-    CRACK.opacity = Math.max(0, Math.min(1, pose.crackOpacity));
-  }
-  if ([pose.crackExitX, pose.crackExitY, pose.crackExitZ].every(Number.isFinite)) {
-    CRACK.exit = [pose.crackExitX, pose.crackExitY, pose.crackExitZ];
-  }
   if (Number.isFinite(pose.p)) {
     const p = Math.max(0, Math.min(1, pose.p));
     DEV.lastP = p;
@@ -1568,10 +1590,6 @@ function readPoseParams() {
   const o = {};
   for (const k of Object.keys(DRIVE_READERS)) o[k] = DRIVE_READERS[k]();
   o.crackOn = CRACK.on;
-  o.crackOpacity = CRACK.opacity;
-  o.crackExitX = CRACK.exit[0];
-  o.crackExitY = CRACK.exit[1];
-  o.crackExitZ = CRACK.exit[2];
   o.p = DEV.lastP;
   return o;
 }
@@ -1842,7 +1860,7 @@ function serialiseParams(params) {
   params.set("envb", LIGHT.blur.toFixed(2));
   params.set(
     "crack",
-    [CRACK.on ? 1 : 0, CRACK.opacity, CRACK.exit[0], CRACK.exit[1], CRACK.exit[2]]
+    [CRACK.on ? 1 : 0, CRACK.exit[0], CRACK.exit[1]]
       .map((v) => v.toFixed(2))
       .join(",")
   );
@@ -1945,7 +1963,7 @@ function saveCard() {
     `light amb ${LIGHT.amb.toFixed(2)}  key ${LIGHT.key.toFixed(2)}  fill ${LIGHT.fill.toFixed(2)}  env ${LIGHT.env.toFixed(2)}  exp ${LIGHT.exp.toFixed(2)}`,
     `bezel env ${BEZEL.env.toFixed(2)}  rough ${BEZEL.rough.toFixed(2)}  offset ${BEZEL.offset.toFixed(2)}    oled cut ${OLED.faceCut.toFixed(2)}  rim ${OLED.showRim ? "on" : "off"}`,
     `glass rough ${GLASS.rough.toFixed(3)}  env ${GLASS.env.toFixed(2)}  opac ${GLASS.opacity.toFixed(2)}  clearcoat ${GLASS.clearcoat.toFixed(2)} / ${GLASS.ccRough.toFixed(3)}`,
-    `ibl ${LIGHT.preset}  blur ${LIGHT.blur.toFixed(2)}    crack ${CRACK.opacity.toFixed(2)}  exit ${CRACK.exit.map((v) => v.toFixed(2)).join(", ")}`,
+    `ibl ${LIGHT.preset}  blur ${LIGHT.blur.toFixed(2)}    crack ${CRACK.on ? "ON" : "OFF"}  reg ${CRACK.exit.map((v) => v.toFixed(2)).join(", ")}`,
   ];
   const url = buildTuningURL();
 
@@ -2401,54 +2419,36 @@ function DevControls({ initialP }) {
       { collapsed: false }
     ),
 
-    // ---- v3.9 CRACKED PANE. Inert unless a crackTexture prop is passed. ----
+    // ---- Claude v3.11.1: crack state + registration only. ----
     "💥 cracked pane": folder(
       {
         crackOn: {
           value: CRACK.on,
-          label: "show crack",
+          label: "CRACK  (saved in the pose slot)",
           onChange: (v) => {
             CRACK.on = v;
           },
         },
-        crackOpacity: {
-          value: CRACK.opacity,
-          min: 0,
-          max: 1,
-          step: 0.01,
-          label: "crack strength",
-          onChange: (v) => {
-            CRACK.opacity = v;
-          },
-        },
         crackExitX: {
           value: CRACK.exit[0],
-          min: -3,
-          max: 3,
+          min: -4,
+          max: 4,
           step: 0.01,
           label: "crack ← → (X)",
           onChange: (v) => {
             CRACK.exit[0] = v;
+            wireTap("crackExitX", v);
           },
         },
         crackExitY: {
           value: CRACK.exit[1],
-          min: -3,
-          max: 3,
+          min: -4,
+          max: 4,
           step: 0.01,
           label: "crack ↑ ↓ (Y)",
           onChange: (v) => {
             CRACK.exit[1] = v;
-          },
-        },
-        crackExitZ: {
-          value: CRACK.exit[2],
-          min: -3,
-          max: 3,
-          step: 0.01,
-          label: "crack depth (Z)",
-          onChange: (v) => {
-            CRACK.exit[2] = v;
+            wireTap("crackExitY", v);
           },
         },
       },
@@ -2840,36 +2840,39 @@ function DevControls({ initialP }) {
       },
       { collapsed: true }
     ),
-    "🔲 glass registration": folder(
+    "🔲 glass registration  (±25 — drives the pane OUT of shot)": folder(
       {
         glassRegY: {
           value: GLASS_REG.y,
-          min: -1,
-          max: 1,
-          step: 0.005,
-          label: "up / down (Y)",
+          min: -GLASS_REG_RANGE,
+          max: GLASS_REG_RANGE,
+          step: 0.05,
+          label: "glass ↑ ↓ (Y)",
           onChange: (v) => {
             GLASS_REG.y = v;
+            wireTap("glassRegY", v);
           },
         },
         glassRegX: {
           value: GLASS_REG.x,
-          min: -1,
-          max: 1,
-          step: 0.005,
-          label: "across (X)",
+          min: -GLASS_REG_RANGE,
+          max: GLASS_REG_RANGE,
+          step: 0.05,
+          label: "glass ← → (X)",
           onChange: (v) => {
             GLASS_REG.x = v;
+            wireTap("glassRegX", v);
           },
         },
         glassRegZ: {
           value: GLASS_REG.z,
-          min: -1,
-          max: 1,
-          step: 0.005,
-          label: "depth (Z)",
+          min: -GLASS_REG_RANGE,
+          max: GLASS_REG_RANGE,
+          step: 0.05,
+          label: "glass depth (Z)",
           onChange: (v) => {
             GLASS_REG.z = v;
+            wireTap("glassRegZ", v);
           },
         },
       },
@@ -3079,7 +3082,7 @@ function DevDashboard() {
   const [selectedPathNode, setSelectedPathNode] = useState(-1);
   const [pathProgress, setPathProgress] = useState(0);
   const [pathPlaying, setPathPlaying] = useState(false);
-  const [status, setStatus] = useState("v7.2 production preset ready");
+  const [status, setStatus] = useState("v7.2.1 Claude glass restored");
   const [library, setLibrary] = useState(loadMotionLibrary);
   const [libraryId, setLibraryId] = useState("");
   const [importText, setImportText] = useState("");
@@ -3683,7 +3686,7 @@ function DevDashboard() {
   if (collapsed) {
     return (
       <div ref={panelRef} style={UI.panelCollapsed}>
-        <b style={{ color: "#2e7d52", letterSpacing: 1 }}>iGLASS v7.2.0</b>
+        <b style={{ color: "#2e7d52", letterSpacing: 1 }}>iGLASS v7.2.1</b>
         <span style={chipStyle(false)} onClick={() => setCollapsed(false)}>▸ open</span>
       </div>
     );
@@ -3692,7 +3695,7 @@ function DevDashboard() {
   return (
     <div ref={panelRef} style={UI.panel}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <b style={{ color: "#2e7d52", letterSpacing: 1 }}>iGLASS PRODUCTION STUDIO v7.2.0</b>
+        <b style={{ color: "#2e7d52", letterSpacing: 1 }}>iGLASS PRODUCTION STUDIO v7.2.1</b>
         <span style={chipStyle(false)} onClick={() => setCollapsed(true)}>▾ hide</span>
       </div>
       <div style={{ ...UI.hint, marginTop: 3, color: status.startsWith("import failed") ? "#a02b2b" : "#5a6b60" }}>{status}</div>
@@ -4779,15 +4782,17 @@ function resolveRuntimeConfig() {
   const crackParam = params.get("crack");
   if (crackParam) {
     const q = crackParam.split(",").map((v) => parseFloat(v));
-    if (q.length === 5 && q.every((v) => !isNaN(v))) {
+    if (q.length === 3 && q.every((v) => !isNaN(v))) {
       CRACK.on = q[0] > 0.5;
-      CRACK.opacity = q[1];
-      CRACK.exit = [q[2], q[3], q[4]];
+      CRACK.exit = [q[1], q[2]];
+    } else if (q.length === 5 && q.every((v) => !isNaN(v))) {
+      // v7.2 legacy: on, opacity, X, Y, Z.
+      CRACK.on = q[0] > 0.5;
+      CRACK.exit = [q[2], q[3]];
     } else if (q.length === 4 && q.every((v) => !isNaN(v))) {
       // v7.1 legacy: opacity, X, Y, Z.
       CRACK.on = q[0] > 0;
-      CRACK.opacity = q[0];
-      CRACK.exit = [q[1], q[2], q[3]];
+      CRACK.exit = [q[1], q[2]];
     }
   }
 
@@ -5089,14 +5094,13 @@ function IPhoneExploded({
   // body group, which is where they lived before v3.8 and where they
   // belong again (v3.8.2 revert).
   //
-  // Bezel remains with the body; only the transparent front pane explodes.
-  // Render order: Body 0 → coats 1 → OLED 1 → Glass Front 3 → Bezel 5
+  // Claude v3.11.1 glass unit: Front Window + Bezel + crack.
+  // Render order: Body 0 → coats 1 → OLED 1 → Glass 3 → CRACK 4 → Bezel 5
   // ---------------------------------------------------------
-  const { glassMeshes, oledMeshes, bodyMeshes, bezelMeshes, crackGeo } = useMemo(() => {
+  const { glassMeshes, oledMeshes, bodyMeshes, crackGeo } = useMemo(() => {
     const glass = [];
     const oled = [];
     const body = [];
-    const bezel = [];
     let crack = null;
     DEV.bezelMeshes = [];
 
@@ -5132,25 +5136,24 @@ function IPhoneExploded({
         DEV.bezelMat = bezelMat; // live handle for the Leva folder
         DEV.bezelMeshes.push(child); // live handle for the isolate toggle
         child.renderOrder = 5; // above the crack overlay (4)
-        bezel.push(child);
+        glass.push(child);
         return;
       }
 
       // ---- 2. GLASS FRONT ----
       // The Dynamic Island cutout is authored into this geometry. Nothing
       // here fills it, in any version — it stays a true hole.
-      const isFrontGlass =
+      if (
         name.includes("glass_front") ||
         name.includes("glass front") ||
-        name.includes("front_glass") ||
-        name.includes("front glass");
-      if (isFrontGlass) {
+        (name.includes("glass") && !name.includes("bezel"))
+      ) {
         // MeshPHYSICAL, not Standard. The clearcoat is the whole point: a
         // second specular layer with its own roughness. Constructed with a
         // non-zero clearcoat so the shader compiles the chunk in — dialling
         // it to 0 later is then a uniform write, not a recompile.
         const glassMat = new THREE.MeshPhysicalMaterial({
-          color: new THREE.Color(GLASS.color),
+          color: new THREE.Color(0x000000),
           roughness: GLASS.rough,
           metalness: 0.0,
           transparent: true,
@@ -5322,7 +5325,7 @@ function IPhoneExploded({
     // pose relative to the body, expressed in the exact frame the body
     // already rendered in — so pivot fit, rest quaternion, internals plane
     // and explode distances need no retune.
-    const allMeshes = [...glass, ...oled, ...body, ...bezel];
+    const allMeshes = [...glass, ...oled, ...body];
     const anchorMesh = body[0] || allMeshes[0];
     if (anchorMesh) {
       const anchorLocal = anchorMesh.matrix.clone();
@@ -5339,7 +5342,6 @@ function IPhoneExploded({
       glassMeshes: glass,
       oledMeshes: oled,
       bodyMeshes: body,
-      bezelMeshes: bezel,
       crackGeo: crack,
     };
   }, [clonedScene, oledTexture, maxAniso]);
@@ -5358,7 +5360,7 @@ function IPhoneExploded({
     const m = new THREE.MeshPhysicalMaterial({
       map: crackTex,
       transparent: true,
-      opacity: CRACK.opacity,
+      opacity: 1,
       roughness: 0.06,
       metalness: 0.0,
       depthWrite: false,
@@ -5374,6 +5376,7 @@ function IPhoneExploded({
       polygonOffsetFactor: -3,
       polygonOffsetUnits: -3,
     });
+    m.visible = CRACK.on;
     DEV.crackMat = m;
     return m;
   }, [crackTex]);
@@ -5657,11 +5660,10 @@ function IPhoneExploded({
     // pane motion. This prevents the crack and glass transforms diverging.
     if (crackGroupRef.current && hasCrack) {
       const g = crackGroupRef.current;
-      g.position.set(CRACK.exit[0], CRACK.exit[1], CRACK.exit[2]);
+      g.position.set(CRACK.exit[0], CRACK.exit[1], 0);
 
       if (DEV.crackMat) {
-        DEV.crackMat.opacity = CRACK.opacity;
-        DEV.crackMat.visible = CRACK.on && CRACK.opacity > 0.001;
+        DEV.crackMat.visible = CRACK.on;
       }
     }
 
@@ -5762,11 +5764,8 @@ function IPhoneExploded({
             ))}
           </group>
 
-          {/* BODY — includes the fixed bezel, Dynamic Island and cameras */}
+          {/* BODY — includes the Dynamic Island pill and camera prims */}
           <group ref={bodyGroupRef}>
-            {bezelMeshes.map((m, i) => (
-              <primitive key={`bezel-${i}`} object={m} />
-            ))}
             {bodyMeshes.map((m, i) => (
               <primitive key={`body-${i}`} object={m} />
             ))}
@@ -6247,3 +6246,4 @@ export default function CrossSection3DScrollGLB(props) {
 useGLTF.preload(defaultProps.modelPath);
 useTexture.preload(defaultProps.screenTexture);
 useTexture.preload(defaultProps.internalsTexture);
+useTexture.preload(defaultProps.crackTexture);
