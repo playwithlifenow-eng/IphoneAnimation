@@ -5883,7 +5883,7 @@ function FramerViewportSimulator({ config }) {
     return url.toString();
   }, []);
 
-  const gutter = 48;
+  const gutter = window.self !== window.top ? 0 : 48;
   const scale = Math.max(
     0.05,
     Math.min(
