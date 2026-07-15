@@ -1,5 +1,6 @@
 import screenImg from "./Screen.png";
 import internalsImg from "./internals.jpg";
+import crackImg from "./Crack.png";
 import { useRef, useMemo, useEffect, useLayoutEffect, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import {
@@ -17,6 +18,14 @@ import { Leva, useControls, button, folder } from "leva";
 
 gsap.registerPlugin(ScrollTrigger);
 
+// ============================================
+// v7.1.1 — FRONT-GLASS ROUTING + CRACK RESTORATION
+//
+//   "Back Glass" is no longer caught by the generic glass-name test and
+//   moved as though it were the transparent front pane. The crack asset is
+//   restored as a default import, rendered as the outermost surface, and
+//   parented to the moving front glass so its registration cannot drift.
+//
 // ============================================
 // v7.1 — CONTROL PLACEMENT + GLASS/BEZEL DECOUPLING
 //
@@ -5036,9 +5045,9 @@ const defaultProps = {
   modelPath: "/14 pro.glb",
   screenTexture: screenImg,
   internalsTexture: internalsImg,
-  // OPTIONAL. White/grey crack lines on a TRANSPARENT background, same
-  // aspect as the screen. Absent -> the crack layer never mounts.
-  crackTexture: null,
+  // White/grey crack lines on a TRANSPARENT background, same aspect as
+  // the screen. A caller can still override this prop with another asset.
+  crackTexture: crackImg,
 };
 
 // ============================================
@@ -5198,6 +5207,7 @@ function IPhoneExploded({
   crackTex.anisotropy = maxAniso;
   crackTex.generateMipmaps = true;
   crackTex.minFilter = THREE.LinearMipmapLinearFilter;
+  crackTex.magFilter = THREE.LinearFilter;
   crackTex.wrapS = THREE.ClampToEdgeWrapping;
   crackTex.wrapT = THREE.ClampToEdgeWrapping;
   crackTex.needsUpdate = true;
@@ -5306,11 +5316,12 @@ function IPhoneExploded({
       // ---- 2. GLASS FRONT ----
       // The Dynamic Island cutout is authored into this geometry. Nothing
       // here fills it, in any version — it stays a true hole.
-      if (
+      const isFrontGlass =
         name.includes("glass_front") ||
         name.includes("glass front") ||
-        (name.includes("glass") && !name.includes("bezel"))
-      ) {
+        name.includes("front_glass") ||
+        name.includes("front glass");
+      if (isFrontGlass) {
         // MeshPHYSICAL, not Standard. The clearcoat is the whole point: a
         // second specular layer with its own roughness. Constructed with a
         // non-zero clearcoat so the shader compiles the chunk in — dialling
@@ -5528,9 +5539,14 @@ function IPhoneExploded({
       roughness: 0.06,
       metalness: 0.0,
       depthWrite: false,
+      // The source GLB's front pane can sit fractionally behind the opaque
+      // OLED at the docked pose. The crack is the outermost visual surface,
+      // so it must not be rejected by the OLED's depth buffer.
+      depthTest: false,
       envMapIntensity: GLASS.env,
       clearcoat: 1.0,
       clearcoatRoughness: 0.04,
+      side: THREE.DoubleSide,
       polygonOffset: true,
       polygonOffsetFactor: -3,
       polygonOffsetUnits: -3,
@@ -5807,25 +5823,17 @@ function IPhoneExploded({
     }
 
     // ---- CRACKED PANE ----
-    // Rides the glass's GLASS_REG and explode by default (explodeMul 2.0 ==
-    // the glass group's), so it looks welded to the pane. CRACK.exit then
-    // adds its OWN departure, scaled by swap, so the broken glass can be
-    // thrown clear while the clean pane stays on its path.
+    // It is a child of the moving front glass. Only its optional discard
+    // offset is local; the parent's GLASS_REG/explode transform supplies the
+    // pane motion. This prevents the crack and glass transforms diverging.
     if (crackGroupRef.current && hasCrack) {
       const sw = scrollState.swap;
       const g = crackGroupRef.current;
-      const target = -(
-        scrollState.glassOffset *
-        explodeDistance *
-        CRACK.explodeMul
+      g.position.set(
+        CRACK.exit[0] * sw,
+        CRACK.exit[1] * sw,
+        CRACK.exit[2] * sw
       );
-      g.position.z = THREE.MathUtils.lerp(
-        g.position.z,
-        target + GLASS_REG.z + CRACK.exit[2] * sw,
-        damp
-      );
-      g.position.x = GLASS_REG.x + CRACK.exit[0] * sw;
-      g.position.y = GLASS_REG.y + CRACK.exit[1] * sw;
 
       if (DEV.crackMat) {
         DEV.crackMat.opacity = CRACK.opacity * (1 - sw);
@@ -5910,20 +5918,18 @@ function IPhoneExploded({
                 renderOrder={6}
               />
             )}
-          </group>
 
-          {/* CRACKED PANE — sibling of the glass, its own transform, so it
-              can be thrown clear independently. Never mounts without a
-              crackTexture prop. */}
-          {hasCrack && crackGeo && (
-            <group ref={crackGroupRef}>
-              <mesh
-                geometry={crackGeo}
-                material={crackMat}
-                renderOrder={4}
-              />
-            </group>
-          )}
+            {/* CRACKED PANE — child of the actual moving front glass. */}
+            {hasCrack && crackGeo && (
+              <group ref={crackGroupRef}>
+                <mesh
+                  geometry={crackGeo}
+                  material={crackMat}
+                  renderOrder={4}
+                />
+              </group>
+            )}
+          </group>
 
           {/* OLED */}
           <group ref={oledGroupRef}>
