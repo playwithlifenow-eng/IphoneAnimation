@@ -3564,7 +3564,38 @@ function DevDashboard() {
       <div style={{ marginTop: 6, padding: 6, border: "1px solid #a9cfba", borderRadius: 7, background: "#f6fbf8" }}>
         <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, fontWeight: 700, color: "#2e7d52" }}>
           <span>TIMELINE PLAYHEAD</span>
-          <span>p = {DEV.lastP.toFixed(3)}</span>
+          <span style={{ display: "flex", alignItems: "center" }}>
+            <span>p = {DEV.lastP.toFixed(3)}</span>
+            <input
+              aria-label="Timeline playhead whole number"
+              title="Enter 0–1000; 500 equals p = 0.500"
+              type="number"
+              min={0}
+              max={1000}
+              step={1}
+              value={Math.round(DEV.lastP * 1000)}
+              style={{
+                width: 58,
+                marginLeft: 6,
+                padding: "2px 4px",
+                border: "1px solid #a9cfba",
+                borderRadius: 4,
+                background: "#ffffff",
+                color: "#2e7d52",
+                fontFamily: "ui-monospace, Menlo, Consolas, monospace",
+                fontSize: 9,
+                fontWeight: 700,
+              }}
+              onChange={(e) => {
+                const whole = Math.round(Number(e.target.value));
+                if (!Number.isFinite(whole)) return;
+                const clamped = Math.max(0, Math.min(1000, whole));
+                pauseMotionPath(false);
+                jumpToP(clamped / 1000);
+                force((n) => n + 1);
+              }}
+            />
+          </span>
         </div>
         <input
           type="range"
@@ -6089,6 +6120,17 @@ export default function CrossSection3DScrollGLB(props) {
         background: bg,
       }}
     >
+      <div
+        aria-hidden="true"
+        style={{
+          position: "fixed",
+          inset: 0,
+          zIndex: 2147483646,
+          border: "3px solid #00a86b",
+          boxSizing: "border-box",
+          pointerEvents: "none",
+        }}
+      />
       {dev && (
         <Leva
           collapsed={true}
