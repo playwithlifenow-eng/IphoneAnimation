@@ -2943,7 +2943,7 @@ function DevDashboard() {
   const [selectedPathNode, setSelectedPathNode] = useState(-1);
   const [pathProgress, setPathProgress] = useState(0);
   const [pathPlaying, setPathPlaying] = useState(false);
-  const [status, setStatus] = useState("v7.3 hybrid ready — glass reg ±25, crack ON/OFF");
+  const [status, setStatus] = useState("v7.3.1 — crack back-bleed fixed (two-sided pane stripped)");
   const [library, setLibrary] = useState(loadMotionLibrary);
   const [libraryId, setLibraryId] = useState("");
   const [importText, setImportText] = useState("");
@@ -3547,7 +3547,7 @@ function DevDashboard() {
   if (collapsed) {
     return (
       <div ref={panelRef} style={UI.panelCollapsed}>
-        <b style={{ color: "#2e7d52", letterSpacing: 1 }}>iGLASS v7.3.0</b>
+        <b style={{ color: "#2e7d52", letterSpacing: 1 }}>iGLASS v7.3.1</b>
         <span style={chipStyle(false)} onClick={() => setCollapsed(false)}>▸ open</span>
       </div>
     );
@@ -3556,7 +3556,7 @@ function DevDashboard() {
   return (
     <div ref={panelRef} style={UI.panel}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <b style={{ color: "#2e7d52", letterSpacing: 1 }}>iGLASS PRODUCTION STUDIO v7.3.0</b>
+        <b style={{ color: "#2e7d52", letterSpacing: 1 }}>iGLASS PRODUCTION STUDIO v7.3.1</b>
         <span style={chipStyle(false)} onClick={() => setCollapsed(true)}>▾ hide</span>
       </div>
       <div style={{ ...UI.hint, marginTop: 3, color: status.startsWith("import failed") ? "#a02b2b" : "#5a6b60" }}>{status}</div>
@@ -5059,6 +5059,37 @@ function IPhoneExploded({
             uv[i * 2 + 1] = 1.0 - (cpos.getY(i) - minY) / ry;
           }
           cg.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
+
+          // ---- BACK-FACE STRIP (v7.3.1) ----
+          // PROBED FROM THE DEPLOYED GLB: the pane is a ZERO-THICKNESS
+          // TWO-SIDED sheet — 816 triangles, exactly half wound facing
+          // -Z (the camera) and half facing +Z (into the phone),
+          // 108.2477 local area each way. That is why no `side` setting
+          // could hide the crack from the phone's back: the +Z half is
+          // front-facing from behind. Strip it. nz < 0 = phone front is
+          // the same local-space convention the OLED split has run in
+          // production since v3.8 (node transform is pure uniform scale,
+          // verified). The shine overlay shares this geometry, so this
+          // also stops the sweep double-drawing on two coincident layers.
+          const cidx = cg.index;
+          if (cidx) {
+            const csrc = cidx.array;
+            const kept = [];
+            const va = new THREE.Vector3();
+            const vb = new THREE.Vector3();
+            const vc = new THREE.Vector3();
+            const e1 = new THREE.Vector3();
+            const e2 = new THREE.Vector3();
+            const nrm = new THREE.Vector3();
+            for (let t = 0; t < csrc.length; t += 3) {
+              va.fromBufferAttribute(cpos, csrc[t]);
+              vb.fromBufferAttribute(cpos, csrc[t + 1]);
+              vc.fromBufferAttribute(cpos, csrc[t + 2]);
+              nrm.crossVectors(e1.subVectors(vb, va), e2.subVectors(vc, va));
+              if (nrm.z < 0) kept.push(csrc[t], csrc[t + 1], csrc[t + 2]);
+            }
+            if (kept.length) cg.setIndex(kept);
+          }
         }
         crack = cg;
         return;
@@ -5235,13 +5266,14 @@ function IPhoneExploded({
       envMapIntensity: GLASS.env,
       clearcoat: 1.0,
       clearcoatRoughness: 0.04,
-      // FrontSide, not DoubleSide. With depthTest off, the body cannot
-      // occlude the crack — so when the choreography shows the phone's
-      // BACK, the crack would ghost straight through the chassis (the
-      // exact hazard flagged when depthTest:false was introduced). The
-      // pane faces the camera only in front views; culling its back
-      // faces removes the bleed with no depth test needed, and the p=0
-      // fix (pane fractionally behind the OLED slab) is untouched.
+      // FrontSide + the back-face strip above. The pane geometry shipped
+      // TWO-SIDED (duplicated flipped triangles), so FrontSide alone was
+      // powerless — the strip makes it genuinely one-sided, and culling
+      // then hides the crack whenever the phone shows its back, with no
+      // depth test needed. depthTest stays FALSE: at p=0 the pane sits
+      // fractionally behind the opaque OLED slab (the Blender mesh
+      // defect) and polygonOffset cannot win against a surface that is
+      // actually in front. Both fixes coexist; neither trades for the other.
       side: THREE.FrontSide,
       polygonOffset: true,
       polygonOffsetFactor: -3,
