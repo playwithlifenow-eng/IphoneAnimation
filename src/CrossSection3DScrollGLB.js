@@ -3740,11 +3740,15 @@ function DevDashboard() {
               ))}
               <span style={chipStyle(false)} title="return this handle to its pose position" onClick={() => updateSelectedPathNode({ position: null })}>reset xyz</span>
             </div>
-            {selectedPathNode > 0 && !motionPath.continuous && (
+            {!motionPath.continuous && (
               <div style={{ ...UI.row, marginTop: 3 }}>
-                <label style={{ fontSize: 9 }}>travel <input type="number" min={0.1} step={0.05} value={selectedNode.duration} style={smallNumber} onChange={(e) => updateSelectedPathNode({ duration: Number(e.target.value) })} /></label>
-                <select style={SEL_STYLE} value={selectedNode.ease} onChange={(e) => updateSelectedPathNode({ ease: e.target.value })}>{Object.keys(MOTION_EASES).map((k) => <option key={k}>{k}</option>)}</select>
-                <label style={{ fontSize: 9 }}>hold <input type="number" min={0} step={0.05} value={selectedNode.hold} style={smallNumber} onChange={(e) => updateSelectedPathNode({ hold: Number(e.target.value) })} /></label>
+                {selectedPathNode > 0 && (
+                  <>
+                    <label style={{ fontSize: 9 }}>travel <input type="number" min={0.1} step={0.05} value={selectedNode.duration} style={smallNumber} onChange={(e) => updateSelectedPathNode({ duration: Number(e.target.value) })} /></label>
+                    <select style={SEL_STYLE} value={selectedNode.ease} onChange={(e) => updateSelectedPathNode({ ease: e.target.value })}>{Object.keys(MOTION_EASES).map((k) => <option key={k}>{k}</option>)}</select>
+                  </>
+                )}
+                <label style={{ fontSize: 9 }}>{selectedPathNode === 0 ? "start hold" : "hold"} <input type="number" min={0} step={0.05} value={selectedNode.hold} style={smallNumber} onChange={(e) => updateSelectedPathNode({ hold: Number(e.target.value) })} /></label>
               </div>
             )}
           </div>
