@@ -5885,9 +5885,96 @@ function Scene({
 }
 
 // ============================================
+// Exact Framer viewport simulator for Vercel authoring
+// ============================================
+function resolveViewportSimulation() {
+  if (typeof window === "undefined") return null;
+
+  const raw = new URLSearchParams(window.location.search).get("simulate");
+  if (!raw) return null;
+
+  const match = raw
+    .trim()
+    .match(/^(\d+(?:\.\d+)?)\s*[x,]\s*(\d+(?:\.\d+)?)$/i);
+  if (!match) return null;
+
+  return {
+    width: Math.max(1, Number(match[1])),
+    height: Math.max(1, Number(match[2])),
+  };
+}
+
+function ExactViewportSimulator({ config }) {
+  const readWorkbench = () => ({
+    width: typeof window === "undefined" ? config.width : window.innerWidth,
+    height: typeof window === "undefined" ? config.height : window.innerHeight,
+  });
+  const [workbench, setWorkbench] = useState(readWorkbench);
+
+  useEffect(() => {
+    const update = () => setWorkbench(readWorkbench());
+    update();
+    window.addEventListener("resize", update);
+    window.visualViewport?.addEventListener("resize", update);
+    return () => {
+      window.removeEventListener("resize", update);
+      window.visualViewport?.removeEventListener("resize", update);
+    };
+  }, []);
+
+  const childURL = useMemo(() => {
+    const url = new URL(window.location.href);
+    url.searchParams.delete("simulate");
+    return url.toString();
+  }, []);
+
+  const gutter = window.self === window.top ? 32 : 0;
+  const scale = Math.max(
+    0.05,
+    Math.min(
+      1,
+      (workbench.width - gutter) / config.width,
+      (workbench.height - gutter) / config.height
+    )
+  );
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        overflow: "hidden",
+        background: "#d9dde2",
+      }}
+    >
+      <iframe
+        src={childURL}
+        title={`Exact ${config.width} by ${config.height} Framer viewport`}
+        loading="eager"
+        scrolling="no"
+        allow="fullscreen"
+        style={{
+          position: "absolute",
+          left: "50%",
+          top: "50%",
+          display: "block",
+          width: config.width,
+          height: config.height,
+          border: 0,
+          background: "#ffffff",
+          transform: `translate(-50%, -50%) scale(${scale})`,
+          transformOrigin: "center center",
+          boxShadow: "0 18px 60px rgba(0, 0, 0, 0.24)",
+        }}
+      />
+    </div>
+  );
+}
+
+// ============================================
 // Main Component
 // ============================================
-export default function CrossSection3DScrollGLB(props) {
+function CrossSection3DScrollGLBScene(props) {
   const merged = { ...defaultProps, ...props };
   const {
     explodeDistance,
@@ -6197,6 +6284,16 @@ export default function CrossSection3DScrollGLB(props) {
         </Canvas>
       </div>
     </div>
+  );
+}
+
+export default function CrossSection3DScrollGLB(props) {
+  const simulation = useMemo(resolveViewportSimulation, []);
+
+  return simulation ? (
+    <ExactViewportSimulator config={simulation} />
+  ) : (
+    <CrossSection3DScrollGLBScene {...props} />
   );
 }
 
