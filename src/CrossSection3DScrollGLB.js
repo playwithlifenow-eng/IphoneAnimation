@@ -6207,19 +6207,21 @@ function CrossSection3DScrollGLBScene(props) {
         background: bg,
       }}
     >
-      <div
-        aria-hidden="true"
-        style={{
-          position: "fixed",
-          inset: 0,
-          zIndex: 2147483646,
-          border: "3px solid #00a86b",
-          boxShadow:
-            "inset 80px 0 0 rgba(0, 168, 107, 0.08), inset -80px 0 0 rgba(0, 168, 107, 0.08), inset 0 60px 0 rgba(0, 168, 107, 0.08), inset 0 -60px 0 rgba(0, 168, 107, 0.08)",
-          boxSizing: "border-box",
-          pointerEvents: "none",
-        }}
-      />
+      {dev && (
+        <div
+          aria-hidden="true"
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 2147483646,
+            border: "3px solid #00a86b",
+            boxShadow:
+              "inset 6vw 0 0 rgba(0,168,107,0.08), inset -6vw 0 0 rgba(0,168,107,0.08), inset 0 6.7vh 0 rgba(0,168,107,0.08), inset 0 -6.7vh 0 rgba(0,168,107,0.08)",
+            boxSizing: "border-box",
+            pointerEvents: "none",
+          }}
+        />
+      )}
       {dev && (
         <Leva
           collapsed={true}
