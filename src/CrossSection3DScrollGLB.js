@@ -267,7 +267,9 @@ const MODEL = {
   targetSize: 1.6,
 };
 
-const GLASS_REG = { x: -0.03, y: 0.09, z: 0.07 };
+const GLASS_REG_HOME = Object.freeze({ x: -0.03, y: 0.09, z: 0.07 });
+const GLASS_REG = { ...GLASS_REG_HOME };
+const GLASS_REG_TRIGGER_EPSILON = 0.0001;
 
 // ±25 (v3.11, restored). The model measures ~15.7 local units tall fitted
 // to 1.6 world units, so 1 slider unit ≈ 0.1 world units and the visible
@@ -388,9 +390,13 @@ const GLASS = {
 //
 // The overlay reuses the authored Glass_Front geometry, including its true
 // Dynamic Island hole. No rectangle is placed over the screen.
+// range/speed define an automatic terminal pass. It is appended only when
+// the LAST motion-path node returns glass registration to its home XYZ.
 // ---------------------------------------------------------
 const SHINE = {
   progress: 0,
+  range: [0, 1],
+  speed: 0.5,
   sweepStrength: 0.24,
   broadWidth: 0.24,
   stripWidth: 0.035,
@@ -942,6 +948,80 @@ function motionPathDuration(path) {
       (path.continuous ? 0 : Math.max(0, Number(node.hold) || 0)),
     0
   );
+}
+
+function finalNodeGlassIsRegistered(path) {
+  if (!path?.nodes || path.nodes.length < 2) return false;
+  const pose = path.nodes[path.nodes.length - 1]?.pose;
+  if (!pose) return false;
+  return [
+    [pose.glassRegX, GLASS_REG_HOME.x],
+    [pose.glassRegY, GLASS_REG_HOME.y],
+    [pose.glassRegZ, GLASS_REG_HOME.z],
+  ].every(
+    ([value, home]) =>
+      Number.isFinite(value) &&
+      Math.abs(value - home) <= GLASS_REG_TRIGGER_EPSILON
+  );
+}
+
+function motionPlaybackTiming(path, speedOverride) {
+  const authoredDuration = motionPathDuration(path);
+  const pathSpeed = Math.max(
+    0.1,
+    Number(speedOverride ?? path?.speed) || 1
+  );
+  const pathDuration = authoredDuration / pathSpeed;
+  const finalHold =
+    path?.continuous === false && path?.nodes?.length
+      ? Math.max(0, Number(path.nodes[path.nodes.length - 1].hold) || 0) /
+        pathSpeed
+      : 0;
+  const shineStart = Math.max(0, pathDuration - finalHold);
+  const rangeStart = Math.max(0, Math.min(1, Number(SHINE.range[0]) || 0));
+  const rangeEnd = Math.max(0, Math.min(1, Number(SHINE.range[1]) || 0));
+  const shineDistance = Math.abs(rangeEnd - rangeStart);
+  const shineDuration =
+    finalNodeGlassIsRegistered(path) && shineDistance > 0.000001
+      ? shineDistance / Math.max(0.01, Number(SHINE.speed) || 0.5)
+      : 0;
+  return {
+    pathDuration,
+    shineStart,
+    shineDuration,
+    totalDuration: Math.max(pathDuration, shineStart + shineDuration),
+    rangeStart,
+    rangeEnd,
+  };
+}
+
+function sampleMotionPlayback(path, progress, speedOverride) {
+  const timing = motionPlaybackTiming(path, speedOverride);
+  const total = Math.max(0.000001, timing.totalDuration);
+  const elapsed = Math.max(0, Math.min(1, progress)) * total;
+  const pathProgress =
+    timing.pathDuration <= 0
+      ? 1
+      : Math.max(0, Math.min(1, elapsed / timing.pathDuration));
+  const sampledPose = sampleMotionPath(path, pathProgress);
+  if (!sampledPose) return { pose: null, pathProgress, ...timing };
+
+  let pose = sampledPose;
+  if (timing.shineDuration > 0 && elapsed >= timing.shineStart) {
+    const shineT = Math.max(
+      0,
+      Math.min(1, (elapsed - timing.shineStart) / timing.shineDuration)
+    );
+    pose = {
+      ...sampledPose,
+      shine: THREE.MathUtils.lerp(
+        timing.rangeStart,
+        timing.rangeEnd,
+        shineT
+      ),
+    };
+  }
+  return { pose, pathProgress, ...timing };
 }
 
 function nearestMotionNode(path, progress) {
@@ -1704,6 +1784,9 @@ function serialiseParams(params) {
       SHINE.envBroad,
       SHINE.envStrip,
       SHINE.envRim,
+      SHINE.range[0],
+      SHINE.range[1],
+      SHINE.speed,
     ]
       .map((v) => Number(v).toFixed(4))
       .join(",")
@@ -2086,6 +2169,29 @@ function DevControls({ initialP }) {
       {
         "reflection sweep": folder(
           {
+            shineRange: {
+              value: SHINE.range,
+              min: 0,
+              max: 1,
+              step: 0.001,
+              label: "automatic range (start → end)",
+              onChange: (v) => {
+                if (!Array.isArray(v) || v.length !== 2) return;
+                SHINE.range = v.map((value) =>
+                  Math.max(0, Math.min(1, Number(value) || 0))
+                );
+              },
+            },
+            shineSpeed: {
+              value: SHINE.speed,
+              min: 0.05,
+              max: 4,
+              step: 0.05,
+              label: "automatic speed (progress / sec)",
+              onChange: (v) => {
+                SHINE.speed = Math.max(0.05, Number(v) || 0.5);
+              },
+            },
             shine: {
               value: SHINE.progress,
               min: 0,
@@ -2960,7 +3066,7 @@ function DevDashboard() {
   const [bridgeStrength, setBridgeStrength] = useState(1);
   const [bridgeArc, setBridgeArc] = useState(0.35);
   const pathProgressRef = useRef(0);
-  const pathPlaybackRef = useRef({ raf: 0, lastUi: 0 });
+  const pathPlaybackRef = useRef({ raf: 0, lastUi: 0, lastPose: null });
   const historyRef = useRef({ undo: [], redo: [] });
   const handleHistoryStartRef = useRef(null);
   const nodeChipRefs = useRef([]);
@@ -3046,7 +3152,12 @@ function DevDashboard() {
     if (pathPlaybackRef.current.raf) cancelAnimationFrame(pathPlaybackRef.current.raf);
     pathPlaybackRef.current.raf = 0;
     setPathPlaying(false);
-    if (syncControls) syncPoseControls(sampleMotionPath(compiledPath, pathProgressRef.current));
+    if (syncControls) {
+      syncPoseControls(
+        pathPlaybackRef.current.lastPose ||
+          sampleMotionPath(compiledPath, pathProgressRef.current)
+      );
+    }
   };
 
   const commitMotionPath = (next, record = true) => {
@@ -3083,6 +3194,7 @@ function DevDashboard() {
     MOTION_DEV.progress = p;
     setPathProgress(p);
     applyPoseParamsDirect(pose);
+    pathPlaybackRef.current.lastPose = pose;
     if (syncControls) syncPoseControls(pose);
     return true;
   };
@@ -3093,28 +3205,36 @@ function DevDashboard() {
     restart = false
   ) => {
     pauseMotionPath(false);
-    const total = motionPathDuration(pathToPlay);
+    const pathSpeed = Math.max(0.1, Number(settings.speed) || 1);
+    const timing = motionPlaybackTiming(pathToPlay, pathSpeed);
+    const total = timing.totalDuration;
     if (pathToPlay.nodes.length < 2 || total <= 0) return;
     let startProgress =
       restart || pathProgressRef.current >= 0.999
         ? 0
         : pathProgressRef.current;
-    const startSeconds = startProgress * total;
+    const startSeconds = startProgress * timing.pathDuration;
     const startedAt = performance.now();
-    const speed = Math.max(0.1, Number(settings.speed) || 1);
     pathProgressRef.current = startProgress;
     setPathProgress(startProgress);
     setPathPlaying(true);
     const tick = (now) => {
-      const seconds = startSeconds + ((now - startedAt) / 1000) * speed;
+      const seconds = startSeconds + (now - startedAt) / 1000;
       const done = seconds >= total;
-      const progress = settings.loop
+      const playbackProgress = settings.loop
         ? (seconds % total) / total
         : Math.min(1, seconds / total);
-      const pose = sampleMotionPath(pathToPlay, progress);
+      const sample = sampleMotionPlayback(
+        pathToPlay,
+        playbackProgress,
+        pathSpeed
+      );
+      const progress = sample.pathProgress;
+      const pose = sample.pose;
       if (pose) {
         pathProgressRef.current = progress;
         MOTION_DEV.progress = progress;
+        pathPlaybackRef.current.lastPose = pose;
         if (now - pathPlaybackRef.current.lastUi >= 50 || done) {
           pathPlaybackRef.current.lastUi = now;
           setPathProgress(progress);
@@ -3124,7 +3244,7 @@ function DevDashboard() {
       if (done && !settings.loop) {
         pathPlaybackRef.current.raf = 0;
         setPathPlaying(false);
-        syncPoseControls(sampleMotionPath(pathToPlay, 1));
+        syncPoseControls(pathPlaybackRef.current.lastPose);
         return;
       }
       pathPlaybackRef.current.raf = requestAnimationFrame(tick);
@@ -3526,7 +3646,10 @@ function DevDashboard() {
         : [0, 0, 0])
     : null;
   const pathReady = compiledPath.nodes.length >= 2;
-  const pathDuration = motionPathDuration(compiledPath);
+  const pathDuration = motionPlaybackTiming(
+    compiledPath,
+    motionPath.speed
+  ).totalDuration;
   const isStage = DEV.gizmoTarget === "stage";
   const routed = effectiveTarget() !== DEV.gizmoTarget;
   const smallNumber = {
@@ -4614,7 +4737,30 @@ function resolveRuntimeConfig() {
   const glassFxParam = params.get("glassfx");
   if (glassFxParam) {
     const q = glassFxParam.split(",").map((v) => parseFloat(v));
-    if (q.length === 17 && q.every((v) => !isNaN(v))) {
+    if (q.length === 20 && q.every((v) => !isNaN(v))) {
+      SHINE.progress = q[0];
+      SHINE.sweepStrength = q[1];
+      SHINE.broadWidth = q[2];
+      SHINE.stripWidth = q[3];
+      SHINE.angleDeg = q[4];
+      SHINE.persistent = q[5];
+      SHINE.glint = q[6] === 1;
+      SHINE.glintStrength = q[7];
+      SHINE.glintSize = q[8];
+      SHINE.glintAt = q[9];
+      SHINE.glintSpread = q[10];
+      SHINE.glintX = q[11];
+      SHINE.glintY = q[12];
+      SHINE.customEnv = q[13] === 1;
+      SHINE.envBroad = q[14];
+      SHINE.envStrip = q[15];
+      SHINE.envRim = q[16];
+      SHINE.range = [
+        Math.max(0, Math.min(1, q[17])),
+        Math.max(0, Math.min(1, q[18])),
+      ];
+      SHINE.speed = Math.max(0.05, q[19]);
+    } else if (q.length === 17 && q.every((v) => !isNaN(v))) {
       SHINE.progress = q[0];
       SHINE.sweepStrength = q[1];
       SHINE.broadWidth = q[2];
@@ -5060,6 +5206,9 @@ function IPhoneExploded({
           transparent: true,
           opacity: GLASS.opacity,
           depthWrite: false,
+          // The authored pane sits fractionally behind the OLED when docked.
+          // Keep its optical controls live at every timeline P, including 0.
+          depthTest: false,
           envMapIntensity: GLASS.env,
           clearcoat: GLASS.clearcoat,
           clearcoatRoughness: GLASS.ccRough,
@@ -5427,7 +5576,9 @@ function IPhoneExploded({
       `,
       transparent: true,
       depthWrite: false,
-      depthTest: true,
+      // Same source-mesh defect as the crack/front pane: at P=0 the pane is
+      // fractionally behind the OLED. The sweep must remain visible at any P.
+      depthTest: false,
       blending: THREE.NormalBlending,
       toneMapped: false,
       polygonOffset: true,
@@ -6039,8 +6190,12 @@ function CrossSection3DScrollGLBScene(props) {
 
     const applyRuntimeProgress = (progress) => {
       if (runtimeMotionPath) {
-        const pose = sampleMotionPath(runtimeMotionPath, progress);
-        if (pose) applyPoseParamsDirect(pose);
+        const sample = sampleMotionPlayback(
+          runtimeMotionPath,
+          progress,
+          runtimeMotionPath.speed
+        );
+        if (sample.pose) applyPoseParamsDirect(sample.pose);
       } else {
         applyProgress(progress);
       }
@@ -6092,8 +6247,8 @@ function CrossSection3DScrollGLBScene(props) {
       const runtimeDuration = runtimeMotionPath
         ? Math.max(
             0.1,
-            motionPathDuration(runtimeMotionPath) /
-              Math.max(0.1, Number(runtimeMotionPath.speed) || 1)
+            motionPlaybackTiming(runtimeMotionPath, runtimeMotionPath.speed)
+              .totalDuration
           )
         : 7;
       const tween = gsap.to(proxy, {
