@@ -3679,7 +3679,10 @@ function DevDashboard() {
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 9 }}>slot {selectedSlot + 1}</div>
                 <input value={slotMeta[selectedSlot]?.name || `Pose ${selectedSlot + 1}`} style={{ ...SEL_STYLE, maxWidth: 155, width: 155 }} onChange={(e) => renameSelectedSlot(e.target.value)} />
-                <div><span style={chipStyle(false)} onClick={refreshThumbnail}>📸 refresh</span></div>
+                <div>
+                  <span style={chipStyle(false)} onClick={refreshThumbnail}>📸 refresh</span>
+                  <span style={chipStyle(false)} onClick={(e) => clearSlot(selectedSlot, e)}>clear</span>
+                </div>
               </div>
             </div>
             <div style={{ ...UI.hint, marginTop: 3 }}>
@@ -3745,7 +3748,7 @@ function DevDashboard() {
                 {selectedPathNode > 0 && (
                   <>
                     <label style={{ fontSize: 9 }}>travel <input type="number" min={0.1} step={0.05} value={selectedNode.duration} style={smallNumber} onChange={(e) => updateSelectedPathNode({ duration: Number(e.target.value) })} /></label>
-                    <select style={SEL_STYLE} value={selectedNode.ease} onChange={(e) => updateSelectedPathNode({ ease: e.target.value })}>{Object.keys(MOTION_EASES).map((k) => <option key={k}>{k}</option>)}</select>
+                    <select style={SEL_STYLE} value={selectedNode.ease} onChange={(e) => updateSelectedPathNode({ ease: e.target.value })}>{Object.entries(MOTION_EASE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
                   </>
                 )}
                 <label style={{ fontSize: 9 }}>{selectedPathNode === 0 ? "start hold" : "hold"} <input type="number" min={0} step={0.05} value={selectedNode.hold} style={smallNumber} onChange={(e) => updateSelectedPathNode({ hold: Number(e.target.value) })} /></label>
@@ -3797,7 +3800,7 @@ function DevDashboard() {
         </div>
         <div style={UI.row}>
           <span style={chipStyle(motionPath.continuous, true)} onClick={() => commitMotionPath({ ...motionPath, continuous: !motionPath.continuous })}>{motionPath.continuous ? "continuous on" : "per-leg timing"}</span>
-          <select style={SEL_STYLE} value={motionPath.globalEase} disabled={!motionPath.continuous} onChange={(e) => commitMotionPath({ ...motionPath, globalEase: e.target.value })}>{Object.keys(MOTION_EASES).map((k) => <option key={k}>{k}</option>)}</select>
+          <select style={SEL_STYLE} value={motionPath.globalEase} disabled={!motionPath.continuous} onChange={(e) => commitMotionPath({ ...motionPath, globalEase: e.target.value })}>{Object.entries(MOTION_EASE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
           <span style={chipStyle(motionPath.loop)} onClick={() => commitMotionPath({ ...motionPath, loop: !motionPath.loop })}>loop</span>
         </div>
         <div style={{ ...UI.row, alignItems: "center" }}>
@@ -3888,7 +3891,7 @@ function DevDashboard() {
         <div style={UI.row}>
           <label style={{ fontSize: 9 }}>travel <input type="number" min={0.1} step={0.05} value={bulkDuration} style={smallNumber} onChange={(e) => setBulkDuration(e.target.value)} /></label>
           <label style={{ fontSize: 9 }}>hold <input type="number" min={0} step={0.05} value={bulkHold} style={smallNumber} onChange={(e) => setBulkHold(e.target.value)} /></label>
-          <select style={SEL_STYLE} value={bulkEase} onChange={(e) => setBulkEase(e.target.value)}>{Object.keys(MOTION_EASES).map((k) => <option key={k}>{k}</option>)}</select>
+          <select style={SEL_STYLE} value={bulkEase} onChange={(e) => setBulkEase(e.target.value)}>{Object.entries(MOTION_EASE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
         </div>
         <div style={UI.row}>
           <span style={chipStyle(false)} onClick={() => applyBulk("all")}>apply all</span>
