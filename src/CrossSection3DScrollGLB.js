@@ -19,6 +19,20 @@ import { Leva, useControls, button, folder } from "leva";
 gsap.registerPlugin(ScrollTrigger);
 
 // ============================================
+// v7.4.0 — HYBRID NODE TIMING
+//
+//   HYBRID PATH      Continuous and custom-timed legs can coexist in one
+//                    path. Each destination node inherits the path default
+//                    or overrides its incoming leg as continuous/custom.
+//   NODE HOLDS       Holds are independent of the path default. A held node
+//                    can decelerate on arrival and accelerate on departure
+//                    while untouched nodes remain continuously sampled.
+//   NODE PANEL       Motion controls replace the always-visible XYZ editors.
+//                    Position overrides remain available in a collapsed area.
+//   COMPATIBILITY    v2 paths import into the v3 hybrid schema without losing
+//                    their continuous/per-leg default or authored timing.
+//
+// ============================================
 // v7.3.2 — MOTION CONTROL FINESSE
 //
 //   GLASS TIMING     Separate OUT and RETURN easing/strength controls are
@@ -818,7 +832,7 @@ const POSE_GLASS_REG_KEYS = new Set(["glassRegX", "glassRegY", "glassRegZ"]);
 
 function defaultMotionPath() {
   return {
-    version: 2,
+    version: 3,
     productionPresetVersion: 1,
     name: "Untitled path",
     trajectory: "curve",
@@ -871,9 +885,18 @@ function normaliseMotionPath(saved) {
           slot: n.slot,
           duration: i === 0 ? 0 : Math.max(0.1, Number(n.duration) || 1.25),
           hold: Math.max(0, Number(n.hold) || 0),
+          motionMode: ["inherit", "continuous", "custom"].includes(n.motionMode)
+            ? n.motionMode
+            : "inherit",
           ease: MOTION_EASES[n.ease] ? n.ease : "cinematic",
           easeStrength: Number.isFinite(Number(n.easeStrength))
             ? Math.max(0, Math.min(1, Number(n.easeStrength)))
+            : 1,
+          departureEase: MOTION_EASES[n.departureEase]
+            ? n.departureEase
+            : "accelerate",
+          departureEaseStrength: Number.isFinite(Number(n.departureEaseStrength))
+            ? Math.max(0, Math.min(1, Number(n.departureEaseStrength)))
             : 1,
           position:
             Array.isArray(n.position) && n.position.length === 3 && n.position.every(Number.isFinite)
@@ -885,7 +908,7 @@ function normaliseMotionPath(saved) {
   return {
     ...base,
     ...source,
-    version: 2,
+    version: 3,
     trajectory: source.trajectory === "line" ? "line" : "curve",
     curveType: ["centripetal", "chordal", "catmullrom"].includes(source.curveType)
       ? source.curveType
@@ -975,7 +998,7 @@ function compileMotionPath(path, slots) {
     .filter((node) => node.pose);
   const compiled = {
     type: "iglass-motion-path",
-    version: 2,
+    version: 3,
     name: path.name || "Untitled path",
     trajectory: path.trajectory === "line" ? "line" : "curve",
     curveType: path.curveType || "centripetal",
@@ -1014,14 +1037,110 @@ function compileMotionPath(path, slots) {
   return attachMotionCurve(compiled);
 }
 
+function nodeTravelDuration(node) {
+  return Math.max(0.1, Number(node?.duration) || 1.25);
+}
+
+function nodeHoldDuration(node) {
+  return Math.max(0, Number(node?.hold) || 0);
+}
+
+function effectiveNodeMotionMode(path, index) {
+  if (index <= 0) return "continuous";
+  const mode = path?.nodes?.[index]?.motionMode;
+  if (mode === "continuous" || mode === "custom") return mode;
+  return path?.continuous === false ? "custom" : "continuous";
+}
+
+function trackTToPathU(path, trackT) {
+  const target = Math.max(0, Math.min(1, Number(trackT) || 0));
+  if (!path.arcLength || target <= 0 || target >= 1) return target;
+  let lo = 0;
+  let hi = 1;
+  for (let i = 0; i < 18; i++) {
+    const mid = (lo + hi) * 0.5;
+    if (positionTrackSample(path, mid).trackT < target) lo = mid;
+    else hi = mid;
+  }
+  return (lo + hi) * 0.5;
+}
+
+function buildMotionTimeline(path) {
+  if (!path?.nodes?.length) return { events: [], total: 0 };
+  if (path._motionTimeline) return path._motionTimeline;
+
+  const nodes = path.nodes;
+  const last = nodes.length - 1;
+  const events = [];
+  const pushHold = (index) => {
+    const duration = nodeHoldDuration(nodes[index]);
+    if (duration > 0) events.push({ type: "hold", index, duration });
+  };
+  const pushTravel = (start, end, mode, duration) => {
+    const denominator = Math.max(1, last);
+    const startTrackT = start / denominator;
+    const endTrackT = end / denominator;
+    events.push({
+      type: "travel",
+      start,
+      end,
+      mode,
+      duration,
+      startTrackT,
+      endTrackT,
+      startU: mode === "continuous" ? trackTToPathU(path, startTrackT) : startTrackT,
+      endU: mode === "continuous" ? trackTToPathU(path, endTrackT) : endTrackT,
+    });
+  };
+
+  pushHold(0);
+  let incoming = 1;
+  while (incoming <= last) {
+    const mode = effectiveNodeMotionMode(path, incoming);
+    if (mode === "custom") {
+      pushTravel(incoming - 1, incoming, "custom", nodeTravelDuration(nodes[incoming]));
+      pushHold(incoming);
+      incoming += 1;
+      continue;
+    }
+
+    const start = incoming - 1;
+    let end = incoming;
+    let duration = nodeTravelDuration(nodes[incoming]);
+    const acceleratingFromHold = nodeHoldDuration(nodes[start]) > 0;
+    while (
+      !acceleratingFromHold &&
+      end < last &&
+      nodeHoldDuration(nodes[end]) <= 0 &&
+      effectiveNodeMotionMode(path, end + 1) === "continuous"
+    ) {
+      end += 1;
+      duration += nodeTravelDuration(nodes[end]);
+    }
+    pushTravel(start, end, "continuous", duration);
+    pushHold(end);
+    incoming = end + 1;
+  }
+
+  const timeline = {
+    events,
+    total: events.reduce((sum, event) => sum + event.duration, 0),
+  };
+  try {
+    Object.defineProperty(path, "_motionTimeline", {
+      value: timeline,
+      writable: true,
+      configurable: true,
+      enumerable: false,
+    });
+  } catch (e) {
+    /* frozen preview payload -> uncached timeline is still valid */
+  }
+  return timeline;
+}
+
 function motionPathDuration(path) {
-  if (!path || !path.nodes || !path.nodes.length) return 0;
-  return path.nodes.reduce(
-    (sum, node, i) =>
-      sum + (i === 0 ? 0 : Math.max(0.1, Number(node.duration) || 0)) +
-      (path.continuous ? 0 : Math.max(0, Number(node.hold) || 0)),
-    0
-  );
+  return buildMotionTimeline(path).total;
 }
 
 function finalNodeGlassIsRegistered(path) {
@@ -1046,11 +1165,9 @@ function motionPlaybackTiming(path, speedOverride) {
     Number(speedOverride ?? path?.speed) || 1
   );
   const pathDuration = authoredDuration / pathSpeed;
-  const finalHold =
-    path?.continuous === false && path?.nodes?.length
-      ? Math.max(0, Number(path.nodes[path.nodes.length - 1].hold) || 0) /
-        pathSpeed
-      : 0;
+  const finalHold = path?.nodes?.length
+    ? nodeHoldDuration(path.nodes[path.nodes.length - 1]) / pathSpeed
+    : 0;
   const shineStart = Math.max(0, pathDuration - finalHold);
   const rangeStart = Math.max(0, Math.min(1, Number(SHINE.range[0]) || 0));
   const rangeEnd = Math.max(0, Math.min(1, Number(SHINE.range[1]) || 0));
@@ -1362,44 +1479,98 @@ function sampleAtTrack(path, trackT) {
   return interpolateMotionPose(path, spatial.trackT, spatial);
 }
 
+function applyEndpointEases(
+  t,
+  startEase,
+  startStrength,
+  endEase,
+  endStrength
+) {
+  const safeT = Math.max(0, Math.min(1, Number(t) || 0));
+  const hasStart = !!startEase && Number(startStrength) > 0;
+  const hasEnd = !!endEase && Number(endStrength) > 0;
+  if (!hasStart && !hasEnd) return safeT;
+  if (!hasStart) return applyEaseAmount(safeT, endEase, endStrength);
+  if (!hasEnd) return applyEaseAmount(safeT, startEase, startStrength);
+  const fromStart = applyEaseAmount(safeT, startEase, startStrength);
+  const intoEnd = applyEaseAmount(safeT, endEase, endStrength);
+  const blend = safeT * safeT * (3 - 2 * safeT);
+  return THREE.MathUtils.lerp(fromStart, intoEnd, blend);
+}
+
+function motionEventProgress(path, event, raw) {
+  const startNode = path.nodes[event.start];
+  const endNode = path.nodes[event.end];
+  const startsAfterHold = nodeHoldDuration(startNode) > 0;
+  const endsAtHold = nodeHoldDuration(endNode) > 0;
+  const departureEase = startsAfterHold
+    ? (MOTION_EASES[startNode.departureEase] ? startNode.departureEase : "accelerate")
+    : null;
+  const departureStrength = startsAfterHold
+    ? Math.max(0, Math.min(1, Number(startNode.departureEaseStrength) || 0))
+    : 0;
+
+  if (event.mode === "custom") {
+    return applyEndpointEases(
+      raw,
+      departureEase,
+      departureStrength,
+      MOTION_EASES[endNode.ease] ? endNode.ease : "cinematic",
+      Number.isFinite(Number(endNode.easeStrength)) ? endNode.easeStrength : 1
+    );
+  }
+
+  if (startsAfterHold || endsAtHold) {
+    return applyEndpointEases(
+      raw,
+      departureEase,
+      departureStrength,
+      endsAtHold ? (MOTION_EASES[endNode.ease] ? endNode.ease : "decelerate") : null,
+      endsAtHold
+        ? (Number.isFinite(Number(endNode.easeStrength)) ? endNode.easeStrength : 1)
+        : 0
+    );
+  }
+
+  return applyEaseAmount(raw, path.globalEase, path.globalEaseStrength);
+}
+
+function sampleMotionEvent(path, event, raw) {
+  const eased = motionEventProgress(path, event, raw);
+  if (event.mode === "continuous") {
+    const u = THREE.MathUtils.lerp(event.startU, event.endU, eased);
+    const spatial = positionTrackSample(path, u);
+    return interpolateMotionPose(path, spatial.trackT, spatial);
+  }
+  return sampleAtTrack(
+    path,
+    THREE.MathUtils.lerp(event.startTrackT, event.endTrackT, eased)
+  );
+}
+
 function sampleMotionPath(path, progress) {
   if (!path || !path.nodes || !path.nodes.length) return null;
   if (path.nodes.length === 1) return { ...path.nodes[0].pose };
   if (!Object.prototype.hasOwnProperty.call(path, "_curve")) attachMotionCurve(path);
 
   const clamped = Math.max(0, Math.min(1, progress));
-  if (path.continuous) {
-    const eased = applyEaseAmount(
-      clamped,
-      path.globalEase,
-      path.globalEaseStrength
-    );
-    const spatial = positionTrackSample(path, eased);
-    return interpolateMotionPose(path, spatial.trackT, spatial);
-  }
-
-  const total = motionPathDuration(path);
+  const timeline = buildMotionTimeline(path);
+  const total = timeline.total;
   if (total <= 0) return sampleAtTrack(path, 1);
 
   let time = clamped * total;
-  const firstHold = Math.max(0, Number(path.nodes[0].hold) || 0);
-  if (time <= firstHold) return sampleAtTrack(path, 0);
-  time -= firstHold;
-
-  for (let i = 1; i < path.nodes.length; i++) {
-    const node = path.nodes[i];
-    const duration = Math.max(0.1, Number(node.duration) || 0);
-    if (time <= duration) {
-      const raw = Math.max(0, Math.min(1, time / duration));
-      const eased = applyEaseAmount(raw, node.ease, node.easeStrength);
-      const trackT = (i - 1 + eased) / (path.nodes.length - 1);
-      return sampleAtTrack(path, trackT);
+  for (const event of timeline.events) {
+    if (time <= event.duration) {
+      if (event.type === "hold") {
+        return sampleAtTrack(path, event.index / (path.nodes.length - 1));
+      }
+      return sampleMotionEvent(
+        path,
+        event,
+        Math.max(0, Math.min(1, time / event.duration))
+      );
     }
-    time -= duration;
-
-    const hold = Math.max(0, Number(node.hold) || 0);
-    if (time <= hold) return sampleAtTrack(path, i / (path.nodes.length - 1));
-    time -= hold;
+    time -= event.duration;
   }
 
   return sampleAtTrack(path, 1);
@@ -1495,9 +1666,18 @@ function decodeMotionPath(value) {
         .map((node, i) => ({
           duration: i === 0 ? 0 : Math.max(0.1, Number(node.duration) || 1.25),
           hold: Math.max(0, Number(node.hold) || 0),
+          motionMode: ["inherit", "continuous", "custom"].includes(node.motionMode)
+            ? node.motionMode
+            : "inherit",
           ease: MOTION_EASES[node.ease] ? node.ease : "cinematic",
           easeStrength: Number.isFinite(Number(node.easeStrength))
             ? Math.max(0, Math.min(1, Number(node.easeStrength)))
+            : 1,
+          departureEase: MOTION_EASES[node.departureEase]
+            ? node.departureEase
+            : "accelerate",
+          departureEaseStrength: Number.isFinite(Number(node.departureEaseStrength))
+            ? Math.max(0, Math.min(1, Number(node.departureEaseStrength)))
             : 1,
           position:
             Array.isArray(node.position) && node.position.length === 3
@@ -1511,7 +1691,7 @@ function decodeMotionPath(value) {
         ...defaultMotionPath(),
         ...parsed,
         type: "iglass-motion-path",
-        version: 2,
+        version: 3,
         trajectory: parsed.trajectory === "line" ? "line" : "curve",
         curveType: legacy ? "catmullrom" : parsed.curveType || "centripetal",
         arcLength: legacy ? false : parsed.arcLength !== false,
@@ -3183,7 +3363,7 @@ function DevDashboard() {
   const [selectedPathNode, setSelectedPathNode] = useState(-1);
   const [pathProgress, setPathProgress] = useState(0);
   const [pathPlaying, setPathPlaying] = useState(false);
-  const [status, setStatus] = useState("v7.3.2 — glass timing and easing control");
+  const [status, setStatus] = useState("v7.4.0 — hybrid continuous/custom node timing");
   const [library, setLibrary] = useState(loadMotionLibrary);
   const [libraryId, setLibraryId] = useState("");
   const [importText, setImportText] = useState("");
@@ -3396,8 +3576,11 @@ function DevDashboard() {
         position: null,
         duration: i === 0 ? 0 : 1.25,
         hold: 0,
+        motionMode: "inherit",
         ease: "cinematic",
         easeStrength: 1,
+        departureEase: "accelerate",
+        departureEaseStrength: 1,
       }],
     });
     setSelectedPathNode(i);
@@ -3576,6 +3759,7 @@ function DevDashboard() {
             duration: i === 0 ? 0 : Number(bulkDuration),
             hold: Number(bulkHold),
             ease: bulkEase,
+            motionMode: i === 0 ? node.motionMode : "custom",
           }
         : node
     );
@@ -3647,8 +3831,11 @@ function DevDashboard() {
       position: item.position,
       duration: leg,
       hold: 0,
+      motionMode: "inherit",
       ease: motionPath.continuous ? "linear" : "cinematic",
       easeStrength: 1,
+      departureEase: "accelerate",
+      departureEaseStrength: 1,
     }));
     const nodes = [...motionPath.nodes];
     nodes.splice(to, 0, ...bridgeNodes);
@@ -3806,7 +3993,7 @@ function DevDashboard() {
   if (collapsed) {
     return (
       <div ref={panelRef} style={UI.panelCollapsed}>
-        <b style={{ color: "#2e7d52", letterSpacing: 1 }}>iGLASS v7.3.2</b>
+        <b style={{ color: "#2e7d52", letterSpacing: 1 }}>iGLASS v7.4.0</b>
         <span style={chipStyle(false)} onClick={() => setCollapsed(false)}>▸ open</span>
       </div>
     );
@@ -3827,7 +4014,7 @@ function DevDashboard() {
         }
       `}</style>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <b style={{ color: "#2e7d52", letterSpacing: 1 }}>iGLASS PRODUCTION STUDIO v7.3.2</b>
+        <b style={{ color: "#2e7d52", letterSpacing: 1 }}>iGLASS PRODUCTION STUDIO v7.4.0</b>
         <span style={chipStyle(false)} onClick={() => setCollapsed(true)}>▾ hide</span>
       </div>
       <div style={{ ...UI.hint, marginTop: 3, color: status.startsWith("import failed") ? "#a02b2b" : "#5a6b60" }}>{status}</div>
@@ -3979,21 +4166,24 @@ function DevDashboard() {
             const valid = !!slots[node.slot] || !!node.pose;
             const active = i === activePathNode;
             const selected = i === selectedPathNode;
+            const held = nodeHoldDuration(node) > 0;
+            const overridden = node.motionMode === "custom" || node.motionMode === "continuous";
             return (
               <span
                 ref={(el) => { nodeChipRefs.current[i] = el; }}
                 key={`${node.slot}-${i}`}
+                title={`node ${i + 1} · ${held ? `${nodeHoldDuration(node).toFixed(2)}s hold · ` : ""}${i === 0 ? "start" : `${effectiveNodeMotionMode(motionPath, i)} incoming leg${node.motionMode === "inherit" ? " (inherited)" : " (override)"}`}`}
                 style={{
                   ...chipStyle(active),
                   flex: "0 0 auto",
-                  borderColor: valid ? (selected ? "#173d2a" : undefined) : "#bd3f3f",
+                  borderColor: valid ? (selected ? "#173d2a" : held ? "#b56a16" : overridden ? "#4779a8" : undefined) : "#bd3f3f",
                   boxShadow: selected ? "0 0 0 1px #173d2a" : active ? "0 0 0 2px rgba(46,125,82,.22)" : "none",
                   background: valid ? chipStyle(active).background : "#fff0f0",
                   color: valid ? chipStyle(active).color : "#8b2020",
                 }}
                 onClick={() => { setSelectedPathNode(i); setBridgeFrom(i); setBridgeTo(i + 1); }}
               >
-                {active ? "▶" : ""}{i + 1}:S{node.slot + 1}
+                {active ? "▶" : ""}{held ? "⏸" : node.motionMode === "custom" ? "◆" : node.motionMode === "continuous" ? "●" : ""}{i + 1}:S{node.slot + 1}
               </span>
             );
           })}
@@ -4008,24 +4198,108 @@ function DevDashboard() {
                 <span style={chipStyle(false)} onClick={removePathNode}>×</span>
               </span>
             </div>
-            <div style={{ ...UI.row, marginTop: 3 }}>
-              {["x", "y", "z"].map((axis, j) => (
-                <label key={axis} style={{ fontSize: 10, marginRight: 4 }}>{axis.toUpperCase()} <input type="number" step={0.01} value={Number(selectedPosition[j]).toFixed(3)} style={xyzNumber} onChange={(e) => { const p = [...selectedPosition]; p[j] = Number(e.target.value); updateSelectedPathNode({ position: p }); }} /></label>
-              ))}
-              <span style={chipStyle(false)} title="return this handle to its pose position" onClick={() => updateSelectedPathNode({ position: null })}>reset xyz</span>
-            </div>
-            {!motionPath.continuous && (
-              <div style={{ ...UI.row, marginTop: 3 }}>
-                {selectedPathNode > 0 && (
-                  <>
-                    <label style={{ fontSize: 9 }}>travel <input type="number" min={0.1} step={0.05} value={selectedNode.duration} style={smallNumber} onChange={(e) => updateSelectedPathNode({ duration: Number(e.target.value) })} /></label>
-                    <select style={SEL_STYLE} value={selectedNode.ease} onChange={(e) => updateSelectedPathNode({ ease: e.target.value })}>{Object.entries(MOTION_EASE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
-                    <label style={{ fontSize: 9 }}>ease amount <input type="range" min={0} max={1} step={0.01} value={selectedNode.easeStrength} style={{ width: 70, accentColor: "#2e7d52" }} onChange={(e) => updateSelectedPathNode({ easeStrength: Number(e.target.value) })} /> {Math.round(selectedNode.easeStrength * 100)}%</label>
-                  </>
-                )}
-                <label style={{ fontSize: 9 }}>{selectedPathNode === 0 ? "start hold" : "hold"} <input type="number" min={0} step={0.05} value={selectedNode.hold} style={smallNumber} onChange={(e) => updateSelectedPathNode({ hold: Number(e.target.value) })} /></label>
+            <div style={{ marginTop: 4, padding: "5px 6px", borderRadius: 6, background: "#f5faf7", border: "1px solid #c7ddcf" }}>
+              <div style={{ ...UI.row, justifyContent: "space-between" }}>
+                <b style={{ fontSize: 9, color: "#2e7d52" }}>NODE MOTION</b>
+                <span style={{ fontSize: 9 }}>
+                  active: {selectedPathNode === 0 ? "start" : effectiveNodeMotionMode(motionPath, selectedPathNode)}
+                  {selectedNode.motionMode === "inherit" && selectedPathNode > 0 ? " (inherited)" : ""}
+                </span>
               </div>
-            )}
+
+              {selectedPathNode > 0 && (
+                <>
+                  <div style={{ ...UI.row, marginTop: 4 }}>
+                    <span style={{ fontSize: 9, width: 55 }}>incoming leg</span>
+                    {["inherit", "continuous", "custom"].map((mode) => (
+                      <span
+                        key={mode}
+                        style={chipStyle(selectedNode.motionMode === mode, true)}
+                        title={mode === "inherit" ? `use path default (${motionPath.continuous ? "continuous" : "custom"})` : `${mode} override for this incoming leg`}
+                        onClick={() => updateSelectedPathNode({ motionMode: mode })}
+                      >
+                        {mode}
+                      </span>
+                    ))}
+                  </div>
+                  <div style={{ ...UI.row, marginTop: 3, opacity: effectiveNodeMotionMode(motionPath, selectedPathNode) === "custom" || nodeHoldDuration(selectedNode) > 0 ? 1 : 0.45 }}>
+                    <label style={{ fontSize: 9 }}>
+                      travel <input type="number" min={0.1} step={0.05} value={selectedNode.duration} style={smallNumber} onChange={(e) => updateSelectedPathNode({ duration: Number(e.target.value) })} />s
+                    </label>
+                    <span style={{ fontSize: 9, width: 42 }}>arrival</span>
+                    <select disabled={effectiveNodeMotionMode(motionPath, selectedPathNode) !== "custom" && nodeHoldDuration(selectedNode) <= 0} style={SEL_STYLE} value={selectedNode.ease} onChange={(e) => updateSelectedPathNode({ ease: e.target.value })}>{Object.entries(MOTION_EASE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
+                  </div>
+                  <div style={{ ...UI.row, marginTop: 2, opacity: effectiveNodeMotionMode(motionPath, selectedPathNode) === "custom" || nodeHoldDuration(selectedNode) > 0 ? 1 : 0.45 }}>
+                    <span style={{ fontSize: 9, width: 83 }}>arrival amount</span>
+                    <input disabled={effectiveNodeMotionMode(motionPath, selectedPathNode) !== "custom" && nodeHoldDuration(selectedNode) <= 0} type="range" min={0} max={1} step={0.01} value={selectedNode.easeStrength} style={{ width: 132, accentColor: "#2e7d52" }} onChange={(e) => updateSelectedPathNode({ easeStrength: Number(e.target.value) })} />
+                    <span style={{ fontSize: 9 }}>{Math.round(selectedNode.easeStrength * 100)}%</span>
+                  </div>
+                </>
+              )}
+
+              <div style={{ ...UI.row, marginTop: 5 }}>
+                <span
+                  style={chipStyle(nodeHoldDuration(selectedNode) > 0, true)}
+                  onClick={() => {
+                    const enabled = nodeHoldDuration(selectedNode) <= 0;
+                    updateSelectedPathNode({
+                      hold: enabled ? 0.25 : 0,
+                      ...(enabled && selectedPathNode > 0 ? { motionMode: "custom", ease: "decelerate", easeStrength: 1 } : {}),
+                      ...(enabled ? { departureEase: "accelerate", departureEaseStrength: 1 } : {}),
+                    });
+                  }}
+                >
+                  {nodeHoldDuration(selectedNode) > 0 ? "hold on" : "hold off"}
+                </span>
+                <label style={{ fontSize: 9 }}>
+                  duration <input type="number" min={0} step={0.05} value={selectedNode.hold} style={smallNumber} onChange={(e) => {
+                    const hold = Math.max(0, Number(e.target.value) || 0);
+                    const enabling = nodeHoldDuration(selectedNode) <= 0 && hold > 0;
+                    updateSelectedPathNode({
+                      hold,
+                      ...(enabling && selectedPathNode > 0 ? { motionMode: "custom", ease: "decelerate", easeStrength: 1 } : {}),
+                      ...(enabling ? { departureEase: "accelerate", departureEaseStrength: 1 } : {}),
+                    });
+                  }} />s
+                </label>
+              </div>
+
+              {nodeHoldDuration(selectedNode) > 0 && (
+                <>
+                  <div style={{ ...UI.row, marginTop: 3 }}>
+                    <span style={{ fontSize: 9, width: 83 }}>departure</span>
+                    <select style={SEL_STYLE} value={selectedNode.departureEase} onChange={(e) => updateSelectedPathNode({ departureEase: e.target.value })}>{Object.entries(MOTION_EASE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
+                  </div>
+                  <div style={{ ...UI.row, marginTop: 2 }}>
+                    <span style={{ fontSize: 9, width: 83 }}>depart amount</span>
+                    <input type="range" min={0} max={1} step={0.01} value={selectedNode.departureEaseStrength} style={{ width: 132, accentColor: "#2e7d52" }} onChange={(e) => updateSelectedPathNode({ departureEaseStrength: Number(e.target.value) })} />
+                    <span style={{ fontSize: 9 }}>{Math.round(selectedNode.departureEaseStrength * 100)}%</span>
+                  </div>
+                </>
+              )}
+
+              <div style={{ ...UI.row, marginTop: 4 }}>
+                <span style={chipStyle(false)} onClick={() => updateSelectedPathNode({
+                  motionMode: "inherit",
+                  duration: selectedPathNode === 0 ? 0 : 1.25,
+                  hold: 0,
+                  ease: "cinematic",
+                  easeStrength: 1,
+                  departureEase: "accelerate",
+                  departureEaseStrength: 1,
+                })}>reset node motion</span>
+              </div>
+            </div>
+
+            <details style={{ marginTop: 4 }}>
+              <summary style={{ ...UI.hint, cursor: "pointer" }}>position override (XYZ)</summary>
+              <div style={{ ...UI.row, marginTop: 3 }}>
+                {["x", "y", "z"].map((axis, j) => (
+                  <label key={axis} style={{ fontSize: 10, marginRight: 4 }}>{axis.toUpperCase()} <input type="number" step={0.01} value={Number(selectedPosition[j]).toFixed(3)} style={xyzNumber} onChange={(e) => { const p = [...selectedPosition]; p[j] = Number(e.target.value); updateSelectedPathNode({ position: p }); }} /></label>
+                ))}
+                <span style={chipStyle(false)} title="return this handle to its pose position" onClick={() => updateSelectedPathNode({ position: null })}>reset xyz</span>
+              </div>
+            </details>
           </div>
         )}
 
@@ -4071,79 +4345,21 @@ function DevDashboard() {
           <span style={chipStyle(motionPath.arcLength)} onClick={() => commitMotionPath({ ...motionPath, arcLength: !motionPath.arcLength })}>arc length</span>
         </div>
         <div style={UI.row}>
-          <span
-            style={chipStyle(motionPath.continuous, true)}
-            onClick={() => {
-              const continuous = !motionPath.continuous;
-              if (!continuous && motionPath.nodes.length > 1 && selectedPathNode < 1) {
-                setSelectedPathNode(1);
-              }
-              commitMotionPath({ ...motionPath, continuous });
-            }}
-          >
-            {motionPath.continuous ? "continuous on" : "per-leg timing"}
-          </span>
-          <select
-            style={SEL_STYLE}
-            value={
-              motionPath.continuous
-                ? motionPath.globalEase
-                : selectedPathNode > 0 && selectedNode
-                ? selectedNode.ease
-                : "linear"
-            }
-            disabled={!motionPath.continuous && !(selectedPathNode > 0 && selectedNode)}
-            title={
-              motionPath.continuous
-                ? "easing for the complete continuous path"
-                : selectedPathNode > 0 && selectedNode
-                ? `easing for leg ${selectedPathNode}→${selectedPathNode + 1}`
-                : "select a destination node to edit its incoming leg"
-            }
-            onChange={(e) => {
-              if (motionPath.continuous) {
-                commitMotionPath({ ...motionPath, globalEase: e.target.value });
-              } else {
-                updateSelectedPathNode({ ease: e.target.value });
-              }
-            }}
-          >
-            {Object.entries(MOTION_EASE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-          </select>
+          <span style={{ fontSize: 9, width: 56 }}>path default</span>
+          <span style={chipStyle(motionPath.continuous, true)} onClick={() => commitMotionPath({ ...motionPath, continuous: true })}>continuous</span>
+          <span style={chipStyle(!motionPath.continuous, true)} onClick={() => commitMotionPath({ ...motionPath, continuous: false })}>custom</span>
           <span style={chipStyle(motionPath.loop)} onClick={() => commitMotionPath({ ...motionPath, loop: !motionPath.loop })}>loop</span>
         </div>
-        <div style={{ ...UI.row, opacity: motionPath.continuous || (selectedPathNode > 0 && selectedNode) ? 1 : 0.45 }}>
-          <span style={{ fontSize: 9, width: 78 }}>
-            {motionPath.continuous ? "global ease amount" : selectedPathNode > 0 && selectedNode ? `leg ${selectedPathNode}→${selectedPathNode + 1} amount` : "select leg node"}
-          </span>
-          <input
-            type="range"
-            min={0}
-            max={1}
-            step={0.01}
-            value={motionPath.continuous ? motionPath.globalEaseStrength : selectedPathNode > 0 && selectedNode ? selectedNode.easeStrength : 0}
-            disabled={!motionPath.continuous && !(selectedPathNode > 0 && selectedNode)}
-            style={{ width: 145, accentColor: "#2e7d52" }}
-            onChange={(e) => {
-              const easeStrength = Number(e.target.value);
-              if (motionPath.continuous) {
-                commitMotionPath({ ...motionPath, globalEaseStrength: easeStrength }, false);
-              } else {
-                updateSelectedPathNode({ easeStrength });
-              }
-            }}
-          />
-          <span style={{ fontSize: 9 }}>
-            {Math.round((motionPath.continuous ? motionPath.globalEaseStrength : selectedPathNode > 0 && selectedNode ? selectedNode.easeStrength : 0) * 100)}%
-          </span>
+        <div style={UI.row}>
+          <span style={{ fontSize: 9, width: 78 }}>continuous ease</span>
+          <select style={SEL_STYLE} value={motionPath.globalEase} onChange={(e) => commitMotionPath({ ...motionPath, globalEase: e.target.value })}>{Object.entries(MOTION_EASE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
         </div>
-        {!motionPath.continuous && (
-          <div style={{ ...UI.hint, marginTop: 2 }}>
-            {selectedPathNode > 0 && selectedNode
-              ? `Editing the incoming leg from node ${selectedPathNode} to node ${selectedPathNode + 1}. Select another destination node above to edit a different leg.`
-              : "Select any destination node above (node 2 or later) to edit its incoming leg easing."}
-          </div>
-        )}
+        <div style={UI.row}>
+          <span style={{ fontSize: 9, width: 78 }}>ease amount</span>
+          <input type="range" min={0} max={1} step={0.01} value={motionPath.globalEaseStrength} style={{ width: 145, accentColor: "#2e7d52" }} onChange={(e) => commitMotionPath({ ...motionPath, globalEaseStrength: Number(e.target.value) }, false)} />
+          <span style={{ fontSize: 9 }}>{Math.round(motionPath.globalEaseStrength * 100)}%</span>
+        </div>
+        <div style={{ ...UI.hint, marginTop: 2 }}>The default applies only to nodes set to inherit. Click any node above to override its incoming leg or add a hold.</div>
         <div style={{ marginTop: 5, padding: "5px 6px", border: "1px solid #a9cfba", borderRadius: 6, background: "#f6fbf8" }}>
           <b style={{ fontSize: 9, color: "#2e7d52" }}>GLASS REGISTRATION MOTION</b>
           <div style={{ ...UI.row, marginTop: 3 }}>
@@ -4250,6 +4466,7 @@ function DevDashboard() {
 
       <details>
         <summary style={UI.head}>⏱ bulk timing</summary>
+        <div style={UI.hint}>Applying bulk timing marks the affected incoming legs as custom; holds remain independently editable afterward.</div>
         <div style={UI.row}>
           <label style={{ fontSize: 9 }}>travel <input type="number" min={0.1} step={0.05} value={bulkDuration} style={smallNumber} onChange={(e) => setBulkDuration(e.target.value)} /></label>
           <label style={{ fontSize: 9 }}>hold <input type="number" min={0} step={0.05} value={bulkHold} style={smallNumber} onChange={(e) => setBulkHold(e.target.value)} /></label>
