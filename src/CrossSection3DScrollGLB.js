@@ -19,6 +19,18 @@ import { Leva, useControls, button, folder } from "leva";
 gsap.registerPlugin(ScrollTrigger);
 
 // ============================================
+// v7.3.2 — MOTION CONTROL FINESSE
+//
+//   GLASS TIMING     Separate OUT and RETURN easing/strength controls are
+//                    saved with each motion path. RETURN span can complete
+//                    the glass move earlier inside its incoming camera leg.
+//   EASE STRENGTH    Global continuous easing and each per-leg ease now have
+//                    a 0–100% amount control. 100% preserves prior output.
+//   OLED BOND        One explicit action registers the glass over the OLED
+//                    at the current teardown P without changing P or OLED.
+//   NUMBER STEPPERS  Enlarged throughout the development dashboard.
+//
+// ============================================
 // v7.3.0 — HYBRID: v7.2 MOTION RIG × v3.11 GLASS LAW
 //
 //   ChatGPT's motion studio (150 named slots, path engine, unlimited
@@ -477,6 +489,7 @@ const DEV = {
   setEnv: null, // Scene's setter — preset/blur need a React re-render
   refreshEnvironment: null, // custom Lightformer props need a React render
   pathPreview: false, // ONE-FRAME flag: path engine owns easing this frame
+  explodeDistance: 1.2,
 };
 
 function applyPremiumGlassMaterial() {
@@ -771,6 +784,17 @@ const MOTION_EASES = {
   decelerate: (t) => 1 - Math.pow(1 - t, 3),
 };
 
+function applyEaseAmount(t, easeName, amount = 1) {
+  const safeT = Math.max(0, Math.min(1, Number(t) || 0));
+  const safeAmount = Math.max(0, Math.min(1, Number(amount)));
+  const ease = MOTION_EASES[easeName] || MOTION_EASES.linear;
+  return THREE.MathUtils.lerp(
+    safeT,
+    ease(safeT),
+    Number.isFinite(safeAmount) ? safeAmount : 1
+  );
+}
+
 const MOTION_EASE_LABELS = {
   linear: "linear",
   smooth: "smooth",
@@ -786,6 +810,7 @@ const POSE_ROTATION_GROUPS = [
 ];
 
 const POSE_ROTATION_KEYS = new Set(POSE_ROTATION_GROUPS.flat());
+const POSE_GLASS_REG_KEYS = new Set(["glassRegX", "glassRegY", "glassRegZ"]);
 
 function defaultMotionPath() {
   return {
@@ -798,6 +823,12 @@ function defaultMotionPath() {
     arcLength: true,
     continuous: true,
     globalEase: "linear",
+    globalEaseStrength: 1,
+    glassOutEase: "linear",
+    glassOutEaseStrength: 1,
+    glassReturnEase: "linear",
+    glassReturnEaseStrength: 1,
+    glassReturnSpan: 1,
     orientationMode: "quaternion",
     lookAt: [0, 0, 0],
     orientationOffset: [0, 0, 0],
@@ -837,6 +868,9 @@ function normaliseMotionPath(saved) {
           duration: i === 0 ? 0 : Math.max(0.1, Number(n.duration) || 1.25),
           hold: Math.max(0, Number(n.hold) || 0),
           ease: MOTION_EASES[n.ease] ? n.ease : "cinematic",
+          easeStrength: Number.isFinite(Number(n.easeStrength))
+            ? Math.max(0, Math.min(1, Number(n.easeStrength)))
+            : 1,
           position:
             Array.isArray(n.position) && n.position.length === 3 && n.position.every(Number.isFinite)
               ? n.position.map(Number)
@@ -858,6 +892,24 @@ function normaliseMotionPath(saved) {
     arcLength: legacy ? false : source.arcLength !== false,
     continuous: legacy ? false : source.continuous !== false,
     globalEase: MOTION_EASES[source.globalEase] ? source.globalEase : "linear",
+    globalEaseStrength: Number.isFinite(Number(source.globalEaseStrength))
+      ? Math.max(0, Math.min(1, Number(source.globalEaseStrength)))
+      : 1,
+    glassOutEase: MOTION_EASES[source.glassOutEase]
+      ? source.glassOutEase
+      : "linear",
+    glassOutEaseStrength: Number.isFinite(Number(source.glassOutEaseStrength))
+      ? Math.max(0, Math.min(1, Number(source.glassOutEaseStrength)))
+      : 1,
+    glassReturnEase: MOTION_EASES[source.glassReturnEase]
+      ? source.glassReturnEase
+      : "linear",
+    glassReturnEaseStrength: Number.isFinite(Number(source.glassReturnEaseStrength))
+      ? Math.max(0, Math.min(1, Number(source.glassReturnEaseStrength)))
+      : 1,
+    glassReturnSpan: Number.isFinite(Number(source.glassReturnSpan))
+      ? Math.max(0.1, Math.min(1, Number(source.glassReturnSpan)))
+      : 1,
     orientationMode: ["quaternion", "tangent", "lookAt"].includes(source.orientationMode)
       ? source.orientationMode
       : "quaternion",
@@ -927,6 +979,24 @@ function compileMotionPath(path, slots) {
     arcLength: path.arcLength !== false,
     continuous: path.continuous !== false,
     globalEase: MOTION_EASES[path.globalEase] ? path.globalEase : "linear",
+    globalEaseStrength: Number.isFinite(Number(path.globalEaseStrength))
+      ? Math.max(0, Math.min(1, Number(path.globalEaseStrength)))
+      : 1,
+    glassOutEase: MOTION_EASES[path.glassOutEase]
+      ? path.glassOutEase
+      : "linear",
+    glassOutEaseStrength: Number.isFinite(Number(path.glassOutEaseStrength))
+      ? Math.max(0, Math.min(1, Number(path.glassOutEaseStrength)))
+      : 1,
+    glassReturnEase: MOTION_EASES[path.glassReturnEase]
+      ? path.glassReturnEase
+      : "linear",
+    glassReturnEaseStrength: Number.isFinite(Number(path.glassReturnEaseStrength))
+      ? Math.max(0, Math.min(1, Number(path.glassReturnEaseStrength)))
+      : 1,
+    glassReturnSpan: Number.isFinite(Number(path.glassReturnSpan))
+      ? Math.max(0.1, Math.min(1, Number(path.glassReturnSpan)))
+      : 1,
     orientationMode: path.orientationMode || "quaternion",
     lookAt: Array.isArray(path.lookAt) ? path.lookAt : [0, 0, 0],
     orientationOffset: Array.isArray(path.orientationOffset)
@@ -1228,12 +1298,46 @@ function interpolateMotionPose(path, trackT, spatial) {
   const b = nodes[fromIndex + 1].pose;
   const out = {};
 
+  const aGlass = new THREE.Vector3(
+    Number.isFinite(a.glassRegX) ? a.glassRegX : GLASS_REG_HOME.x,
+    Number.isFinite(a.glassRegY) ? a.glassRegY : GLASS_REG_HOME.y,
+    Number.isFinite(a.glassRegZ) ? a.glassRegZ : GLASS_REG_HOME.z
+  );
+  const bGlass = new THREE.Vector3(
+    Number.isFinite(b.glassRegX) ? b.glassRegX : GLASS_REG_HOME.x,
+    Number.isFinite(b.glassRegY) ? b.glassRegY : GLASS_REG_HOME.y,
+    Number.isFinite(b.glassRegZ) ? b.glassRegZ : GLASS_REG_HOME.z
+  );
+  const home = new THREE.Vector3(
+    GLASS_REG_HOME.x,
+    GLASS_REG_HOME.y,
+    GLASS_REG_HOME.z
+  );
+  const glassReturning =
+    bGlass.distanceToSquared(home) < aGlass.distanceToSquared(home) - 1e-10;
+  const glassSpan = glassReturning
+    ? Math.max(0.1, Math.min(1, Number(path.glassReturnSpan) || 1))
+    : 1;
+  const glassRawT = Math.min(1, t / glassSpan);
+  const glassEaseName = glassReturning
+    ? path.glassReturnEase
+    : path.glassOutEase;
+  const glassEaseStrength = glassReturning
+    ? path.glassReturnEaseStrength
+    : path.glassOutEaseStrength;
+  const glassT = applyEaseAmount(
+    glassRawT,
+    glassEaseName,
+    glassEaseStrength
+  );
+
   for (const key of Object.keys(a)) {
     if (POSE_ROTATION_KEYS.has(key) || ["sposX", "sposY", "sposZ"].includes(key)) continue;
     const av = a[key];
     const bv = b[key];
     if (typeof av === "number" && typeof bv === "number") {
-      out[key] = av + (bv - av) * t;
+      const parameterT = POSE_GLASS_REG_KEYS.has(key) ? glassT : t;
+      out[key] = av + (bv - av) * parameterT;
     } else {
       out[key] = t < 1 ? av : bv;
     }
@@ -1261,8 +1365,12 @@ function sampleMotionPath(path, progress) {
 
   const clamped = Math.max(0, Math.min(1, progress));
   if (path.continuous) {
-    const ease = MOTION_EASES[path.globalEase] || MOTION_EASES.linear;
-    const spatial = positionTrackSample(path, ease(clamped));
+    const eased = applyEaseAmount(
+      clamped,
+      path.globalEase,
+      path.globalEaseStrength
+    );
+    const spatial = positionTrackSample(path, eased);
     return interpolateMotionPose(path, spatial.trackT, spatial);
   }
 
@@ -1279,8 +1387,8 @@ function sampleMotionPath(path, progress) {
     const duration = Math.max(0.1, Number(node.duration) || 0);
     if (time <= duration) {
       const raw = Math.max(0, Math.min(1, time / duration));
-      const ease = MOTION_EASES[node.ease] || MOTION_EASES.cinematic;
-      const trackT = (i - 1 + ease(raw)) / (path.nodes.length - 1);
+      const eased = applyEaseAmount(raw, node.ease, node.easeStrength);
+      const trackT = (i - 1 + eased) / (path.nodes.length - 1);
       return sampleAtTrack(path, trackT);
     }
     time -= duration;
@@ -1384,6 +1492,9 @@ function decodeMotionPath(value) {
           duration: i === 0 ? 0 : Math.max(0.1, Number(node.duration) || 1.25),
           hold: Math.max(0, Number(node.hold) || 0),
           ease: MOTION_EASES[node.ease] ? node.ease : "cinematic",
+          easeStrength: Number.isFinite(Number(node.easeStrength))
+            ? Math.max(0, Math.min(1, Number(node.easeStrength)))
+            : 1,
           position:
             Array.isArray(node.position) && node.position.length === 3
               ? node.position.map(Number)
@@ -1401,6 +1512,24 @@ function decodeMotionPath(value) {
         curveType: legacy ? "catmullrom" : parsed.curveType || "centripetal",
         arcLength: legacy ? false : parsed.arcLength !== false,
         continuous: legacy ? false : parsed.continuous !== false,
+        globalEaseStrength: Number.isFinite(Number(parsed.globalEaseStrength))
+          ? Math.max(0, Math.min(1, Number(parsed.globalEaseStrength)))
+          : 1,
+        glassOutEase: MOTION_EASES[parsed.glassOutEase]
+          ? parsed.glassOutEase
+          : "linear",
+        glassOutEaseStrength: Number.isFinite(Number(parsed.glassOutEaseStrength))
+          ? Math.max(0, Math.min(1, Number(parsed.glassOutEaseStrength)))
+          : 1,
+        glassReturnEase: MOTION_EASES[parsed.glassReturnEase]
+          ? parsed.glassReturnEase
+          : "linear",
+        glassReturnEaseStrength: Number.isFinite(Number(parsed.glassReturnEaseStrength))
+          ? Math.max(0, Math.min(1, Number(parsed.glassReturnEaseStrength)))
+          : 1,
+        glassReturnSpan: Number.isFinite(Number(parsed.glassReturnSpan))
+          ? Math.max(0.1, Math.min(1, Number(parsed.glassReturnSpan)))
+          : 1,
         speed: Math.max(0.1, Number(parsed.speed) || 1),
         loop: parsed.loop !== false,
         nodes,
@@ -2456,6 +2585,7 @@ function DevControls({ initialP }) {
             wireTap("glassRegZ", v);
           },
         },
+        "bond glass to OLED at current P": button(bondGlassToOLED),
       },
       { collapsed: false }
     ),
@@ -3049,7 +3179,7 @@ function DevDashboard() {
   const [selectedPathNode, setSelectedPathNode] = useState(-1);
   const [pathProgress, setPathProgress] = useState(0);
   const [pathPlaying, setPathPlaying] = useState(false);
-  const [status, setStatus] = useState("v7.3.1 — crack back-bleed fixed (two-sided pane stripped)");
+  const [status, setStatus] = useState("v7.3.2 — glass timing and easing control");
   const [library, setLibrary] = useState(loadMotionLibrary);
   const [libraryId, setLibraryId] = useState("");
   const [importText, setImportText] = useState("");
@@ -3263,6 +3393,7 @@ function DevDashboard() {
         duration: i === 0 ? 0 : 1.25,
         hold: 0,
         ease: "cinematic",
+        easeStrength: 1,
       }],
     });
     setSelectedPathNode(i);
@@ -3513,6 +3644,7 @@ function DevDashboard() {
       duration: leg,
       hold: 0,
       ease: motionPath.continuous ? "linear" : "cinematic",
+      easeStrength: 1,
     }));
     const nodes = [...motionPath.nodes];
     nodes.splice(to, 0, ...bridgeNodes);
@@ -3670,7 +3802,7 @@ function DevDashboard() {
   if (collapsed) {
     return (
       <div ref={panelRef} style={UI.panelCollapsed}>
-        <b style={{ color: "#2e7d52", letterSpacing: 1 }}>iGLASS v7.3.1</b>
+        <b style={{ color: "#2e7d52", letterSpacing: 1 }}>iGLASS v7.3.2</b>
         <span style={chipStyle(false)} onClick={() => setCollapsed(false)}>▸ open</span>
       </div>
     );
@@ -3678,8 +3810,20 @@ function DevDashboard() {
 
   return (
     <div ref={panelRef} style={UI.panel}>
+      <style>{`
+        input[type="number"] {
+          min-height: 28px;
+        }
+        input[type="number"]::-webkit-inner-spin-button {
+          opacity: 1;
+          width: 18px;
+          height: 26px;
+          margin: 0;
+          cursor: pointer;
+        }
+      `}</style>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <b style={{ color: "#2e7d52", letterSpacing: 1 }}>iGLASS PRODUCTION STUDIO v7.3.1</b>
+        <b style={{ color: "#2e7d52", letterSpacing: 1 }}>iGLASS PRODUCTION STUDIO v7.3.2</b>
         <span style={chipStyle(false)} onClick={() => setCollapsed(true)}>▾ hide</span>
       </div>
       <div style={{ ...UI.hint, marginTop: 3, color: status.startsWith("import failed") ? "#a02b2b" : "#5a6b60" }}>{status}</div>
@@ -3872,6 +4016,7 @@ function DevDashboard() {
                   <>
                     <label style={{ fontSize: 9 }}>travel <input type="number" min={0.1} step={0.05} value={selectedNode.duration} style={smallNumber} onChange={(e) => updateSelectedPathNode({ duration: Number(e.target.value) })} /></label>
                     <select style={SEL_STYLE} value={selectedNode.ease} onChange={(e) => updateSelectedPathNode({ ease: e.target.value })}>{Object.entries(MOTION_EASE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
+                    <label style={{ fontSize: 9 }}>ease amount <input type="range" min={0} max={1} step={0.01} value={selectedNode.easeStrength} style={{ width: 70, accentColor: "#2e7d52" }} onChange={(e) => updateSelectedPathNode({ easeStrength: Number(e.target.value) })} /> {Math.round(selectedNode.easeStrength * 100)}%</label>
                   </>
                 )}
                 <label style={{ fontSize: 9 }}>{selectedPathNode === 0 ? "start hold" : "hold"} <input type="number" min={0} step={0.05} value={selectedNode.hold} style={smallNumber} onChange={(e) => updateSelectedPathNode({ hold: Number(e.target.value) })} /></label>
@@ -3925,6 +4070,32 @@ function DevDashboard() {
           <span style={chipStyle(motionPath.continuous, true)} onClick={() => commitMotionPath({ ...motionPath, continuous: !motionPath.continuous })}>{motionPath.continuous ? "continuous on" : "per-leg timing"}</span>
           <select style={SEL_STYLE} value={motionPath.globalEase} disabled={!motionPath.continuous} onChange={(e) => commitMotionPath({ ...motionPath, globalEase: e.target.value })}>{Object.entries(MOTION_EASE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
           <span style={chipStyle(motionPath.loop)} onClick={() => commitMotionPath({ ...motionPath, loop: !motionPath.loop })}>loop</span>
+        </div>
+        <div style={{ ...UI.row, opacity: motionPath.continuous ? 1 : 0.45 }}>
+          <span style={{ fontSize: 9, width: 78 }}>global ease amount</span>
+          <input type="range" min={0} max={1} step={0.01} value={motionPath.globalEaseStrength} disabled={!motionPath.continuous} style={{ width: 145, accentColor: "#2e7d52" }} onChange={(e) => commitMotionPath({ ...motionPath, globalEaseStrength: Number(e.target.value) }, false)} />
+          <span style={{ fontSize: 9 }}>{Math.round(motionPath.globalEaseStrength * 100)}%</span>
+        </div>
+        <div style={{ marginTop: 5, padding: "5px 6px", border: "1px solid #a9cfba", borderRadius: 6, background: "#f6fbf8" }}>
+          <b style={{ fontSize: 9, color: "#2e7d52" }}>GLASS REGISTRATION MOTION</b>
+          <div style={{ ...UI.row, marginTop: 3 }}>
+            <span style={{ fontSize: 9, width: 42 }}>OUT</span>
+            <select style={SEL_STYLE} value={motionPath.glassOutEase} onChange={(e) => commitMotionPath({ ...motionPath, glassOutEase: e.target.value })}>{Object.entries(MOTION_EASE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
+            <input type="range" min={0} max={1} step={0.01} value={motionPath.glassOutEaseStrength} style={{ width: 92, accentColor: "#2e7d52" }} onChange={(e) => commitMotionPath({ ...motionPath, glassOutEaseStrength: Number(e.target.value) }, false)} />
+            <span style={{ fontSize: 9 }}>{Math.round(motionPath.glassOutEaseStrength * 100)}%</span>
+          </div>
+          <div style={UI.row}>
+            <span style={{ fontSize: 9, width: 42 }}>RETURN</span>
+            <select style={SEL_STYLE} value={motionPath.glassReturnEase} onChange={(e) => commitMotionPath({ ...motionPath, glassReturnEase: e.target.value })}>{Object.entries(MOTION_EASE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
+            <input type="range" min={0} max={1} step={0.01} value={motionPath.glassReturnEaseStrength} style={{ width: 92, accentColor: "#2e7d52" }} onChange={(e) => commitMotionPath({ ...motionPath, glassReturnEaseStrength: Number(e.target.value) }, false)} />
+            <span style={{ fontSize: 9 }}>{Math.round(motionPath.glassReturnEaseStrength * 100)}%</span>
+          </div>
+          <div style={UI.row}>
+            <span style={{ fontSize: 9, width: 95 }}>return duration</span>
+            <input type="range" min={0.1} max={1} step={0.01} value={motionPath.glassReturnSpan} style={{ width: 130, accentColor: "#2e7d52" }} onChange={(e) => commitMotionPath({ ...motionPath, glassReturnSpan: Number(e.target.value) }, false)} />
+            <span style={{ fontSize: 9 }}>{Math.round(motionPath.glassReturnSpan * 100)}% leg</span>
+          </div>
+          <div style={{ ...UI.hint, marginTop: 2 }}>OUT/RETURN affect only glass registration XYZ. Lower return duration finishes the glass movement earlier within that camera leg.</div>
         </div>
         <div style={{ ...UI.row, alignItems: "center" }}>
           <span style={{ fontSize: 9, width: 38 }}>speed</span>
@@ -4930,6 +5101,18 @@ const scrollState = {
   phoneOffset: 0,
   rotate: 0,
 };
+
+function bondGlassToOLED() {
+  const distance = Math.max(0, Number(DEV.explodeDistance) || 0);
+  const z =
+    GLASS_REG_HOME.z +
+    distance * (scrollState.glassOffset * 2.0 - scrollState.oledOffset);
+  const clamped = Math.max(-GLASS_REG_RANGE, Math.min(GLASS_REG_RANGE, z));
+  GLASS_REG.z = clamped;
+  if (DEV.setLeva) {
+    DEV.setLeva({ glassRegZ: Number(clamped.toFixed(4)) });
+  }
+}
 
 // ---------------------------------------------------------
 // OLED BACK-FACE SPLIT (v3.8)
@@ -5968,6 +6151,10 @@ function Scene({
   const [envPreset, setEnvPreset] = useState(LIGHT.preset);
   const [envBlur, setEnvBlur] = useState(LIGHT.blur);
   const [envRevision, setEnvRevision] = useState(0);
+
+  useEffect(() => {
+    DEV.explodeDistance = explodeDistance;
+  }, [explodeDistance]);
 
   // preset and blur are React PROPS on <Environment>, not uniforms — they
   // need a re-render, so Leva writes through this setter rather than
