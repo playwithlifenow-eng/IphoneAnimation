@@ -29,6 +29,10 @@ gsap.registerPlugin(ScrollTrigger);
 //   OLED BOND        One explicit action registers the glass over the OLED
 //                    at the current teardown P without changing P or OLED.
 //   NUMBER STEPPERS  Enlarged throughout the development dashboard.
+//   PER-LEG UI      In per-leg timing mode the advanced easing controls now
+//                    edit the selected incoming leg instead of appearing as
+//                    disabled global controls. Entering the mode selects the
+//                    first destination node when no leg is already selected.
 //
 // ============================================
 // v7.3.0 — HYBRID: v7.2 MOTION RIG × v3.11 GLASS LAW
@@ -4067,15 +4071,79 @@ function DevDashboard() {
           <span style={chipStyle(motionPath.arcLength)} onClick={() => commitMotionPath({ ...motionPath, arcLength: !motionPath.arcLength })}>arc length</span>
         </div>
         <div style={UI.row}>
-          <span style={chipStyle(motionPath.continuous, true)} onClick={() => commitMotionPath({ ...motionPath, continuous: !motionPath.continuous })}>{motionPath.continuous ? "continuous on" : "per-leg timing"}</span>
-          <select style={SEL_STYLE} value={motionPath.globalEase} disabled={!motionPath.continuous} onChange={(e) => commitMotionPath({ ...motionPath, globalEase: e.target.value })}>{Object.entries(MOTION_EASE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
+          <span
+            style={chipStyle(motionPath.continuous, true)}
+            onClick={() => {
+              const continuous = !motionPath.continuous;
+              if (!continuous && motionPath.nodes.length > 1 && selectedPathNode < 1) {
+                setSelectedPathNode(1);
+              }
+              commitMotionPath({ ...motionPath, continuous });
+            }}
+          >
+            {motionPath.continuous ? "continuous on" : "per-leg timing"}
+          </span>
+          <select
+            style={SEL_STYLE}
+            value={
+              motionPath.continuous
+                ? motionPath.globalEase
+                : selectedPathNode > 0 && selectedNode
+                ? selectedNode.ease
+                : "linear"
+            }
+            disabled={!motionPath.continuous && !(selectedPathNode > 0 && selectedNode)}
+            title={
+              motionPath.continuous
+                ? "easing for the complete continuous path"
+                : selectedPathNode > 0 && selectedNode
+                ? `easing for leg ${selectedPathNode}→${selectedPathNode + 1}`
+                : "select a destination node to edit its incoming leg"
+            }
+            onChange={(e) => {
+              if (motionPath.continuous) {
+                commitMotionPath({ ...motionPath, globalEase: e.target.value });
+              } else {
+                updateSelectedPathNode({ ease: e.target.value });
+              }
+            }}
+          >
+            {Object.entries(MOTION_EASE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </select>
           <span style={chipStyle(motionPath.loop)} onClick={() => commitMotionPath({ ...motionPath, loop: !motionPath.loop })}>loop</span>
         </div>
-        <div style={{ ...UI.row, opacity: motionPath.continuous ? 1 : 0.45 }}>
-          <span style={{ fontSize: 9, width: 78 }}>global ease amount</span>
-          <input type="range" min={0} max={1} step={0.01} value={motionPath.globalEaseStrength} disabled={!motionPath.continuous} style={{ width: 145, accentColor: "#2e7d52" }} onChange={(e) => commitMotionPath({ ...motionPath, globalEaseStrength: Number(e.target.value) }, false)} />
-          <span style={{ fontSize: 9 }}>{Math.round(motionPath.globalEaseStrength * 100)}%</span>
+        <div style={{ ...UI.row, opacity: motionPath.continuous || (selectedPathNode > 0 && selectedNode) ? 1 : 0.45 }}>
+          <span style={{ fontSize: 9, width: 78 }}>
+            {motionPath.continuous ? "global ease amount" : selectedPathNode > 0 && selectedNode ? `leg ${selectedPathNode}→${selectedPathNode + 1} amount` : "select leg node"}
+          </span>
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.01}
+            value={motionPath.continuous ? motionPath.globalEaseStrength : selectedPathNode > 0 && selectedNode ? selectedNode.easeStrength : 0}
+            disabled={!motionPath.continuous && !(selectedPathNode > 0 && selectedNode)}
+            style={{ width: 145, accentColor: "#2e7d52" }}
+            onChange={(e) => {
+              const easeStrength = Number(e.target.value);
+              if (motionPath.continuous) {
+                commitMotionPath({ ...motionPath, globalEaseStrength: easeStrength }, false);
+              } else {
+                updateSelectedPathNode({ easeStrength });
+              }
+            }}
+          />
+          <span style={{ fontSize: 9 }}>
+            {Math.round((motionPath.continuous ? motionPath.globalEaseStrength : selectedPathNode > 0 && selectedNode ? selectedNode.easeStrength : 0) * 100)}%
+          </span>
         </div>
+        {!motionPath.continuous && (
+          <div style={{ ...UI.hint, marginTop: 2 }}>
+            {selectedPathNode > 0 && selectedNode
+              ? `Editing the incoming leg from node ${selectedPathNode} to node ${selectedPathNode + 1}. Select another destination node above to edit a different leg.`
+              : "Select any destination node above (node 2 or later) to edit its incoming leg easing."}
+          </div>
+        )}
         <div style={{ marginTop: 5, padding: "5px 6px", border: "1px solid #a9cfba", borderRadius: 6, background: "#f6fbf8" }}>
           <b style={{ fontSize: 9, color: "#2e7d52" }}>GLASS REGISTRATION MOTION</b>
           <div style={{ ...UI.row, marginTop: 3 }}>
