@@ -1,6 +1,6 @@
 import screenImg from "./Screen.png";
 import internalsImg from "./internals.jpg";
-import crackImg from "./Crack2.png";
+import crackImg from "./Crack.png";
 import { useRef, useMemo, useEffect, useLayoutEffect, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import {
@@ -19,10 +19,21 @@ import { Leva, useControls, button, folder } from "leva";
 gsap.registerPlugin(ScrollTrigger);
 
 // ============================================
+// v7.4.2 — CRACK POSITION DEFAULTS + SLOT OVERRIDES
+//
+//   DEFAULT POSITION  One persistent X/Y default is inherited by every
+//                     legacy and new pose slot unless that slot is explicitly
+//                     saved with a manual crack-position override.
+//   PATH RESOLUTION   Embedded node poses no longer revive stale crack X/Y
+//                     values when their slot is using the default position.
+//   MANUAL OVERRIDE   Switch off "use default position", set manual X/Y, then
+//                     save the pose; the override state saves with the slot.
+//
+// ============================================
 // v7.4.1 — REPLACEMENT CRACK + APPEARANCE CONTROL
 //
 //   CRACK ASSET      Bottom-right impact pattern with long sparse fractures
-//                    radiating upward and left, supplied as Crack2.png.
+//                    radiating upward and left, supplied as Crack.png.
 //   SEVERITY         Controls fracture visibility without changing CRACK ON.
 //   SHARPNESS        Controls the alpha-edge profile of the crack texture.
 //                    Both values save in pose slots and interpolate in paths.
@@ -463,12 +474,50 @@ const SHINE = {
 // depth). Severity and sharpness affect only the texture's rendered alpha.
 // Timeline progress never overrides `on`.
 // ---------------------------------------------------------
+const CRACK_DEFAULT_POSITION_KEY = "iglass_crack_default_position_v1";
+
+function loadCrackDefaultPosition() {
+  if (typeof window === "undefined") return [0.09, 0.09];
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(CRACK_DEFAULT_POSITION_KEY));
+    return Array.isArray(saved) && saved.length === 2 && saved.every(Number.isFinite)
+      ? saved.map((v) => Math.max(-4, Math.min(4, v)))
+      : [0.09, 0.09];
+  } catch (e) {
+    return [0.09, 0.09];
+  }
+}
+
+function persistCrackDefaultPosition(position) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(CRACK_DEFAULT_POSITION_KEY, JSON.stringify(position));
+  } catch (e) {
+    /* storage blocked -> default remains session-only */
+  }
+}
+
+const initialCrackDefaultPosition = loadCrackDefaultPosition();
+
 const CRACK = {
   on: true,
-  exit: [0, 0],
+  defaultExit: [...initialCrackDefaultPosition],
+  exit: [...initialCrackDefaultPosition],
+  useDefault: true,
   severity: 1,
   sharpness: 1,
 };
+
+function poseUsesDefaultCrackPosition(pose) {
+  return pose?.crackUseDefault !== false;
+}
+
+function effectivePoseCrackPosition(pose) {
+  if (poseUsesDefaultCrackPosition(pose)) return [...CRACK.defaultExit];
+  return [pose?.crackExitX, pose?.crackExitY].every(Number.isFinite)
+    ? [pose.crackExitX, pose.crackExitY]
+    : [...CRACK.defaultExit];
+}
 
 // 1x1 fully transparent PNG. useTexture cannot be called conditionally
 // (hooks rule), so when no crackTexture prop is supplied this loads
@@ -690,7 +739,11 @@ const DRIVE_CLAMPS = {
 // controls (crackOpacity, crackExitZ, crackSpin* …). Every write to Leva
 // is filtered through this set so unknown keys never reach it and legacy
 // slots warp cleanly.
-const LEVA_KEYS = new Set([...Object.keys(DRIVE_READERS), "crackOn"]);
+const LEVA_KEYS = new Set([
+  ...Object.keys(DRIVE_READERS),
+  "crackOn",
+  "crackUseDefault",
+]);
 
 function changeGizmoContext(targetMode) {
   if (DEV.gizmoDragging) return;
@@ -853,6 +906,11 @@ const POSE_ROTATION_GROUPS = [
 
 const POSE_ROTATION_KEYS = new Set(POSE_ROTATION_GROUPS.flat());
 const POSE_GLASS_REG_KEYS = new Set(["glassRegX", "glassRegY", "glassRegZ"]);
+const POSE_CRACK_POSITION_KEYS = new Set([
+  "crackExitX",
+  "crackExitY",
+  "crackUseDefault",
+]);
 
 function defaultMotionPath() {
   return {
@@ -1008,9 +1066,23 @@ function persistMotionPath(path) {
 function compileMotionPath(path, slots) {
   const nodes = path.nodes
     .map((node) => {
-      const pose = node.pose && typeof node.pose === "object"
+      const embeddedPose = node.pose && typeof node.pose === "object"
         ? node.pose
-        : slots[node.slot] || null;
+        : null;
+      const slotPose = slots[node.slot] || null;
+      let pose = embeddedPose || slotPose;
+      if (
+        embeddedPose &&
+        slotPose &&
+        typeof slotPose.crackUseDefault === "boolean"
+      ) {
+        pose = {
+          ...embeddedPose,
+          crackUseDefault: slotPose.crackUseDefault,
+          crackExitX: slotPose.crackExitX,
+          crackExitY: slotPose.crackExitY,
+        };
+      }
       const position =
         Array.isArray(node.position) && node.position.every(Number.isFinite)
           ? node.position.map(Number)
@@ -1475,9 +1547,15 @@ function interpolateMotionPose(path, trackT, spatial) {
     glassEaseName,
     glassEaseStrength
   );
+  const aCrackPosition = effectivePoseCrackPosition(a);
+  const bCrackPosition = effectivePoseCrackPosition(b);
 
   for (const key of Object.keys(a)) {
-    if (POSE_ROTATION_KEYS.has(key) || ["sposX", "sposY", "sposZ"].includes(key)) continue;
+    if (
+      POSE_ROTATION_KEYS.has(key) ||
+      POSE_CRACK_POSITION_KEYS.has(key) ||
+      ["sposX", "sposY", "sposZ"].includes(key)
+    ) continue;
     const av = a[key];
     const bv = b[key];
     if (typeof av === "number" && typeof bv === "number") {
@@ -1487,6 +1565,13 @@ function interpolateMotionPose(path, trackT, spatial) {
       out[key] = t < 1 ? av : bv;
     }
   }
+
+  out.crackExitX = THREE.MathUtils.lerp(aCrackPosition[0], bCrackPosition[0], t);
+  out.crackExitY = THREE.MathUtils.lerp(aCrackPosition[1], bCrackPosition[1], t);
+  out.crackUseDefault = t < 1
+    ? poseUsesDefaultCrackPosition(a)
+    : poseUsesDefaultCrackPosition(b);
+  out.__crackPositionResolved = true;
 
   for (const keys of POSE_ROTATION_GROUPS) {
     writeQuaternionToPose(sampleQuaternionTrack(nodes, keys, trackT), keys, out);
@@ -1646,9 +1731,11 @@ function applyPoseParamsDirect(pose) {
     GLASS_REG.z = clampReg(pose.glassRegZ);
   }
   if (typeof pose.crackOn === "boolean") CRACK.on = pose.crackOn;
-  if ([pose.crackExitX, pose.crackExitY].every(Number.isFinite)) {
-    CRACK.exit = [pose.crackExitX, pose.crackExitY];
-  }
+  CRACK.useDefault = poseUsesDefaultCrackPosition(pose);
+  CRACK.exit = pose.__crackPositionResolved &&
+    [pose.crackExitX, pose.crackExitY].every(Number.isFinite)
+    ? [pose.crackExitX, pose.crackExitY]
+    : effectivePoseCrackPosition(pose);
   if (Number.isFinite(pose.crackSeverity)) {
     CRACK.severity = Math.max(0, Math.min(1, pose.crackSeverity));
   }
@@ -1859,10 +1946,10 @@ function downloadJSON(filename, value) {
 function readPoseParams() {
   const o = {};
   for (const k of Object.keys(DRIVE_READERS)) o[k] = DRIVE_READERS[k]();
-  // glassRegX/Y/Z and crackExitX/Y flow through DRIVE_READERS above.
-  // crackOn rides in the slot with everything else. THAT is the glass
-  // swap: slot A = cracked, slot B = same pose, crack off.
+  // Glass registration, effective crack X/Y, appearance, and the explicit
+  // default/manual crack-position state save with the pose.
   o.crackOn = CRACK.on;
+  o.crackUseDefault = CRACK.useDefault;
   o.p = DEV.lastP;
   return o;
 }
@@ -1877,6 +1964,14 @@ function warpToParams(snap) {
   const writes = {};
   for (const k of Object.keys(snap)) {
     if (LEVA_KEYS.has(k)) writes[k] = snap[k];
+  }
+  const useDefault = poseUsesDefaultCrackPosition(snap);
+  CRACK.useDefault = useDefault;
+  CRACK.exit = effectivePoseCrackPosition(snap);
+  writes.crackUseDefault = useDefault;
+  if (useDefault) {
+    writes.crackExitX = CRACK.defaultExit[0];
+    writes.crackExitY = CRACK.defaultExit[1];
   }
   DEV.setLeva(writes);
   if (typeof snap.p === "number") jumpToP(snap.p);
@@ -2137,10 +2232,21 @@ function serialiseParams(params) {
   );
   params.set("envp", LIGHT.preset);
   params.set("envb", LIGHT.blur.toFixed(2));
-  // v4.1, on, exitX, exitY, severity, sharpness.
+  // v4.2, on, effectiveX, effectiveY, severity, sharpness,
+  // defaultX, defaultY, useDefault.
   params.set(
     "crack",
-    [4.1, CRACK.on ? 1 : 0, CRACK.exit[0], CRACK.exit[1], CRACK.severity, CRACK.sharpness]
+    [
+      4.2,
+      CRACK.on ? 1 : 0,
+      CRACK.exit[0],
+      CRACK.exit[1],
+      CRACK.severity,
+      CRACK.sharpness,
+      CRACK.defaultExit[0],
+      CRACK.defaultExit[1],
+      CRACK.useDefault ? 1 : 0,
+    ]
       .map((v) => v.toFixed(2))
       .join(",")
   );
@@ -2733,15 +2839,49 @@ function DevControls({ initialP }) {
             CRACK.on = v;
           },
         },
+        crackDefaultX: {
+          value: CRACK.defaultExit[0],
+          min: -4,
+          max: 4,
+          step: 0.01,
+          label: "default crack X",
+          onChange: (v) => {
+            CRACK.defaultExit[0] = v;
+            persistCrackDefaultPosition(CRACK.defaultExit);
+            if (CRACK.useDefault) CRACK.exit[0] = v;
+          },
+        },
+        crackDefaultY: {
+          value: CRACK.defaultExit[1],
+          min: -4,
+          max: 4,
+          step: 0.01,
+          label: "default crack Y",
+          onChange: (v) => {
+            CRACK.defaultExit[1] = v;
+            persistCrackDefaultPosition(CRACK.defaultExit);
+            if (CRACK.useDefault) CRACK.exit[1] = v;
+          },
+        },
+        crackUseDefault: {
+          value: CRACK.useDefault,
+          label: "use default position  (saved in pose)",
+          onChange: (v) => {
+            CRACK.useDefault = v;
+            if (v) CRACK.exit = [...CRACK.defaultExit];
+          },
+        },
         crackExitX: {
           value: CRACK.exit[0],
           min: -4,
           max: 4,
           step: 0.01,
-          label: "crack ← → (X)",
+          label: "manual crack ← → (X)",
           onChange: (v) => {
-            CRACK.exit[0] = v;
-            wireTap("crackExitX", v);
+            if (!CRACK.useDefault) {
+              CRACK.exit[0] = v;
+              wireTap("crackExitX", v);
+            }
           },
         },
         crackExitY: {
@@ -2749,10 +2889,12 @@ function DevControls({ initialP }) {
           min: -4,
           max: 4,
           step: 0.01,
-          label: "crack ↑ ↓ (Y)",
+          label: "manual crack ↑ ↓ (Y)",
           onChange: (v) => {
-            CRACK.exit[1] = v;
-            wireTap("crackExitY", v);
+            if (!CRACK.useDefault) {
+              CRACK.exit[1] = v;
+              wireTap("crackExitY", v);
+            }
           },
         },
         crackSeverity: {
@@ -3417,7 +3559,7 @@ function DevDashboard() {
   const [selectedPathNode, setSelectedPathNode] = useState(-1);
   const [pathProgress, setPathProgress] = useState(0);
   const [pathPlaying, setPathPlaying] = useState(false);
-  const [status, setStatus] = useState("v7.4.1 — replacement crack and appearance control");
+  const [status, setStatus] = useState("v7.4.2 — crack position defaults and slot overrides");
   const [library, setLibrary] = useState(loadMotionLibrary);
   const [libraryId, setLibraryId] = useState("");
   const [importText, setImportText] = useState("");
@@ -3974,6 +4116,10 @@ function DevDashboard() {
       type: "iglass-motion-studio",
       version: 3,
       exportedAt: new Date().toISOString(),
+      crackPositionDefaults: {
+        x: CRACK.defaultExit[0],
+        y: CRACK.defaultExit[1],
+      },
       slots,
       slotMeta,
       slotThumbs,
@@ -3986,6 +4132,23 @@ function DevDashboard() {
     try {
       const parsed = JSON.parse(importText);
       if (parsed.type === "iglass-motion-studio" && parsed.path) {
+        if (
+          Number.isFinite(parsed.crackPositionDefaults?.x) &&
+          Number.isFinite(parsed.crackPositionDefaults?.y)
+        ) {
+          CRACK.defaultExit = [
+            Math.max(-4, Math.min(4, parsed.crackPositionDefaults.x)),
+            Math.max(-4, Math.min(4, parsed.crackPositionDefaults.y)),
+          ];
+          persistCrackDefaultPosition(CRACK.defaultExit);
+          if (CRACK.useDefault) CRACK.exit = [...CRACK.defaultExit];
+          if (DEV.setLeva) {
+            DEV.setLeva({
+              crackDefaultX: CRACK.defaultExit[0],
+              crackDefaultY: CRACK.defaultExit[1],
+            });
+          }
+        }
         const nextSlots = Array(SLOT_COUNT).fill(null);
         (parsed.slots || []).slice(0, SLOT_COUNT).forEach((pose, i) => {
           nextSlots[i] = pose && typeof pose === "object"
@@ -4047,7 +4210,7 @@ function DevDashboard() {
   if (collapsed) {
     return (
       <div ref={panelRef} style={UI.panelCollapsed}>
-        <b style={{ color: "#2e7d52", letterSpacing: 1 }}>iGLASS v7.4.1</b>
+        <b style={{ color: "#2e7d52", letterSpacing: 1 }}>iGLASS v7.4.2</b>
         <span style={chipStyle(false)} onClick={() => setCollapsed(false)}>▸ open</span>
       </div>
     );
@@ -4068,7 +4231,7 @@ function DevDashboard() {
         }
       `}</style>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <b style={{ color: "#2e7d52", letterSpacing: 1 }}>iGLASS PRODUCTION STUDIO v7.4.1</b>
+        <b style={{ color: "#2e7d52", letterSpacing: 1 }}>iGLASS PRODUCTION STUDIO v7.4.2</b>
         <span style={chipStyle(false)} onClick={() => setCollapsed(true)}>▾ hide</span>
       </div>
       <div style={{ ...UI.hint, marginTop: 3, color: status.startsWith("import failed") ? "#a02b2b" : "#5a6b60" }}>{status}</div>
@@ -5127,7 +5290,7 @@ function DevGizmo() {
 //   ?glass=rough,env,opac,cc,ccr  v3.9 front-glass material
 //   ?glassfx=...                   deterministic sweep/glint/environment
 //   ?envp=studio   ?envb=0        reflected world + IBL blur
-//   ?crack=4.1,on,exX,exY,severity,sharpness
+//   ?crack=4.2,on,exX,exY,severity,sharpness,defaultX,defaultY,useDefault
 //   ?motion=<base64url-json>       self-contained slot-based motion path
 //   ?mp=0.5                       freeze motion-path progress for capture
 //   ?snap=1                    deterministic capture (Playwright)
@@ -5339,24 +5502,41 @@ function resolveRuntimeConfig() {
   const crackParam = params.get("crack");
   if (crackParam) {
     const q = crackParam.split(",").map((v) => parseFloat(v));
-    if (q.length === 6 && q.every((v) => !isNaN(v)) && Math.abs(q[0] - 4.1) < 0.001) {
+    if (q.length === 9 && q.every((v) => !isNaN(v)) && Math.abs(q[0] - 4.2) < 0.001) {
+      // v7.4.2 format: version, on, effective X/Y, appearance,
+      // default X/Y, and default/manual state.
+      CRACK.on = q[1] > 0.5;
+      CRACK.severity = Math.max(0, Math.min(1, q[4]));
+      CRACK.sharpness = Math.max(0.35, Math.min(3, q[5]));
+      CRACK.defaultExit = [
+        Math.max(-4, Math.min(4, q[6])),
+        Math.max(-4, Math.min(4, q[7])),
+      ];
+      CRACK.useDefault = q[8] > 0.5;
+      CRACK.exit = CRACK.useDefault ? [...CRACK.defaultExit] : [q[2], q[3]];
+      persistCrackDefaultPosition(CRACK.defaultExit);
+    } else if (q.length === 6 && q.every((v) => !isNaN(v)) && Math.abs(q[0] - 4.1) < 0.001) {
       // v7.4.1 format: version, on, exitX, exitY, severity, sharpness.
       CRACK.on = q[1] > 0.5;
       CRACK.exit = [q[2], q[3]];
+      CRACK.useDefault = false;
       CRACK.severity = Math.max(0, Math.min(1, q[4]));
       CRACK.sharpness = Math.max(0.35, Math.min(3, q[5]));
     } else if (q.length === 3 && q.every((v) => !isNaN(v))) {
       // v7.3 / v3.11 format: on, exitX, exitY.
       CRACK.on = q[0] > 0.5;
       CRACK.exit = [q[1], q[2]];
+      CRACK.useDefault = false;
     } else if (q.length === 5 && q.every((v) => !isNaN(v))) {
       // v7.2 legacy: on, opacity, X, Y, Z. Opacity ≤ 0 meant invisible.
       CRACK.on = q[0] > 0.5 && q[1] > 0.001;
       CRACK.exit = [q[2], q[3]];
+      CRACK.useDefault = false;
     } else if (q.length === 4 && q.every((v) => !isNaN(v))) {
       // v7.1 legacy: opacity, X, Y, Z.
       CRACK.on = q[0] > 0;
       CRACK.exit = [q[1], q[2]];
+      CRACK.useDefault = false;
     }
   }
 
