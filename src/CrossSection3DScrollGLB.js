@@ -1,6 +1,6 @@
 import screenImg from "./Screen.png";
 import internalsImg from "./internals.jpg";
-import crackImg from "./Crack2.png";
+import crackImg from "./Crack.png";
 import { useRef, useMemo, useEffect, useLayoutEffect, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import {
@@ -19,6 +19,13 @@ import { Leva, useControls, button, folder } from "leva";
 gsap.registerPlugin(ScrollTrigger);
 
 // ============================================
+// v7.4.3 — RESTORED SPATIAL-VELOCITY GRAPH
+//
+//   PATH DIAGNOSTIC  Motion Path Preview again plots spatial velocity
+//                    |v|(t), with average/max u/s and a live playhead.
+//                    Sampling is read-only and does not alter path motion.
+//
+// ============================================
 // v7.4.2 — CRACK POSITION DEFAULTS + SLOT OVERRIDES
 //
 //   DEFAULT POSITION  One persistent X/Y default is inherited by every
@@ -33,7 +40,7 @@ gsap.registerPlugin(ScrollTrigger);
 // v7.4.1 — REPLACEMENT CRACK + APPEARANCE CONTROL
 //
 //   CRACK ASSET      Bottom-right impact pattern with long sparse fractures
-//                    radiating upward and left, supplied as Crack2.png.
+//                    radiating upward and left, supplied as Crack.png.
 //   SEVERITY         Controls fracture visibility without changing CRACK ON.
 //   SHARPNESS        Controls the alpha-edge profile of the crack texture.
 //                    Both values save in pose slots and interpolate in paths.
@@ -1683,6 +1690,46 @@ function sampleMotionPath(path, progress) {
   }
 
   return sampleAtTrack(path, 1);
+}
+
+function spatialVelocityDiagnostics(path, sampleCount = 180) {
+  if (!path?.nodes || path.nodes.length < 2) {
+    return { values: [], average: 0, maximum: 0 };
+  }
+
+  const authoredDuration = motionPathDuration(path);
+  const playbackSpeed = Math.max(0.1, Number(path.speed) || 1);
+  const playbackDuration = authoredDuration / playbackSpeed;
+  if (!(playbackDuration > 0)) {
+    return { values: [], average: 0, maximum: 0 };
+  }
+
+  const segments = Math.max(60, Math.floor(sampleCount));
+  const positions = [];
+  for (let i = 0; i <= segments; i++) {
+    const pose = sampleMotionPath(path, i / segments);
+    if (!pose || ![pose.sposX, pose.sposY, pose.sposZ].every(Number.isFinite)) {
+      return { values: [], average: 0, maximum: 0 };
+    }
+    positions.push(new THREE.Vector3(pose.sposX, pose.sposY, pose.sposZ));
+  }
+
+  const dt = playbackDuration / segments;
+  const segmentSpeeds = [];
+  for (let i = 1; i < positions.length; i++) {
+    segmentSpeeds.push(positions[i].distanceTo(positions[i - 1]) / dt);
+  }
+
+  const values = segmentSpeeds.map((speed, i) =>
+    i === 0 ? speed : (segmentSpeeds[i - 1] + speed) * 0.5
+  );
+  values.push(segmentSpeeds[segmentSpeeds.length - 1] || 0);
+
+  return {
+    values,
+    average: segmentSpeeds.reduce((sum, speed) => sum + speed, 0) / Math.max(1, segmentSpeeds.length),
+    maximum: segmentSpeeds.reduce((max, speed) => Math.max(max, speed), 0),
+  };
 }
 
 function applyPoseParamsDirect(pose) {
@@ -3559,7 +3606,7 @@ function DevDashboard() {
   const [selectedPathNode, setSelectedPathNode] = useState(-1);
   const [pathProgress, setPathProgress] = useState(0);
   const [pathPlaying, setPathPlaying] = useState(false);
-  const [status, setStatus] = useState("v7.4.2 — crack position defaults and slot overrides");
+  const [status, setStatus] = useState("v7.4.3 — spatial-velocity graph restored");
   const [library, setLibrary] = useState(loadMotionLibrary);
   const [libraryId, setLibraryId] = useState("");
   const [importText, setImportText] = useState("");
@@ -3590,6 +3637,24 @@ function DevDashboard() {
     () => nearestMotionNode(compiledPath, pathProgress),
     [compiledPath, pathProgress]
   );
+  const velocityDiagnostics = useMemo(
+    () => spatialVelocityDiagnostics(compiledPath),
+    [compiledPath]
+  );
+  const velocityGraphPoints = useMemo(() => {
+    const width = 276;
+    const height = 48;
+    const maximum = velocityDiagnostics.maximum;
+    const last = velocityDiagnostics.values.length - 1;
+    if (last < 1) return "";
+    return velocityDiagnostics.values
+      .map((value, i) => {
+        const x = (i / last) * width;
+        const y = height - (maximum > 0 ? (value / maximum) * (height - 4) : 0);
+        return `${x.toFixed(2)},${y.toFixed(2)}`;
+      })
+      .join(" ");
+  }, [velocityDiagnostics]);
 
   useEffect(() => {
     const id = setInterval(() => force((n) => n + 1), 250);
@@ -4210,7 +4275,7 @@ function DevDashboard() {
   if (collapsed) {
     return (
       <div ref={panelRef} style={UI.panelCollapsed}>
-        <b style={{ color: "#2e7d52", letterSpacing: 1 }}>iGLASS v7.4.2</b>
+        <b style={{ color: "#2e7d52", letterSpacing: 1 }}>iGLASS v7.4.3</b>
         <span style={chipStyle(false)} onClick={() => setCollapsed(false)}>▸ open</span>
       </div>
     );
@@ -4231,7 +4296,7 @@ function DevDashboard() {
         }
       `}</style>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <b style={{ color: "#2e7d52", letterSpacing: 1 }}>iGLASS PRODUCTION STUDIO v7.4.2</b>
+        <b style={{ color: "#2e7d52", letterSpacing: 1 }}>iGLASS PRODUCTION STUDIO v7.4.3</b>
         <span style={chipStyle(false)} onClick={() => setCollapsed(true)}>▾ hide</span>
       </div>
       <div style={{ ...UI.hint, marginTop: 3, color: status.startsWith("import failed") ? "#a02b2b" : "#5a6b60" }}>{status}</div>
@@ -4539,6 +4604,42 @@ function DevDashboard() {
             }}
             onPointerUp={() => syncPoseControls(sampleMotionPath(compiledPath, pathProgressRef.current))}
           />
+          <div style={{ marginTop: 2 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 8, color: "#6f8879" }}>
+              <span>spatial velocity |v|(t)</span>
+              <span>avg {velocityDiagnostics.average.toFixed(3)} · max {velocityDiagnostics.maximum.toFixed(3)} u/s</span>
+            </div>
+            <svg
+              width="100%"
+              height={52}
+              viewBox="0 0 276 52"
+              preserveAspectRatio="none"
+              role="img"
+              aria-label="Spatial velocity over motion-path time"
+              style={{ display: "block", marginTop: 1, border: "1px solid #d5e2d9", borderRadius: 4, background: "#fbfdfb" }}
+            >
+              <line x1="0" y1="48" x2="276" y2="48" stroke="#d5e2d9" strokeWidth="1" />
+              <line x1="0" y1="26" x2="276" y2="26" stroke="#edf3ef" strokeWidth="1" />
+              {velocityGraphPoints && (
+                <polyline
+                  points={velocityGraphPoints}
+                  fill="none"
+                  stroke="#2e7d52"
+                  strokeWidth="1.5"
+                  vectorEffect="non-scaling-stroke"
+                />
+              )}
+              <line
+                x1={(pathProgress * 276).toFixed(2)}
+                y1="0"
+                x2={(pathProgress * 276).toFixed(2)}
+                y2="52"
+                stroke="#d62828"
+                strokeWidth="1"
+                vectorEffect="non-scaling-stroke"
+              />
+            </svg>
+          </div>
           <div style={UI.row}>
             <span style={chipStyle(pathPlaying, true)} onClick={() => pathPlaying ? pauseMotionPath(true) : playMotionPath()}>
               {pathPlaying ? "❚❚ pause" : "▶ preview"}
