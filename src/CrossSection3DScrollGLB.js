@@ -18,8 +18,19 @@ import { Leva, useControls, button, folder } from "leva";
 
 gsap.registerPlugin(ScrollTrigger);
 
-const IGLASS_APP_VERSION = "7.4.8";
+const IGLASS_APP_VERSION = "7.4.9";
 
+// ============================================
+// v7.4.9 — SPLIT CURRENT-PATH / STUDIO EXPORTS
+//
+//   CURRENT PATH     A dedicated AI-readable export contains exactly the
+//                    currently loaded path and one resolved pose per node.
+//                    It excludes saved paths, unreferenced slots and thumbs.
+//   EXPLICIT IDS     Nodes carry one-based UI node/slot numbers alongside
+//                    clearly labelled zero-based internal indexes.
+//   FULL BACKUP      The former monolithic export remains available under the
+//                    explicit "full studio backup" label for restoration.
+//
 // ============================================
 // v7.4.8 — AUTHORITATIVE SLOT/PATH SAVES
 //
@@ -3697,7 +3708,7 @@ function DevDashboard() {
   const [selectedPathNode, setSelectedPathNode] = useState(-1);
   const [pathProgress, setPathProgress] = useState(0);
   const [pathPlaying, setPathPlaying] = useState(false);
-  const [status, setStatus] = useState("v7.4.8 — authoritative slot/path saves");
+  const [status, setStatus] = useState("v7.4.9 — split current-path / studio exports");
   const [library, setLibrary] = useState(loadMotionLibrary);
   const [libraryId, setLibraryId] = useState("");
   const [importText, setImportText] = useState("");
@@ -4309,15 +4320,81 @@ function DevDashboard() {
     playMotionPath(playable, path, true);
   };
 
-  const exportStudio = () => {
+  const resolvedCurrentPathForExport = () => {
     const sourceSlots = slotsRef.current;
     const embeddedPath = embedMotionPath(motionPath, sourceSlots);
     const errors = validateMotionPathSnapshot(embeddedPath, sourceSlots);
-    if (errors.length) {
-      setStatus(`JSON EXPORT BLOCKED — ${errors[0]}`);
+    return { sourceSlots, embeddedPath, errors };
+  };
+
+  const exportCurrentPath = () => {
+    const { embeddedPath, errors } = resolvedCurrentPathForExport();
+    if (!embeddedPath.nodes.length) {
+      setStatus("CURRENT PATH EXPORT BLOCKED — the loaded path has no nodes");
       return;
     }
-    downloadJSON(`${(motionPath.name || "motion-path").replace(/[^a-z0-9-_]+/gi, "-")}.json`, {
+    if (errors.length) {
+      setStatus(`CURRENT PATH EXPORT BLOCKED — ${errors[0]}`);
+      return;
+    }
+    const { nodes, name, ...settings } = embeddedPath;
+    const analysisNodes = nodes.map((node, index) => ({
+      nodeNumber: index + 1,
+      nodeIndex: index,
+      slotNumber: node.slot + 1,
+      slotIndex: node.slot,
+      slotId: `S${node.slot + 1}`,
+      timing: {
+        duration: node.duration,
+        hold: node.hold,
+        motionMode: node.motionMode,
+        arrivalEase: node.ease,
+        arrivalEaseStrength: node.easeStrength,
+        departureEase: node.departureEase,
+        departureEaseStrength: node.departureEaseStrength,
+      },
+      positionOverride: node.position,
+      pose: node.pose ? { ...node.pose } : null,
+    }));
+    const safeName = (motionPath.name || "motion-path").replace(/[^a-z0-9-_]+/gi, "-");
+    downloadJSON(`${safeName}-CURRENT-PATH.json`, {
+      type: "iglass-current-path",
+      schemaVersion: 1,
+      appVersion: IGLASS_APP_VERSION,
+      scope: "currently-loaded-path-only",
+      exportedAt: new Date().toISOString(),
+      snapshotSource: "authoritative-slots",
+      slotRevision: slotRevisionRef.current,
+      numbering: {
+        nodeNumber: "one-based UI path order",
+        nodeIndex: "zero-based array index",
+        slotNumber: "one-based UI pose-slot number",
+        slotIndex: "zero-based internal slot index",
+      },
+      excludes: [
+        "saved-path-library",
+        "unreferenced-pose-slots",
+        "slot-metadata",
+        "slot-thumbnails",
+      ],
+      path: {
+        name,
+        nodeCount: analysisNodes.length,
+        settings,
+        nodes: analysisNodes,
+      },
+    });
+    setStatus(`downloaded CURRENT PATH only · ${analysisNodes.length} verified nodes`);
+  };
+
+  const exportFullStudioBackup = () => {
+    const { sourceSlots, embeddedPath, errors } = resolvedCurrentPathForExport();
+    if (errors.length) {
+      setStatus(`FULL BACKUP EXPORT BLOCKED — ${errors[0]}`);
+      return;
+    }
+    const safeName = (motionPath.name || "motion-path").replace(/[^a-z0-9-_]+/gi, "-");
+    downloadJSON(`${safeName}-FULL-STUDIO-BACKUP.json`, {
       type: "iglass-motion-studio",
       version: 3,
       appVersion: IGLASS_APP_VERSION,
@@ -4334,7 +4411,7 @@ function DevDashboard() {
       path: embeddedPath,
       library: libraryRef.current,
     });
-    setStatus(`downloaded verified JSON · ${embeddedPath.nodes.length} node poses`);
+    setStatus(`downloaded FULL STUDIO BACKUP · ${embeddedPath.nodes.length} active nodes · ${libraryRef.current.length} saved paths`);
   };
 
   const importStudio = () => {
@@ -4445,7 +4522,7 @@ function DevDashboard() {
         <b style={{ color: "#2e7d52", letterSpacing: 1 }}>iGLASS PRODUCTION STUDIO v{IGLASS_APP_VERSION}</b>
         <span style={chipStyle(false)} onClick={() => setCollapsed(true)}>▾ hide</span>
       </div>
-      <div style={{ ...UI.hint, marginTop: 3, color: status.startsWith("import failed") ? "#a02b2b" : "#5a6b60" }}>{status}</div>
+      <div style={{ ...UI.hint, marginTop: 3, color: /failed|BLOCKED/.test(status) ? "#a02b2b" : "#5a6b60" }}>{status}</div>
 
       <div style={{ marginTop: 6, padding: 6, border: "1px solid #a9cfba", borderRadius: 7, background: "#f6fbf8" }}>
         <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, fontWeight: 700, color: "#2e7d52" }}>
@@ -4923,9 +5000,11 @@ function DevDashboard() {
           );
         })}
         <div style={UI.row}>
-          <span style={chipStyle(false)} onClick={exportStudio}>download JSON</span>
+          <span style={chipStyle(false, true)} title="Only the currently loaded path; excludes saved paths, unrelated slots and thumbnails" onClick={exportCurrentPath}>download CURRENT PATH</span>
+          <span style={chipStyle(false)} title="Complete restorable workspace including all saved paths, slots and thumbnails" onClick={exportFullStudioBackup}>full studio backup</span>
           <span style={chipStyle(showImport)} onClick={() => setShowImport(!showImport)}>import JSON</span>
         </div>
+        <div style={UI.hint}>CURRENT PATH is the AI-analysis file. Full studio backup is the restorable workspace containing every saved path.</div>
         {showImport && <div><textarea value={importText} placeholder="Paste a studio JSON export or editable path JSON" style={{ width: 276, height: 90, fontSize: 9 }} onChange={(e) => setImportText(e.target.value)} /><div><span style={chipStyle(false, true)} onClick={importStudio}>apply import</span></div></div>}
       </details>
 
