@@ -19,6 +19,18 @@ import { Leva, useControls, button, folder } from "leva";
 gsap.registerPlugin(ScrollTrigger);
 
 // ============================================
+// v7.4.7 — SAVED PATH POSE SNAPSHOTS
+//
+//   VERSION RESTORE  Loading a saved path/version restores its embedded node
+//                    poses into the referenced named slots before activation.
+//                    Historical Glass Registration values therefore survive
+//                    later edits made to those same slots in another path.
+//   SNAPSHOT PLAY    PLAY resolves the saved snapshot first, then activates
+//                    and animates that exact restored slot state.
+//   CURRENT SAVES    New paths/versions still snapshot the current named-slot
+//                    poses; active editable paths remain live-linked to slots.
+//
+// ============================================
 // v7.4.6 — LIVE PATH/SLOT POSE SYNCHRONISATION
 //
 //   SLOT AUTHORITY   A motion node now reads the current named-slot pose when
@@ -1102,6 +1114,26 @@ function resolveMotionNodePose(node, slots) {
   const slotPose = node && slots?.[node.slot];
   if (slotPose && typeof slotPose === "object") return slotPose;
   return node?.pose && typeof node.pose === "object" ? node.pose : null;
+}
+
+function slotsWithSavedPathSnapshot(path, slots) {
+  const nextSlots = [...slots];
+  let restored = 0;
+  for (const node of path?.nodes || []) {
+    if (
+      !Number.isInteger(node.slot) ||
+      node.slot < 0 ||
+      node.slot >= nextSlots.length ||
+      !node.pose ||
+      typeof node.pose !== "object"
+    ) continue;
+    nextSlots[node.slot] = {
+      ...node.pose,
+      shine: Number.isFinite(node.pose.shine) ? node.pose.shine : 0,
+    };
+    restored++;
+  }
+  return { slots: nextSlots, restored };
 }
 
 function compileMotionPath(path, slots) {
@@ -3624,7 +3656,7 @@ function DevDashboard() {
   const [selectedPathNode, setSelectedPathNode] = useState(-1);
   const [pathProgress, setPathProgress] = useState(0);
   const [pathPlaying, setPathPlaying] = useState(false);
-  const [status, setStatus] = useState("v7.4.6 — live path/slot pose synchronisation");
+  const [status, setStatus] = useState("v7.4.7 — saved path pose snapshots");
   const [library, setLibrary] = useState(loadMotionLibrary);
   const [libraryId, setLibraryId] = useState("");
   const [importText, setImportText] = useState("");
@@ -4164,12 +4196,21 @@ function DevDashboard() {
     setStatus(existing ? "saved new path version" : "saved new named path");
   };
 
+  const restoreSavedPathSnapshot = (path) => {
+    const restored = slotsWithSavedPathSnapshot(path, slots);
+    setSlots(restored.slots);
+    persistSlots(restored.slots);
+    return restored;
+  };
+
   const loadLibraryVersion = (entry, versionIndex = entry.versions.length - 1) => {
     const version = entry.versions[versionIndex];
     if (!version) return;
-    commitMotionPath(normaliseMotionPath(version.path));
+    const path = normaliseMotionPath(version.path);
+    const restored = restoreSavedPathSnapshot(path);
+    commitMotionPath(path);
     setLibraryId(entry.id);
-    setStatus(`loaded ${entry.name} v${versionIndex + 1}`);
+    setStatus(`loaded ${entry.name} v${versionIndex + 1} · restored ${restored.restored} node poses`);
   };
 
   const playLibraryVersion = (
@@ -4179,18 +4220,21 @@ function DevDashboard() {
     const version = entry.versions[versionIndex];
     if (!version) return;
     const path = normaliseMotionPath(version.path);
-    const playable = compileMotionPath(path, slots);
+    const restored = slotsWithSavedPathSnapshot(path, slots);
+    const playable = compileMotionPath(path, restored.slots);
     if (playable.nodes.length < 2) {
       setStatus(`${entry.name} needs at least two valid nodes`);
       return;
     }
     pauseMotionPath(false);
+    setSlots(restored.slots);
+    persistSlots(restored.slots);
     historyRef.current.undo.push(motionPath);
     historyRef.current.undo = historyRef.current.undo.slice(-60);
     historyRef.current.redo = [];
     setMotionPath(path);
     setLibraryId(entry.id);
-    setStatus(`playing ${entry.name} v${versionIndex + 1}`);
+    setStatus(`playing ${entry.name} v${versionIndex + 1} · restored ${restored.restored} node poses`);
     playMotionPath(playable, path, true);
   };
 
@@ -4296,7 +4340,7 @@ function DevDashboard() {
   if (collapsed) {
     return (
       <div ref={panelRef} style={UI.panelCollapsed}>
-        <b style={{ color: "#2e7d52", letterSpacing: 1 }}>iGLASS v7.4.6</b>
+        <b style={{ color: "#2e7d52", letterSpacing: 1 }}>iGLASS v7.4.7</b>
         <span style={chipStyle(false)} onClick={() => setCollapsed(false)}>▸ open</span>
       </div>
     );
@@ -4317,7 +4361,7 @@ function DevDashboard() {
         }
       `}</style>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <b style={{ color: "#2e7d52", letterSpacing: 1 }}>iGLASS PRODUCTION STUDIO v7.4.6</b>
+        <b style={{ color: "#2e7d52", letterSpacing: 1 }}>iGLASS PRODUCTION STUDIO v7.4.7</b>
         <span style={chipStyle(false)} onClick={() => setCollapsed(true)}>▾ hide</span>
       </div>
       <div style={{ ...UI.hint, marginTop: 3, color: status.startsWith("import failed") ? "#a02b2b" : "#5a6b60" }}>{status}</div>
@@ -4763,7 +4807,8 @@ function DevDashboard() {
           const latestPath = latestVersion
             ? normaliseMotionPath(latestVersion.path)
             : defaultMotionPath();
-          const latestCompiled = compileMotionPath(latestPath, slots);
+          const latestSnapshot = slotsWithSavedPathSnapshot(latestPath, slots);
+          const latestCompiled = compileMotionPath(latestPath, latestSnapshot.slots);
           const duration = motionPathDuration(latestCompiled);
           const active = libraryId === entry.id;
           return (
