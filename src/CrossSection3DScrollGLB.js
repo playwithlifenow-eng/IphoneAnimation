@@ -19,6 +19,13 @@ import { Leva, useControls, button, folder } from "leva";
 gsap.registerPlugin(ScrollTrigger);
 
 // ============================================
+// v7.4.4 — MORE SEVERE CRACK ASSET
+//
+//   CRACK ASSET      Denser bottom-right fracture pattern with stronger
+//                    primary spines and substantially more fine branches.
+//                    Lighting, material, registration and motion unchanged.
+//
+// ============================================
 // v7.4.3 — RESTORED SPATIAL-VELOCITY GRAPH
 //
 //   PATH DIAGNOSTIC  Motion Path Preview again plots spatial velocity
@@ -3606,7 +3613,7 @@ function DevDashboard() {
   const [selectedPathNode, setSelectedPathNode] = useState(-1);
   const [pathProgress, setPathProgress] = useState(0);
   const [pathPlaying, setPathPlaying] = useState(false);
-  const [status, setStatus] = useState("v7.4.3 — spatial-velocity graph restored");
+  const [status, setStatus] = useState("v7.4.4 — severe crack asset");
   const [library, setLibrary] = useState(loadMotionLibrary);
   const [libraryId, setLibraryId] = useState("");
   const [importText, setImportText] = useState("");
@@ -4275,7 +4282,7 @@ function DevDashboard() {
   if (collapsed) {
     return (
       <div ref={panelRef} style={UI.panelCollapsed}>
-        <b style={{ color: "#2e7d52", letterSpacing: 1 }}>iGLASS v7.4.3</b>
+        <b style={{ color: "#2e7d52", letterSpacing: 1 }}>iGLASS v7.4.4</b>
         <span style={chipStyle(false)} onClick={() => setCollapsed(false)}>▸ open</span>
       </div>
     );
@@ -4296,7 +4303,7 @@ function DevDashboard() {
         }
       `}</style>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <b style={{ color: "#2e7d52", letterSpacing: 1 }}>iGLASS PRODUCTION STUDIO v7.4.3</b>
+        <b style={{ color: "#2e7d52", letterSpacing: 1 }}>iGLASS PRODUCTION STUDIO v7.4.4</b>
         <span style={chipStyle(false)} onClick={() => setCollapsed(true)}>▾ hide</span>
       </div>
       <div style={{ ...UI.hint, marginTop: 3, color: status.startsWith("import failed") ? "#a02b2b" : "#5a6b60" }}>{status}</div>
