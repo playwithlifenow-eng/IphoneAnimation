@@ -18,6 +18,20 @@ import { Leva, useControls, button, folder } from "leva";
 
 gsap.registerPlugin(ScrollTrigger);
 
+const IGLASS_APP_VERSION = "7.4.8";
+
+// ============================================
+// v7.4.8 — AUTHORITATIVE SLOT/PATH SAVES
+//
+//   SYNCHRONOUS STORE Every slot mutation updates one authoritative ref before
+//                     React rendering or localStorage persistence. Path saves
+//                     and JSON exports read that ref, never a stale closure.
+//   SAVE VALIDATION   Each path snapshot is compared with its source slots
+//                     before it can enter the version library or download.
+//                     A mismatch aborts the operation instead of losing work.
+//   AUDIT METADATA    Saved versions and studio exports record the application
+//                     version, snapshot source, slot revision and timestamp.
+//
 // ============================================
 // v7.4.7 — SAVED PATH POSE SNAPSHOTS
 //
@@ -1114,6 +1128,33 @@ function resolveMotionNodePose(node, slots) {
   const slotPose = node && slots?.[node.slot];
   if (slotPose && typeof slotPose === "object") return slotPose;
   return node?.pose && typeof node.pose === "object" ? node.pose : null;
+}
+
+function poseSnapshotMismatch(source, snapshot) {
+  if (!source || !snapshot) return source === snapshot ? "" : "missing pose";
+  const keys = new Set([...Object.keys(source), ...Object.keys(snapshot)]);
+  for (const key of keys) {
+    const a = source[key];
+    const b = snapshot[key];
+    if (typeof a === "number" && typeof b === "number") {
+      if (Number.isNaN(a) && Number.isNaN(b)) continue;
+      if (Math.abs(a - b) <= 1e-12) continue;
+    } else if (Object.is(a, b)) {
+      continue;
+    }
+    return `${key}: source ${String(a)} / snapshot ${String(b)}`;
+  }
+  return "";
+}
+
+function validateMotionPathSnapshot(path, sourceSlots) {
+  const errors = [];
+  (path?.nodes || []).forEach((node, index) => {
+    const source = resolveMotionNodePose(node, sourceSlots);
+    const mismatch = poseSnapshotMismatch(source, node.pose || null);
+    if (mismatch) errors.push(`node ${index + 1} / S${node.slot + 1} — ${mismatch}`);
+  });
+  return errors;
 }
 
 function slotsWithSavedPathSnapshot(path, slots) {
@@ -3656,7 +3697,7 @@ function DevDashboard() {
   const [selectedPathNode, setSelectedPathNode] = useState(-1);
   const [pathProgress, setPathProgress] = useState(0);
   const [pathPlaying, setPathPlaying] = useState(false);
-  const [status, setStatus] = useState("v7.4.7 — saved path pose snapshots");
+  const [status, setStatus] = useState("v7.4.8 — authoritative slot/path saves");
   const [library, setLibrary] = useState(loadMotionLibrary);
   const [libraryId, setLibraryId] = useState("");
   const [importText, setImportText] = useState("");
@@ -3678,6 +3719,17 @@ function DevDashboard() {
   const handleHistoryStartRef = useRef(null);
   const nodeChipRefs = useRef([]);
   const nodeStripRef = useRef(null);
+  const slotsRef = useRef(slots);
+  const slotRevisionRef = useRef(0);
+  const libraryRef = useRef(library);
+
+  const commitSlots = (nextSlots) => {
+    slotsRef.current = nextSlots;
+    slotRevisionRef.current += 1;
+    setSlots(nextSlots);
+    persistSlots(nextSlots);
+    return nextSlots;
+  };
 
   const compiledPath = useMemo(
     () => compileMotionPath(motionPath, slots),
@@ -3878,7 +3930,7 @@ function DevDashboard() {
   };
 
   const addPathNode = (slot) => {
-    if (!slots[slot]) return;
+    if (!slotsRef.current[slot]) return;
     const i = motionPath.nodes.length;
     commitMotionPath({
       ...motionPath,
@@ -3927,9 +3979,11 @@ function DevDashboard() {
 
   const saveSlot = (i) => {
     pauseMotionPath(false);
-    if (slots[i] && !window.confirm(`Replace pose slot ${i + 1}?`)) return;
-    const next = [...slots];
-    next[i] = readPoseParams();
+    const currentSlots = slotsRef.current;
+    if (currentSlots[i] && !window.confirm(`Replace pose slot ${i + 1}?`)) return;
+    const next = [...currentSlots];
+    const savedPose = readPoseParams();
+    next[i] = savedPose;
     const meta = {
       ...slotMeta,
       [i]: {
@@ -3940,59 +3994,60 @@ function DevDashboard() {
     };
     const thumb = capturePoseThumbnail();
     const thumbs = thumb ? { ...slotThumbs, [i]: thumb } : slotThumbs;
-    setSlots(next);
+    commitSlots(next);
     setSlotMeta(meta);
     setSlotThumbs(thumbs);
     setSelectedSlot(i);
-    persistSlots(next);
     persistSlotRecord(SLOT_META_KEY, meta);
     persistSlotRecord(SLOT_THUMB_KEY, thumbs);
-    setStatus(`saved slot ${i + 1}`);
+    setStatus(`saved S${i + 1} · Glass Y ${Number(savedPose.glassRegY).toFixed(2)}`);
   };
 
   const slotClick = (i, ev) => {
+    const currentSlots = slotsRef.current;
     setSelectedSlot(i);
     setSlotTarget(i + 1);
     if (ev.shiftKey) saveSlot(i);
-    else if ((ev.ctrlKey || ev.metaKey) && slots[i]) addPathNode(i);
-    else if (slots[i]) {
+    else if ((ev.ctrlKey || ev.metaKey) && currentSlots[i]) addPathNode(i);
+    else if (currentSlots[i]) {
       pauseMotionPath(false);
-      warpToParams(slots[i]);
+      warpToParams(currentSlots[i]);
     }
   };
 
   const clearSlot = (i, ev) => {
     ev.preventDefault();
-    if (!slots[i] || !window.confirm(`Clear pose slot ${i + 1}?`)) return;
+    const currentSlots = slotsRef.current;
+    if (!currentSlots[i] || !window.confirm(`Clear pose slot ${i + 1}?`)) return;
     pauseMotionPath(false);
-    const next = [...slots];
+    const next = [...currentSlots];
     next[i] = null;
     const meta = { ...slotMeta };
     const thumbs = { ...slotThumbs };
     delete meta[i];
     delete thumbs[i];
-    setSlots(next);
+    commitSlots(next);
     setSlotMeta(meta);
     setSlotThumbs(thumbs);
-    persistSlots(next);
     persistSlotRecord(SLOT_META_KEY, meta);
     persistSlotRecord(SLOT_THUMB_KEY, thumbs);
     setStatus(`cleared slot ${i + 1}; path references are shown red`);
   };
 
   const relocateSlot = (mode) => {
+    const currentSlots = slotsRef.current;
     const from = selectedSlot;
     const to = Math.max(0, Math.min(SLOT_COUNT - 1, Number(slotTarget) - 1));
-    if (from < 0 || !slots[from] || from === to) return;
-    if (mode === "move" && slots[to]) {
+    if (from < 0 || !currentSlots[from] || from === to) return;
+    if (mode === "move" && currentSlots[to]) {
       setStatus(`slot ${to + 1} is occupied — use swap or choose an empty slot`);
       return;
     }
-    const next = [...slots];
+    const next = [...currentSlots];
     const meta = { ...slotMeta };
     const thumbs = { ...slotThumbs };
     if (mode === "copy") {
-      if (slots[to] && !window.confirm(`Replace slot ${to + 1} with a copy?`)) return;
+      if (currentSlots[to] && !window.confirm(`Replace slot ${to + 1} with a copy?`)) return;
       next[to] = { ...next[from] };
       meta[to] = { ...(meta[from] || {}), name: `${meta[from]?.name || `Pose ${from + 1}`} copy` };
       if (thumbs[from]) thumbs[to] = thumbs[from];
@@ -4026,12 +4081,11 @@ function DevDashboard() {
       path = { ...motionPath, nodes };
       commitMotionPath(path);
     }
-    setSlots(next);
+    commitSlots(next);
     setSlotMeta(meta);
     setSlotThumbs(thumbs);
     setSelectedSlot(to);
     setSlotTarget(to + 1);
-    persistSlots(next);
     persistSlotRecord(SLOT_META_KEY, meta);
     persistSlotRecord(SLOT_THUMB_KEY, thumbs);
     setStatus(`${mode} slot ${from + 1} ${mode === "copy" ? "to" : "↔"} ${to + 1}`);
@@ -4079,6 +4133,7 @@ function DevDashboard() {
   };
 
   const generateBridge = () => {
+    const currentSlots = slotsRef.current;
     const from = Number(bridgeFrom);
     const to = Number(bridgeTo);
     if (compiledPath.nodes.length !== motionPath.nodes.length) {
@@ -4090,7 +4145,7 @@ function DevDashboard() {
       return;
     }
     const count = Math.max(1, Math.min(6, Number(bridgeCount) || 1));
-    const free = slots.map((s, i) => (!s ? i : -1)).filter((i) => i >= 0).slice(0, count);
+    const free = currentSlots.map((s, i) => (!s ? i : -1)).filter((i) => i >= 0).slice(0, count);
     if (free.length < count) {
       setStatus(`bridge needs ${count} empty pose slots`);
       return;
@@ -4127,7 +4182,7 @@ function DevDashboard() {
       pose.sposZ = point.z;
       created.push({ slot: free[j - 1], pose, position: point.toArray() });
     }
-    const nextSlots = [...slots];
+    const nextSlots = [...currentSlots];
     const meta = { ...slotMeta };
     created.forEach((item, i) => {
       nextSlots[item.slot] = item.pose;
@@ -4151,9 +4206,8 @@ function DevDashboard() {
     const nodes = [...motionPath.nodes];
     nodes.splice(to, 0, ...bridgeNodes);
     nodes[to + count] = { ...nodes[to + count], duration: leg };
-    setSlots(nextSlots);
+    commitSlots(nextSlots);
     setSlotMeta(meta);
-    persistSlots(nextSlots);
     persistSlotRecord(SLOT_META_KEY, meta);
     commitMotionPath({ ...motionPath, nodes });
     setSelectedPathNode(to);
@@ -4161,45 +4215,63 @@ function DevDashboard() {
   };
 
   const persistLibrary = (next) => {
+    libraryRef.current = next;
     setLibrary(next);
     persistSlotRecord(MOTION_LIBRARY_KEY, next);
   };
 
-  const embedMotionPath = (path) => ({
+  const embedMotionPath = (path, sourceSlots = slotsRef.current) => ({
     ...normaliseMotionPath(path),
     nodes: path.nodes.map((node) => {
-      const pose = resolveMotionNodePose(node, slots);
+      const pose = resolveMotionNodePose(node, sourceSlots);
       return { ...node, pose: pose ? { ...pose } : null };
     }),
   });
 
   const savePathVersion = (asNew = false, targetId = libraryId) => {
+    const sourceSlots = slotsRef.current;
+    const currentLibrary = libraryRef.current;
     const id = asNew || !targetId ? `path-${Date.now()}` : targetId;
-    const existing = library.find((entry) => entry.id === id);
+    const existing = currentLibrary.find((entry) => entry.id === id);
     const embeddedPath = {
-      ...embedMotionPath(motionPath),
+      ...embedMotionPath(motionPath, sourceSlots),
       name: existing?.name || motionPath.name,
     };
-    const version = { savedAt: new Date().toISOString(), path: embeddedPath };
+    const errors = validateMotionPathSnapshot(embeddedPath, sourceSlots);
+    if (errors.length) {
+      setStatus(`PATH SAVE BLOCKED — ${errors[0]}`);
+      return;
+    }
+    const savedAt = new Date().toISOString();
+    const version = {
+      savedAt,
+      appVersion: IGLASS_APP_VERSION,
+      snapshotSource: "authoritative-slots",
+      slotRevision: slotRevisionRef.current,
+      path: embeddedPath,
+    };
     let next;
     if (existing) {
-      next = library.map((entry) =>
+      next = currentLibrary.map((entry) =>
         entry.id === id
           ? { ...entry, versions: [...entry.versions, version] }
           : entry
       );
     } else {
-      next = [...library, { id, name: motionPath.name, versions: [version] }];
+      next = [...currentLibrary, { id, name: motionPath.name, versions: [version] }];
     }
     persistLibrary(next);
     setLibraryId(id);
-    setStatus(existing ? "saved new path version" : "saved new named path");
+    const selectedAudit = embeddedPath.nodes[selectedPathNode];
+    const glassAudit = Number.isFinite(selectedAudit?.pose?.glassRegY)
+      ? ` · node ${selectedPathNode + 1} S${selectedAudit.slot + 1} Glass Y ${selectedAudit.pose.glassRegY}`
+      : "";
+    setStatus(`${existing ? "saved new path version" : "saved new named path"} · ${embeddedPath.nodes.length} node poses verified${glassAudit}`);
   };
 
   const restoreSavedPathSnapshot = (path) => {
-    const restored = slotsWithSavedPathSnapshot(path, slots);
-    setSlots(restored.slots);
-    persistSlots(restored.slots);
+    const restored = slotsWithSavedPathSnapshot(path, slotsRef.current);
+    commitSlots(restored.slots);
     return restored;
   };
 
@@ -4220,15 +4292,14 @@ function DevDashboard() {
     const version = entry.versions[versionIndex];
     if (!version) return;
     const path = normaliseMotionPath(version.path);
-    const restored = slotsWithSavedPathSnapshot(path, slots);
+    const restored = slotsWithSavedPathSnapshot(path, slotsRef.current);
     const playable = compileMotionPath(path, restored.slots);
     if (playable.nodes.length < 2) {
       setStatus(`${entry.name} needs at least two valid nodes`);
       return;
     }
     pauseMotionPath(false);
-    setSlots(restored.slots);
-    persistSlots(restored.slots);
+    commitSlots(restored.slots);
     historyRef.current.undo.push(motionPath);
     historyRef.current.undo = historyRef.current.undo.slice(-60);
     historyRef.current.redo = [];
@@ -4239,20 +4310,31 @@ function DevDashboard() {
   };
 
   const exportStudio = () => {
+    const sourceSlots = slotsRef.current;
+    const embeddedPath = embedMotionPath(motionPath, sourceSlots);
+    const errors = validateMotionPathSnapshot(embeddedPath, sourceSlots);
+    if (errors.length) {
+      setStatus(`JSON EXPORT BLOCKED — ${errors[0]}`);
+      return;
+    }
     downloadJSON(`${(motionPath.name || "motion-path").replace(/[^a-z0-9-_]+/gi, "-")}.json`, {
       type: "iglass-motion-studio",
       version: 3,
+      appVersion: IGLASS_APP_VERSION,
       exportedAt: new Date().toISOString(),
+      snapshotSource: "authoritative-slots",
+      slotRevision: slotRevisionRef.current,
       crackPositionDefaults: {
         x: CRACK.defaultExit[0],
         y: CRACK.defaultExit[1],
       },
-      slots,
+      slots: sourceSlots,
       slotMeta,
       slotThumbs,
-      path: embedMotionPath(motionPath),
-      library,
+      path: embeddedPath,
+      library: libraryRef.current,
     });
+    setStatus(`downloaded verified JSON · ${embeddedPath.nodes.length} node poses`);
   };
 
   const importStudio = () => {
@@ -4284,10 +4366,9 @@ function DevDashboard() {
         });
         const meta = parsed.slotMeta || {};
         const thumbs = parsed.slotThumbs || {};
-        setSlots(nextSlots);
+        commitSlots(nextSlots);
         setSlotMeta(meta);
         setSlotThumbs(thumbs);
-        persistSlots(nextSlots);
         persistSlotRecord(SLOT_META_KEY, meta);
         persistSlotRecord(SLOT_THUMB_KEY, thumbs);
         if (Array.isArray(parsed.library)) persistLibrary(parsed.library);
@@ -4340,7 +4421,7 @@ function DevDashboard() {
   if (collapsed) {
     return (
       <div ref={panelRef} style={UI.panelCollapsed}>
-        <b style={{ color: "#2e7d52", letterSpacing: 1 }}>iGLASS v7.4.7</b>
+        <b style={{ color: "#2e7d52", letterSpacing: 1 }}>iGLASS v{IGLASS_APP_VERSION}</b>
         <span style={chipStyle(false)} onClick={() => setCollapsed(false)}>▸ open</span>
       </div>
     );
@@ -4361,7 +4442,7 @@ function DevDashboard() {
         }
       `}</style>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <b style={{ color: "#2e7d52", letterSpacing: 1 }}>iGLASS PRODUCTION STUDIO v7.4.7</b>
+        <b style={{ color: "#2e7d52", letterSpacing: 1 }}>iGLASS PRODUCTION STUDIO v{IGLASS_APP_VERSION}</b>
         <span style={chipStyle(false)} onClick={() => setCollapsed(true)}>▾ hide</span>
       </div>
       <div style={{ ...UI.hint, marginTop: 3, color: status.startsWith("import failed") ? "#a02b2b" : "#5a6b60" }}>{status}</div>
