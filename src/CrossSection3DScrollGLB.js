@@ -1,6 +1,6 @@
 import screenImg from "./Screen.png";
 import internalsImg from "./internals.jpg";
-import crackImg from "./Crack.png";
+import crackImg from "./Crack2.png";
 import { useRef, useMemo, useEffect, useLayoutEffect, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import {
@@ -22,7 +22,7 @@ gsap.registerPlugin(ScrollTrigger);
 // v7.4.1 — REPLACEMENT CRACK + APPEARANCE CONTROL
 //
 //   CRACK ASSET      Bottom-right impact pattern with long sparse fractures
-//                    radiating upward and left, supplied as Crack.png.
+//                    radiating upward and left, supplied as Crack2.png.
 //   SEVERITY         Controls fracture visibility without changing CRACK ON.
 //   SHARPNESS        Controls the alpha-edge profile of the crack texture.
 //                    Both values save in pose slots and interpolate in paths.
