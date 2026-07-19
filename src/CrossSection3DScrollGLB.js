@@ -19,6 +19,27 @@ import { Leva, useControls, button, folder } from "leva";
 gsap.registerPlugin(ScrollTrigger);
 
 // ============================================
+// v7.4.6 — LIVE PATH/SLOT POSE SYNCHRONISATION
+//
+//   SLOT AUTHORITY   A motion node now reads the current named-slot pose when
+//                    that slot exists. An embedded pose is used only when its
+//                    referenced slot is unavailable.
+//   EXPORT REFRESH   Studio exports and saved path versions refresh embedded
+//                    fallback poses from the current named slots, preventing
+//                    old Glass Registration values from being re-exported.
+//   CONSISTENT UI    Playback, position display, previews and saved versions
+//                    all resolve node poses through the same precedence rule.
+//
+// ============================================
+// v7.4.5 — GIZMO MODIFIER-STATE STABILITY
+//
+//   SNAP LIFETIME    Shift snapping is now scoped to an active canvas drag.
+//                    Pose-slot confirmation dialogs can no longer swallow
+//                    key-up and leave the gizmo stuck at 0.1-unit snapping.
+//   FAIL-SAFE CLEAR  Pointer release/cancel, blur and hidden-tab transitions
+//                    all clear transient snap state without a page refresh.
+//
+// ============================================
 // v7.4.4 — MORE SEVERE CRACK ASSET
 //
 //   CRACK ASSET      Denser bottom-right fracture pattern with stronger
@@ -1077,26 +1098,16 @@ function persistMotionPath(path) {
   }
 }
 
+function resolveMotionNodePose(node, slots) {
+  const slotPose = node && slots?.[node.slot];
+  if (slotPose && typeof slotPose === "object") return slotPose;
+  return node?.pose && typeof node.pose === "object" ? node.pose : null;
+}
+
 function compileMotionPath(path, slots) {
   const nodes = path.nodes
     .map((node) => {
-      const embeddedPose = node.pose && typeof node.pose === "object"
-        ? node.pose
-        : null;
-      const slotPose = slots[node.slot] || null;
-      let pose = embeddedPose || slotPose;
-      if (
-        embeddedPose &&
-        slotPose &&
-        typeof slotPose.crackUseDefault === "boolean"
-      ) {
-        pose = {
-          ...embeddedPose,
-          crackUseDefault: slotPose.crackUseDefault,
-          crackExitX: slotPose.crackExitX,
-          crackExitY: slotPose.crackExitY,
-        };
-      }
+      const pose = resolveMotionNodePose(node, slots);
       const position =
         Array.isArray(node.position) && node.position.every(Number.isFinite)
           ? node.position.map(Number)
@@ -3613,7 +3624,7 @@ function DevDashboard() {
   const [selectedPathNode, setSelectedPathNode] = useState(-1);
   const [pathProgress, setPathProgress] = useState(0);
   const [pathPlaying, setPathPlaying] = useState(false);
-  const [status, setStatus] = useState("v7.4.4 — severe crack asset");
+  const [status, setStatus] = useState("v7.4.6 — live path/slot pose synchronisation");
   const [library, setLibrary] = useState(loadMotionLibrary);
   const [libraryId, setLibraryId] = useState("");
   const [importText, setImportText] = useState("");
@@ -4124,10 +4135,10 @@ function DevDashboard() {
 
   const embedMotionPath = (path) => ({
     ...normaliseMotionPath(path),
-    nodes: path.nodes.map((node) => ({
-      ...node,
-      pose: node.pose || (slots[node.slot] ? { ...slots[node.slot] } : null),
-    })),
+    nodes: path.nodes.map((node) => {
+      const pose = resolveMotionNodePose(node, slots);
+      return { ...node, pose: pose ? { ...pose } : null };
+    }),
   });
 
   const savePathVersion = (asNew = false, targetId = libraryId) => {
@@ -4195,7 +4206,7 @@ function DevDashboard() {
       slots,
       slotMeta,
       slotThumbs,
-      path: motionPath,
+      path: embedMotionPath(motionPath),
       library,
     });
   };
@@ -4252,9 +4263,12 @@ function DevDashboard() {
 
   const filledCount = slots.filter(Boolean).length;
   const selectedNode = motionPath.nodes[selectedPathNode] || null;
+  const selectedPose = selectedNode
+    ? resolveMotionNodePose(selectedNode, slots)
+    : null;
   const selectedPosition = selectedNode
-    ? selectedNode.position || ((selectedNode.pose || slots[selectedNode.slot])
-        ? [(selectedNode.pose || slots[selectedNode.slot]).sposX, (selectedNode.pose || slots[selectedNode.slot]).sposY, (selectedNode.pose || slots[selectedNode.slot]).sposZ]
+    ? selectedNode.position || (selectedPose
+        ? [selectedPose.sposX, selectedPose.sposY, selectedPose.sposZ]
         : [0, 0, 0])
     : null;
   const pathReady = compiledPath.nodes.length >= 2;
@@ -4282,7 +4296,7 @@ function DevDashboard() {
   if (collapsed) {
     return (
       <div ref={panelRef} style={UI.panelCollapsed}>
-        <b style={{ color: "#2e7d52", letterSpacing: 1 }}>iGLASS v7.4.4</b>
+        <b style={{ color: "#2e7d52", letterSpacing: 1 }}>iGLASS v7.4.6</b>
         <span style={chipStyle(false)} onClick={() => setCollapsed(false)}>▸ open</span>
       </div>
     );
@@ -4303,7 +4317,7 @@ function DevDashboard() {
         }
       `}</style>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <b style={{ color: "#2e7d52", letterSpacing: 1 }}>iGLASS PRODUCTION STUDIO v7.4.4</b>
+        <b style={{ color: "#2e7d52", letterSpacing: 1 }}>iGLASS PRODUCTION STUDIO v7.4.6</b>
         <span style={chipStyle(false)} onClick={() => setCollapsed(true)}>▾ hide</span>
       </div>
       <div style={{ ...UI.hint, marginTop: 3, color: status.startsWith("import failed") ? "#a02b2b" : "#5a6b60" }}>{status}</div>
@@ -5252,15 +5266,46 @@ function DevGizmo() {
   });
 
   useEffect(() => {
-    const down = (ev) => ev.key === "Shift" && setSnap(true);
-    const up = (ev) => ev.key === "Shift" && setSnap(false);
-    window.addEventListener("keydown", down);
-    window.addEventListener("keyup", up);
-    return () => {
-      window.removeEventListener("keydown", down);
-      window.removeEventListener("keyup", up);
+    const canvas = DEV.canvasEl;
+    const writeSnap = (enabled) => {
+      const next = !!enabled;
+      setSnap(next);
+      const ctrl = ctrlRef.current;
+      if (!ctrl) return;
+      ctrl.translationSnap = next ? 0.1 : null;
+      ctrl.rotationSnap = next ? Math.PI / 12 : null;
+      ctrl.scaleSnap = next ? 0.05 : null;
     };
-  }, []);
+    const pointerDown = (ev) => writeSnap(ev.shiftKey);
+    const pointerUp = () => writeSnap(false);
+    const keyDown = (ev) => {
+      if (ev.key === "Shift" && DEV.gizmoDragging) writeSnap(true);
+    };
+    const keyUp = (ev) => {
+      if (ev.key === "Shift") writeSnap(false);
+    };
+    const visibilityChange = () => {
+      if (document.hidden) writeSnap(false);
+    };
+
+    canvas?.addEventListener("pointerdown", pointerDown, true);
+    window.addEventListener("pointerup", pointerUp);
+    window.addEventListener("pointercancel", pointerUp);
+    window.addEventListener("keydown", keyDown);
+    window.addEventListener("keyup", keyUp);
+    window.addEventListener("blur", pointerUp);
+    document.addEventListener("visibilitychange", visibilityChange);
+    return () => {
+      canvas?.removeEventListener("pointerdown", pointerDown, true);
+      window.removeEventListener("pointerup", pointerUp);
+      window.removeEventListener("pointercancel", pointerUp);
+      window.removeEventListener("keydown", keyDown);
+      window.removeEventListener("keyup", keyUp);
+      window.removeEventListener("blur", pointerUp);
+      document.removeEventListener("visibilitychange", visibilityChange);
+      writeSnap(false);
+    };
+  }, [mode, target, ready]);
 
   useEffect(() => {
     const ctrl = ctrlRef.current;
