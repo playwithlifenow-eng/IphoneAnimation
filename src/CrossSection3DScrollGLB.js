@@ -19,22 +19,13 @@ import { Leva, useControls, button, folder } from "leva";
 gsap.registerPlugin(ScrollTrigger);
 
 // ============================================
-// v7.5.0 — TEMPORAL + SCALAR SPLINES
+// v7.4.1 — REPLACEMENT CRACK + APPEARANCE CONTROL
 //
-//   HONEST DURATIONS Duration-weighted continuous runs pass through every
-//                    authored node at its authored cumulative time. A
-//                    monotone Hermite map keeps spatial velocity continuous.
-//   SCALAR SPLINES   Safe numeric pose channels use monotone cubic tracks in
-//                    authored time. Discrete values and rotations stay on
-//                    their dedicated step/SQUAD paths.
-//   GLASS GESTURES   Glass OUT/RETURN easing is evaluated once across each
-//                    contiguous travel event instead of restarting per node.
-//   LIVE DAMPING     Frame-rate-corrected damping preserves the 60 Hz feel at
-//                    90/120 Hz while capture/path snap remains exact.
-//   DIAGNOSTICS      A sampled velocity sparkline and selected-junction pace
-//                    readout expose stops, cliffs and duration mismatches.
-//   MIGRATION        Existing v3 paths keep legacy arc-length/linear scalar
-//                    behaviour until explicitly upgraded in the panel.
+//   CRACK ASSET      Bottom-right impact pattern with long sparse fractures
+//                    radiating upward and left, supplied as Crack.png.
+//   SEVERITY         Controls fracture visibility without changing CRACK ON.
+//   SHARPNESS        Controls the alpha-edge profile of the crack texture.
+//                    Both values save in pose slots and interpolate in paths.
 //
 // ============================================
 // v7.4.0 — HYBRID NODE TIMING
@@ -464,17 +455,19 @@ const SHINE = {
 };
 
 // ---------------------------------------------------------
-// CRACK — a boolean and a registration. Nothing else. (v3.11 law)
+// CRACK — presence, pane registration, and user-requested appearance controls.
 //
 // ON/OFF is saved into the pose slot with everything else — THAT is the
 // glass swap: pose A wears the crack, pose B does not. exit is where the
-// fracture pattern sits on the pane (X/Y only — a crack has no depth or
-// opacity of its own). Timeline progress never overrides `on`.
-// Overridable: ?crack=on,exitX,exitY
+// fracture pattern sits on the pane (X/Y only — a crack has no independent
+// depth). Severity and sharpness affect only the texture's rendered alpha.
+// Timeline progress never overrides `on`.
 // ---------------------------------------------------------
 const CRACK = {
   on: true,
   exit: [0, 0],
+  severity: 1,
+  sharpness: 1,
 };
 
 // 1x1 fully transparent PNG. useTexture cannot be called conditionally
@@ -527,6 +520,13 @@ const DEV = {
   pathPreview: false, // ONE-FRAME flag: path engine owns easing this frame
   explodeDistance: 1.2,
 };
+
+function syncCrackAppearance() {
+  const uniforms = DEV.crackMat?.userData?.crackAppearanceUniforms;
+  if (!uniforms) return;
+  uniforms.uCrackSeverity.value = Math.max(0, Math.min(1, CRACK.severity));
+  uniforms.uCrackSharpness.value = Math.max(0.35, Math.min(3, CRACK.sharpness));
+}
 
 function applyPremiumGlassMaterial() {
   const mat = DEV.glassMat;
@@ -655,6 +655,8 @@ const DRIVE_READERS = {
   glassRegZ: () => GLASS_REG.z,
   crackExitX: () => CRACK.exit[0],
   crackExitY: () => CRACK.exit[1],
+  crackSeverity: () => CRACK.severity,
+  crackSharpness: () => CRACK.sharpness,
 };
 
 const DRIVE_CLAMPS = {
@@ -680,6 +682,8 @@ const DRIVE_CLAMPS = {
   glassRegZ: [-GLASS_REG_RANGE, GLASS_REG_RANGE],
   crackExitX: [-4, 4],
   crackExitY: [-4, 4],
+  crackSeverity: [0, 1],
+  crackSharpness: [0.35, 3],
 };
 
 // Pose slots and motion paths may carry keys that no longer exist as Leva
@@ -732,6 +736,8 @@ const WIREABLE_OPTIONS = {
   "Glass reg depth (Z)": "glassRegZ",
   "Crack ← →": "crackExitX",
   "Crack ↑ ↓": "crackExitY",
+  "Crack severity": "crackSeverity",
+  "Crack sharpness": "crackSharpness",
 };
 
 const WIRE = {
@@ -847,104 +853,10 @@ const POSE_ROTATION_GROUPS = [
 
 const POSE_ROTATION_KEYS = new Set(POSE_ROTATION_GROUPS.flat());
 const POSE_GLASS_REG_KEYS = new Set(["glassRegX", "glassRegY", "glassRegZ"]);
-const POSE_MONOTONE_SCALAR_KEYS = new Set([
-  "shift",
-  "vshift",
-  "size",
-  "sscale",
-  "tilt",
-  "lift",
-  "pscale",
-  "shine",
-  "crackExitX",
-  "crackExitY",
-  "p",
-]);
-
-function strictlyIncreasingKnots(values) {
-  if (!values.length) return [];
-  const out = values.map((value) => Math.max(0, Math.min(1, Number(value) || 0)));
-  out[0] = 0;
-  out[out.length - 1] = 1;
-  const epsilon = 1e-7;
-  for (let i = 1; i < out.length - 1; i++) {
-    const ceiling = 1 - epsilon * (out.length - 1 - i);
-    out[i] = Math.max(out[i - 1] + epsilon, Math.min(ceiling, out[i]));
-  }
-  return out;
-}
-
-function buildMonotoneCurve(xs, ys) {
-  const n = Math.min(xs.length, ys.length);
-  if (!n) return null;
-  if (n === 1) return { xs: [0], ys: [Number(ys[0]) || 0], tangents: [0] };
-  const safeX = strictlyIncreasingKnots(xs.slice(0, n));
-  const safeY = ys.slice(0, n).map(Number);
-  const widths = [];
-  const slopes = [];
-  for (let i = 0; i < n - 1; i++) {
-    const width = Math.max(1e-9, safeX[i + 1] - safeX[i]);
-    widths.push(width);
-    slopes.push((safeY[i + 1] - safeY[i]) / width);
-  }
-  const tangents = Array(n).fill(0);
-  tangents[0] = slopes[0];
-  tangents[n - 1] = slopes[n - 2];
-  for (let i = 1; i < n - 1; i++) {
-    const before = slopes[i - 1];
-    const after = slopes[i];
-    if (before === 0 || after === 0 || before * after <= 0) {
-      tangents[i] = 0;
-    } else {
-      const w1 = 2 * widths[i] + widths[i - 1];
-      const w2 = widths[i] + 2 * widths[i - 1];
-      tangents[i] = (w1 + w2) / (w1 / before + w2 / after);
-    }
-  }
-  for (let i = 0; i < n - 1; i++) {
-    const slope = slopes[i];
-    if (Math.abs(slope) < 1e-12) {
-      tangents[i] = 0;
-      tangents[i + 1] = 0;
-      continue;
-    }
-    const a = tangents[i] / slope;
-    const b = tangents[i + 1] / slope;
-    const magnitude = a * a + b * b;
-    if (magnitude > 9) {
-      const scale = 3 / Math.sqrt(magnitude);
-      tangents[i] = scale * a * slope;
-      tangents[i + 1] = scale * b * slope;
-    }
-  }
-  return { xs: safeX, ys: safeY, tangents };
-}
-
-function sampleMonotoneCurve(curve, x) {
-  if (!curve?.xs?.length) return 0;
-  if (curve.xs.length === 1) return curve.ys[0];
-  const safeX = Math.max(curve.xs[0], Math.min(curve.xs[curve.xs.length - 1], Number(x) || 0));
-  let i = 0;
-  while (i < curve.xs.length - 2 && safeX > curve.xs[i + 1]) i += 1;
-  const width = Math.max(1e-9, curve.xs[i + 1] - curve.xs[i]);
-  const t = (safeX - curve.xs[i]) / width;
-  const t2 = t * t;
-  const t3 = t2 * t;
-  const h00 = 2 * t3 - 3 * t2 + 1;
-  const h10 = t3 - 2 * t2 + t;
-  const h01 = -2 * t3 + 3 * t2;
-  const h11 = t3 - t2;
-  return (
-    h00 * curve.ys[i] +
-    h10 * width * curve.tangents[i] +
-    h01 * curve.ys[i + 1] +
-    h11 * width * curve.tangents[i + 1]
-  );
-}
 
 function defaultMotionPath() {
   return {
-    version: 4,
+    version: 3,
     productionPresetVersion: 1,
     name: "Untitled path",
     trajectory: "curve",
@@ -952,11 +864,8 @@ function defaultMotionPath() {
     tension: 0.5,
     arcLength: true,
     continuous: true,
-    continuousPacing: "durationWeighted",
     globalEase: "linear",
     globalEaseStrength: 1,
-    scalarInterpolation: "monotone",
-    glassInterpolation: "gesture",
     glassOutEase: "linear",
     glassOutEaseStrength: 1,
     glassReturnEase: "linear",
@@ -982,10 +891,7 @@ function applyProductionPreset(path) {
     curveType: "catmullrom",
     arcLength: true,
     continuous: true,
-    continuousPacing: "durationWeighted",
     globalEase: "linear",
-    scalarInterpolation: "monotone",
-    glassInterpolation: "gesture",
     orientationMode: "quaternion",
     bank: 0,
     productionPresetVersion: 1,
@@ -1026,7 +932,7 @@ function normaliseMotionPath(saved) {
   return {
     ...base,
     ...source,
-    version: 4,
+    version: 3,
     trajectory: source.trajectory === "line" ? "line" : "curve",
     curveType: ["centripetal", "chordal", "catmullrom"].includes(source.curveType)
       ? source.curveType
@@ -1036,25 +942,10 @@ function normaliseMotionPath(saved) {
     tension: Math.max(0, Math.min(1, Number(source.tension) || 0.5)),
     arcLength: legacy ? false : source.arcLength !== false,
     continuous: legacy ? false : source.continuous !== false,
-    continuousPacing: ["legacyArcLength", "durationWeighted"].includes(source.continuousPacing)
-      ? source.continuousPacing
-      : Number(source.version) >= 4
-      ? "durationWeighted"
-      : "legacyArcLength",
     globalEase: MOTION_EASES[source.globalEase] ? source.globalEase : "linear",
     globalEaseStrength: Number.isFinite(Number(source.globalEaseStrength))
       ? Math.max(0, Math.min(1, Number(source.globalEaseStrength)))
       : 1,
-    scalarInterpolation: ["linear", "monotone"].includes(source.scalarInterpolation)
-      ? source.scalarInterpolation
-      : Number(source.version) >= 4
-      ? "monotone"
-      : "linear",
-    glassInterpolation: ["segment", "gesture"].includes(source.glassInterpolation)
-      ? source.glassInterpolation
-      : Number(source.version) >= 4
-      ? "gesture"
-      : "segment",
     glassOutEase: MOTION_EASES[source.glassOutEase]
       ? source.glassOutEase
       : "linear",
@@ -1131,22 +1022,17 @@ function compileMotionPath(path, slots) {
     .filter((node) => node.pose);
   const compiled = {
     type: "iglass-motion-path",
-    version: 4,
+    version: 3,
     name: path.name || "Untitled path",
     trajectory: path.trajectory === "line" ? "line" : "curve",
     curveType: path.curveType || "centripetal",
     tension: Number(path.tension) || 0.5,
     arcLength: path.arcLength !== false,
     continuous: path.continuous !== false,
-    continuousPacing: path.continuousPacing === "legacyArcLength"
-      ? "legacyArcLength"
-      : "durationWeighted",
     globalEase: MOTION_EASES[path.globalEase] ? path.globalEase : "linear",
     globalEaseStrength: Number.isFinite(Number(path.globalEaseStrength))
       ? Math.max(0, Math.min(1, Number(path.globalEaseStrength)))
       : 1,
-    scalarInterpolation: path.scalarInterpolation === "linear" ? "linear" : "monotone",
-    glassInterpolation: path.glassInterpolation === "segment" ? "segment" : "gesture",
     glassOutEase: MOTION_EASES[path.glassOutEase]
       ? path.glassOutEase
       : "linear",
@@ -1218,33 +1104,16 @@ function buildMotionTimeline(path) {
     const denominator = Math.max(1, last);
     const startTrackT = start / denominator;
     const endTrackT = end / denominator;
-    const nodeIndices = Array.from({ length: end - start + 1 }, (_, offset) => start + offset);
-    const legDurations = nodeIndices.slice(1).map((index) => nodeTravelDuration(nodes[index]));
-    const authoredTotal = legDurations.reduce((sum, value) => sum + value, 0) || duration;
-    let elapsed = 0;
-    const timeKnots = [0];
-    legDurations.forEach((value) => {
-      elapsed += value;
-      timeKnots.push(Math.max(0, Math.min(1, elapsed / authoredTotal)));
-    });
-    const trackKnots = nodeIndices.map((index) => index / denominator);
-    const uKnots = trackKnots.map((value) =>
-      mode === "continuous" ? trackTToPathU(path, value) : value
-    );
     events.push({
       type: "travel",
       start,
       end,
       mode,
       duration,
-      nodeIndices,
-      timeKnots,
-      trackKnots,
-      uKnots,
       startTrackT,
       endTrackT,
-      startU: uKnots[0],
-      endU: uKnots[uKnots.length - 1],
+      startU: mode === "continuous" ? trackTToPathU(path, startTrackT) : startTrackT,
+      endU: mode === "continuous" ? trackTToPathU(path, endTrackT) : endTrackT,
     });
   };
 
@@ -1277,32 +1146,10 @@ function buildMotionTimeline(path) {
     incoming = end + 1;
   }
 
-  const total = events.reduce((sum, event) => sum + event.duration, 0);
-  const nodeArrivals = Array(nodes.length).fill(null);
-  const nodeDepartures = Array(nodes.length).fill(null);
-  nodeArrivals[0] = 0;
-  nodeDepartures[0] = 0;
-  let eventStart = 0;
-  events.forEach((event) => {
-    event.startTime = eventStart;
-    event.endTime = eventStart + event.duration;
-    if (event.type === "hold") {
-      if (nodeArrivals[event.index] == null) nodeArrivals[event.index] = eventStart;
-      nodeDepartures[event.index] = event.endTime;
-    } else {
-      event.nodeIndices.forEach((index, knotIndex) => {
-        const arrival = eventStart + event.timeKnots[knotIndex] * event.duration;
-        if (nodeArrivals[index] == null || knotIndex > 0) nodeArrivals[index] = arrival;
-        if (nodeDepartures[index] == null) nodeDepartures[index] = arrival;
-      });
-    }
-    eventStart = event.endTime;
-  });
-  for (let i = 0; i < nodes.length; i++) {
-    if (nodeArrivals[i] == null) nodeArrivals[i] = i ? nodeArrivals[i - 1] : 0;
-    if (nodeDepartures[i] == null) nodeDepartures[i] = nodeArrivals[i];
-  }
-  const timeline = { events, total, nodeArrivals, nodeDepartures };
+  const timeline = {
+    events,
+    total: events.reduce((sum, event) => sum + event.duration, 0),
+  };
   try {
     Object.defineProperty(path, "_motionTimeline", {
       value: timeline,
@@ -1587,7 +1434,7 @@ function orientStage(path, spatial, out) {
   writeQuaternionToPose(q, ["srotX", "srotY", "srotZ"], out);
 }
 
-function interpolateMotionPose(path, trackT, spatial, scalarValues = null, glassValues = null) {
+function interpolateMotionPose(path, trackT, spatial) {
   const nodes = path.nodes;
   const scaled = Math.max(0, Math.min(1, trackT)) * (nodes.length - 1);
   const fromIndex = Math.min(nodes.length - 2, Math.floor(scaled));
@@ -1634,14 +1481,8 @@ function interpolateMotionPose(path, trackT, spatial, scalarValues = null, glass
     const av = a[key];
     const bv = b[key];
     if (typeof av === "number" && typeof bv === "number") {
-      if (scalarValues && Object.prototype.hasOwnProperty.call(scalarValues, key)) {
-        out[key] = scalarValues[key];
-      } else if (glassValues && POSE_GLASS_REG_KEYS.has(key)) {
-        out[key] = glassValues[key];
-      } else {
-        const parameterT = POSE_GLASS_REG_KEYS.has(key) ? glassT : t;
-        out[key] = av + (bv - av) * parameterT;
-      }
+      const parameterT = POSE_GLASS_REG_KEYS.has(key) ? glassT : t;
+      out[key] = av + (bv - av) * parameterT;
     } else {
       out[key] = t < 1 ? av : bv;
     }
@@ -1718,216 +1559,17 @@ function motionEventProgress(path, event, raw) {
   return applyEaseAmount(raw, path.globalEase, path.globalEaseStrength);
 }
 
-function motionEventWarpedKnots(path, event) {
-  if (event._warpedKnots) return event._warpedKnots;
-  const warped = strictlyIncreasingKnots(
-    event.timeKnots.map((knot) => motionEventProgress(path, event, knot))
-  );
-  event._warpedKnots = warped;
-  return warped;
-}
-
-function motionEventPacingCurves(path, event) {
-  if (event._pacingCurves) return event._pacingCurves;
-  const xs = motionEventWarpedKnots(path, event);
-  const curves = {
-    u: buildMonotoneCurve(xs, event.uKnots),
-    track: buildMonotoneCurve(xs, event.trackKnots),
-  };
-  event._pacingCurves = curves;
-  return curves;
-}
-
-function sampleEventScalars(path, event, warpedTime) {
-  if (path.scalarInterpolation !== "monotone") return null;
-  if (!event._scalarCurves) {
-    const xs = motionEventWarpedKnots(path, event);
-    const curves = {};
-    POSE_MONOTONE_SCALAR_KEYS.forEach((key) => {
-      const values = event.nodeIndices.map((index) => path.nodes[index]?.pose?.[key]);
-      if (values.length >= 2 && values.every(Number.isFinite)) {
-        curves[key] = buildMonotoneCurve(xs, values);
-      }
-    });
-    event._scalarCurves = curves;
-  }
-  const out = {};
-  Object.entries(event._scalarCurves).forEach(([key, curve]) => {
-    out[key] = sampleMonotoneCurve(curve, warpedTime);
-  });
-  return out;
-}
-
-function buildTimelineScalarSpans(path, timeline) {
-  if (timeline._scalarSpans) return timeline._scalarSpans;
-  const last = path.nodes.length - 1;
-  const boundaries = [...new Set([
-    0,
-    ...path.nodes.map((node, index) => nodeHoldDuration(node) > 0 ? index : -1).filter((index) => index >= 0),
-    last,
-  ])].sort((a, b) => a - b);
-  const spans = [];
-  for (let boundary = 0; boundary < boundaries.length - 1; boundary++) {
-    const start = boundaries[boundary];
-    const end = boundaries[boundary + 1];
-    if (end <= start) continue;
-    const startTime = timeline.nodeDepartures[start];
-    const endTime = timeline.nodeArrivals[end];
-    const duration = Math.max(1e-9, endTime - startTime);
-    const indices = Array.from({ length: end - start + 1 }, (_, offset) => start + offset);
-    const xs = strictlyIncreasingKnots(indices.map((index, knotIndex) => {
-      const time = knotIndex === 0 ? startTime : timeline.nodeArrivals[index];
-      return (time - startTime) / duration;
-    }));
-    const curves = {};
-    POSE_MONOTONE_SCALAR_KEYS.forEach((key) => {
-      const values = indices.map((index) => path.nodes[index]?.pose?.[key]);
-      if (values.length >= 2 && values.every(Number.isFinite)) {
-        const curve = buildMonotoneCurve(xs, values);
-        if (curve && nodeHoldDuration(path.nodes[start]) > 0) curve.tangents[0] = 0;
-        if (curve && nodeHoldDuration(path.nodes[end]) > 0) curve.tangents[curve.tangents.length - 1] = 0;
-        curves[key] = curve;
-      }
-    });
-    spans.push({ startTime, endTime, curves });
-  }
-  timeline._scalarSpans = spans;
-  return spans;
-}
-
-function sampleTimelineScalars(path, timeline, absoluteTime) {
-  if (path.scalarInterpolation !== "monotone") return null;
-  const span = buildTimelineScalarSpans(path, timeline).find(
-    (candidate) => absoluteTime >= candidate.startTime - 1e-9 && absoluteTime <= candidate.endTime + 1e-9
-  );
-  if (!span) return null;
-  const raw = Math.max(0, Math.min(1,
-    (absoluteTime - span.startTime) / Math.max(1e-9, span.endTime - span.startTime)
-  ));
-  const out = {};
-  Object.entries(span.curves).forEach(([key, curve]) => {
-    out[key] = sampleMonotoneCurve(curve, raw);
-  });
-  return out;
-}
-
-function poseGlassVector(pose) {
-  return new THREE.Vector3(
-    Number.isFinite(pose?.glassRegX) ? pose.glassRegX : GLASS_REG_HOME.x,
-    Number.isFinite(pose?.glassRegY) ? pose.glassRegY : GLASS_REG_HOME.y,
-    Number.isFinite(pose?.glassRegZ) ? pose.glassRegZ : GLASS_REG_HOME.z
-  );
-}
-
-function buildEventGlassRuns(path, event) {
-  if (event._glassRuns) return event._glassRuns;
-  const home = new THREE.Vector3(GLASS_REG_HOME.x, GLASS_REG_HOME.y, GLASS_REG_HOME.z);
-  const vectors = event.nodeIndices.map((index) => poseGlassVector(path.nodes[index]?.pose));
-  const distances = vectors.map((vector) => vector.distanceTo(home));
-  const directions = Array(Math.max(0, vectors.length - 1)).fill("static");
-  const homeIndices = [];
-  distances.forEach((distance, index) => {
-    if (distance <= GLASS_REG_TRIGGER_EPSILON) homeIndices.push(index);
-  });
-  const boundaries = [...new Set([0, ...homeIndices, vectors.length - 1])].sort((a, b) => a - b);
-  for (let boundary = 0; boundary < boundaries.length - 1; boundary++) {
-    const start = boundaries[boundary];
-    const end = boundaries[boundary + 1];
-    if (end <= start) continue;
-    let peak = start;
-    for (let i = start + 1; i <= end; i++) {
-      if (distances[i] > distances[peak]) peak = i;
-    }
-    for (let leg = start; leg < end; leg++) {
-      if (vectors[leg].distanceToSquared(vectors[leg + 1]) <= 1e-12) {
-        directions[leg] = "static";
-      } else {
-        directions[leg] = leg < peak ? "out" : "return";
-      }
-    }
-  }
-  const runs = [];
-  let leg = 0;
-  while (leg < directions.length) {
-    const direction = directions[leg];
-    if (direction === "static") {
-      leg += 1;
-      continue;
-    }
-    const startLeg = leg;
-    while (leg + 1 < directions.length && directions[leg + 1] === direction) leg += 1;
-    const endLeg = leg;
-    const startKnot = startLeg;
-    const endKnot = endLeg + 1;
-    const startTime = event.timeKnots[startKnot];
-    const endTime = event.timeKnots[endKnot];
-    const span = Math.max(1e-9, endTime - startTime);
-    const rawKnots = event.timeKnots
-      .slice(startKnot, endKnot + 1)
-      .map((value) => (value - startTime) / span);
-    const easeName = direction === "return" ? path.glassReturnEase : path.glassOutEase;
-    const easeStrength = direction === "return"
-      ? path.glassReturnEaseStrength
-      : path.glassOutEaseStrength;
-    const xs = strictlyIncreasingKnots(
-      rawKnots.map((value) => applyEaseAmount(value, easeName, easeStrength))
-    );
-    const runVectors = vectors.slice(startKnot, endKnot + 1);
-    runs.push({
-      direction,
-      startTime,
-      endTime,
-      easeName,
-      easeStrength,
-      x: buildMonotoneCurve(xs, runVectors.map((vector) => vector.x)),
-      y: buildMonotoneCurve(xs, runVectors.map((vector) => vector.y)),
-      z: buildMonotoneCurve(xs, runVectors.map((vector) => vector.z)),
-    });
-    leg += 1;
-  }
-  event._glassRuns = runs;
-  return runs;
-}
-
-function sampleEventGlass(path, event, raw) {
-  if (path.glassInterpolation !== "gesture") return null;
-  const run = buildEventGlassRuns(path, event).find(
-    (candidate) => raw >= candidate.startTime - 1e-9 && raw <= candidate.endTime + 1e-9
-  );
-  if (!run) return null;
-  const duration = Math.max(1e-9, run.endTime - run.startTime);
-  let local = Math.max(0, Math.min(1, (raw - run.startTime) / duration));
-  if (run.direction === "return") {
-    const returnSpan = Math.max(0.1, Math.min(1, Number(path.glassReturnSpan) || 1));
-    local = Math.min(1, local / returnSpan);
-  }
-  const warped = applyEaseAmount(local, run.easeName, run.easeStrength);
-  return {
-    glassRegX: sampleMonotoneCurve(run.x, warped),
-    glassRegY: sampleMonotoneCurve(run.y, warped),
-    glassRegZ: sampleMonotoneCurve(run.z, warped),
-  };
-}
-
-function sampleMotionEvent(path, event, raw, timelineScalarValues = null) {
+function sampleMotionEvent(path, event, raw) {
   const eased = motionEventProgress(path, event, raw);
-  const scalarValues = timelineScalarValues || sampleEventScalars(path, event, eased);
-  const glassValues = sampleEventGlass(path, event, raw);
   if (event.mode === "continuous") {
-    const durationWeighted = path.continuousPacing === "durationWeighted";
-    const curves = durationWeighted ? motionEventPacingCurves(path, event) : null;
-    const u = durationWeighted
-      ? sampleMonotoneCurve(curves.u, eased)
-      : THREE.MathUtils.lerp(event.startU, event.endU, eased);
+    const u = THREE.MathUtils.lerp(event.startU, event.endU, eased);
     const spatial = positionTrackSample(path, u);
-    const poseTrackT = durationWeighted
-      ? sampleMonotoneCurve(curves.track, eased)
-      : spatial.trackT;
-    return interpolateMotionPose(path, poseTrackT, spatial, scalarValues, glassValues);
+    return interpolateMotionPose(path, spatial.trackT, spatial);
   }
-  const trackT = THREE.MathUtils.lerp(event.startTrackT, event.endTrackT, eased);
-  const spatial = positionTrackSampleRaw(path, trackT);
-  return interpolateMotionPose(path, trackT, spatial, scalarValues, glassValues);
+  return sampleAtTrack(
+    path,
+    THREE.MathUtils.lerp(event.startTrackT, event.endTrackT, eased)
+  );
 }
 
 function sampleMotionPath(path, progress) {
@@ -1940,8 +1582,7 @@ function sampleMotionPath(path, progress) {
   const total = timeline.total;
   if (total <= 0) return sampleAtTrack(path, 1);
 
-  const absoluteTime = clamped * total;
-  let time = absoluteTime;
+  let time = clamped * total;
   for (const event of timeline.events) {
     if (time <= event.duration) {
       if (event.type === "hold") {
@@ -1950,66 +1591,13 @@ function sampleMotionPath(path, progress) {
       return sampleMotionEvent(
         path,
         event,
-        Math.max(0, Math.min(1, time / event.duration)),
-        sampleTimelineScalars(path, timeline, absoluteTime)
+        Math.max(0, Math.min(1, time / event.duration))
       );
     }
     time -= event.duration;
   }
 
   return sampleAtTrack(path, 1);
-}
-
-function motionLegArcFractions(path) {
-  if (!path?.nodes?.length || path.nodes.length < 2) return [];
-  if (!Object.prototype.hasOwnProperty.call(path, "_curve")) attachMotionCurve(path);
-  const denominator = path.nodes.length - 1;
-  const knots = path.nodes.map((_, index) => trackTToPathU(path, index / denominator));
-  return knots.slice(1).map((value, index) => Math.max(0, value - knots[index]));
-}
-
-function sampleMotionVelocity(path, sampleCount = 120) {
-  if (!path?.nodes?.length || path.nodes.length < 2) return { speeds: [], max: 0, average: 0 };
-  const total = Math.max(1e-9, motionPathDuration(path));
-  const points = Array.from({ length: sampleCount + 1 }, (_, index) => {
-    const pose = sampleMotionPath(path, index / sampleCount);
-    return new THREE.Vector3(pose.sposX, pose.sposY, pose.sposZ);
-  });
-  const secondsPerSample = total / sampleCount;
-  const speeds = points.slice(1).map((point, index) =>
-    point.distanceTo(points[index]) / secondsPerSample
-  );
-  const max = speeds.reduce((largest, value) => Math.max(largest, value), 0);
-  const average = speeds.length
-    ? speeds.reduce((sum, value) => sum + value, 0) / speeds.length
-    : 0;
-  return { speeds, max, average };
-}
-
-function motionJunctionInfo(path, index) {
-  if (!path?.nodes?.length || index <= 0 || index >= path.nodes.length - 1) return null;
-  const timeline = buildMotionTimeline(path);
-  const total = Math.max(1e-9, timeline.total);
-  const arrival = timeline.nodeArrivals[index];
-  const hold = nodeHoldDuration(path.nodes[index]);
-  const epsilon = Math.max(0.001, Math.min(0.02, total / 500));
-  const pointAtSeconds = (seconds) => {
-    const pose = sampleMotionPath(path, Math.max(0, Math.min(1, seconds / total)));
-    return new THREE.Vector3(pose.sposX, pose.sposY, pose.sposZ);
-  };
-  const at = pointAtSeconds(arrival);
-  const incoming = at.distanceTo(pointAtSeconds(arrival - epsilon)) / epsilon;
-  const outgoing = hold > 0
-    ? 0
-    : pointAtSeconds(arrival + epsilon).distanceTo(at) / epsilon;
-  const lengths = motionLegArcFractions(path);
-  const incomingLength = lengths[index - 1] || 0;
-  const outgoingLength = lengths[index] || 0;
-  const incomingDuration = nodeTravelDuration(path.nodes[index]);
-  const suggestedOutgoingDuration = incomingLength > 1e-9
-    ? Math.max(0.1, outgoingLength * incomingDuration / incomingLength)
-    : null;
-  return { incoming, outgoing, hold, suggestedOutgoingDuration };
 }
 
 function applyPoseParamsDirect(pose) {
@@ -2061,6 +1649,13 @@ function applyPoseParamsDirect(pose) {
   if ([pose.crackExitX, pose.crackExitY].every(Number.isFinite)) {
     CRACK.exit = [pose.crackExitX, pose.crackExitY];
   }
+  if (Number.isFinite(pose.crackSeverity)) {
+    CRACK.severity = Math.max(0, Math.min(1, pose.crackSeverity));
+  }
+  if (Number.isFinite(pose.crackSharpness)) {
+    CRACK.sharpness = Math.max(0.35, Math.min(3, pose.crackSharpness));
+  }
+  syncCrackAppearance();
   if (Number.isFinite(pose.p)) {
     const p = Math.max(0, Math.min(1, pose.p));
     DEV.lastP = p;
@@ -2127,29 +1722,14 @@ function decodeMotionPath(value) {
         ...defaultMotionPath(),
         ...parsed,
         type: "iglass-motion-path",
-        version: 4,
+        version: 3,
         trajectory: parsed.trajectory === "line" ? "line" : "curve",
         curveType: legacy ? "catmullrom" : parsed.curveType || "centripetal",
         arcLength: legacy ? false : parsed.arcLength !== false,
         continuous: legacy ? false : parsed.continuous !== false,
-        continuousPacing: ["legacyArcLength", "durationWeighted"].includes(parsed.continuousPacing)
-          ? parsed.continuousPacing
-          : Number(parsed.version) >= 4
-          ? "durationWeighted"
-          : "legacyArcLength",
         globalEaseStrength: Number.isFinite(Number(parsed.globalEaseStrength))
           ? Math.max(0, Math.min(1, Number(parsed.globalEaseStrength)))
           : 1,
-        scalarInterpolation: ["linear", "monotone"].includes(parsed.scalarInterpolation)
-          ? parsed.scalarInterpolation
-          : Number(parsed.version) >= 4
-          ? "monotone"
-          : "linear",
-        glassInterpolation: ["segment", "gesture"].includes(parsed.glassInterpolation)
-          ? parsed.glassInterpolation
-          : Number(parsed.version) >= 4
-          ? "gesture"
-          : "segment",
         glassOutEase: MOTION_EASES[parsed.glassOutEase]
           ? parsed.glassOutEase
           : "linear",
@@ -2557,10 +2137,10 @@ function serialiseParams(params) {
   );
   params.set("envp", LIGHT.preset);
   params.set("envb", LIGHT.blur.toFixed(2));
-  // on, exitX, exitY. That is the entire crack channel. (v3.11 law)
+  // v4.1, on, exitX, exitY, severity, sharpness.
   params.set(
     "crack",
-    [CRACK.on ? 1 : 0, CRACK.exit[0], CRACK.exit[1]]
+    [4.1, CRACK.on ? 1 : 0, CRACK.exit[0], CRACK.exit[1], CRACK.severity, CRACK.sharpness]
       .map((v) => v.toFixed(2))
       .join(",")
   );
@@ -3142,9 +2722,8 @@ function DevControls({ initialP }) {
       { collapsed: false }
     ),
 
-    // ---- CRACKED PANE (v3.11 law). ON or OFF, and where the fracture
-    // sits on the pane. Nothing else is true about a crack. The boolean
-    // saves into every pose slot — THAT is the glass swap. Shortcut: C. ----
+    // ---- CRACKED PANE. Presence, pane registration, and the requested
+    // severity/sharpness controls. Values save into pose slots. Shortcut: C. ----
     "💥 cracked pane": folder(
       {
         crackOn: {
@@ -3174,6 +2753,30 @@ function DevControls({ initialP }) {
           onChange: (v) => {
             CRACK.exit[1] = v;
             wireTap("crackExitY", v);
+          },
+        },
+        crackSeverity: {
+          value: CRACK.severity,
+          min: 0,
+          max: 1,
+          step: 0.01,
+          label: "crack severity",
+          onChange: (v) => {
+            CRACK.severity = v;
+            syncCrackAppearance();
+            wireTap("crackSeverity", v);
+          },
+        },
+        crackSharpness: {
+          value: CRACK.sharpness,
+          min: 0.35,
+          max: 3,
+          step: 0.05,
+          label: "crack sharpness",
+          onChange: (v) => {
+            CRACK.sharpness = v;
+            syncCrackAppearance();
+            wireTap("crackSharpness", v);
           },
         },
       },
@@ -3814,7 +3417,7 @@ function DevDashboard() {
   const [selectedPathNode, setSelectedPathNode] = useState(-1);
   const [pathProgress, setPathProgress] = useState(0);
   const [pathPlaying, setPathPlaying] = useState(false);
-  const [status, setStatus] = useState("v7.5.0 — duration-weighted temporal and scalar splines");
+  const [status, setStatus] = useState("v7.4.1 — replacement crack and appearance control");
   const [library, setLibrary] = useState(loadMotionLibrary);
   const [libraryId, setLibraryId] = useState("");
   const [importText, setImportText] = useState("");
@@ -3844,14 +3447,6 @@ function DevDashboard() {
   const activePathNode = useMemo(
     () => nearestMotionNode(compiledPath, pathProgress),
     [compiledPath, pathProgress]
-  );
-  const velocityDiagnostics = useMemo(
-    () => sampleMotionVelocity(compiledPath, 120),
-    [compiledPath]
-  );
-  const selectedJunction = useMemo(
-    () => motionJunctionInfo(compiledPath, selectedPathNode),
-    [compiledPath, selectedPathNode]
   );
 
   useEffect(() => {
@@ -4052,43 +3647,6 @@ function DevDashboard() {
     );
     if (nodes[0]) nodes[0] = { ...nodes[0], duration: 0 };
     commitMotionPath({ ...motionPath, nodes });
-  };
-
-  const matchDurationsToArcSpeed = () => {
-    if (compiledPath.nodes.length !== motionPath.nodes.length || motionPath.nodes.length < 2) {
-      setStatus("duration match needs at least two valid path nodes");
-      return;
-    }
-    const fractions = motionLegArcFractions(compiledPath);
-    const continuousIndices = motionPath.nodes
-      .map((_, index) => index)
-      .filter((index) => index > 0 && effectiveNodeMotionMode(motionPath, index) === "continuous");
-    const weightTotal = continuousIndices.reduce(
-      (sum, index) => sum + (fractions[index - 1] || 0),
-      0
-    );
-    const authoredTotal = continuousIndices.reduce(
-      (sum, index) => sum + nodeTravelDuration(motionPath.nodes[index]),
-      0
-    );
-    if (weightTotal <= 1e-9 || authoredTotal <= 0) {
-      setStatus("duration match needs a path with measurable travel");
-      return;
-    }
-    const nodes = motionPath.nodes.map((node, index) =>
-      index === 0 || effectiveNodeMotionMode(motionPath, index) !== "continuous"
-        ? node
-        : {
-            ...node,
-            duration: Math.max(0.1, authoredTotal * fractions[index - 1] / weightTotal),
-          }
-    );
-    commitMotionPath({
-      ...motionPath,
-      continuousPacing: "durationWeighted",
-      nodes,
-    });
-    setStatus("durations matched to arc length; edit any leg to author local pacing");
   };
 
   const movePathNode = (direction) => {
@@ -4414,7 +3972,7 @@ function DevDashboard() {
   const exportStudio = () => {
     downloadJSON(`${(motionPath.name || "motion-path").replace(/[^a-z0-9-_]+/gi, "-")}.json`, {
       type: "iglass-motion-studio",
-      version: 4,
+      version: 3,
       exportedAt: new Date().toISOString(),
       slots,
       slotMeta,
@@ -4489,7 +4047,7 @@ function DevDashboard() {
   if (collapsed) {
     return (
       <div ref={panelRef} style={UI.panelCollapsed}>
-        <b style={{ color: "#2e7d52", letterSpacing: 1 }}>iGLASS v7.5.0</b>
+        <b style={{ color: "#2e7d52", letterSpacing: 1 }}>iGLASS v7.4.1</b>
         <span style={chipStyle(false)} onClick={() => setCollapsed(false)}>▸ open</span>
       </div>
     );
@@ -4510,7 +4068,7 @@ function DevDashboard() {
         }
       `}</style>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <b style={{ color: "#2e7d52", letterSpacing: 1 }}>iGLASS PRODUCTION STUDIO v7.5.0</b>
+        <b style={{ color: "#2e7d52", letterSpacing: 1 }}>iGLASS PRODUCTION STUDIO v7.4.1</b>
         <span style={chipStyle(false)} onClick={() => setCollapsed(true)}>▾ hide</span>
       </div>
       <div style={{ ...UI.hint, marginTop: 3, color: status.startsWith("import failed") ? "#a02b2b" : "#5a6b60" }}>{status}</div>
@@ -4730,9 +4288,6 @@ function DevDashboard() {
                     <input disabled={effectiveNodeMotionMode(motionPath, selectedPathNode) !== "custom" && nodeHoldDuration(selectedNode) <= 0} type="range" min={0} max={1} step={0.01} value={selectedNode.easeStrength} style={{ width: 132, accentColor: "#2e7d52" }} onChange={(e) => updateSelectedPathNode({ easeStrength: Number(e.target.value) })} />
                     <span style={{ fontSize: 9 }}>{Math.round(selectedNode.easeStrength * 100)}%</span>
                   </div>
-                  {effectiveNodeMotionMode(motionPath, selectedPathNode) === "continuous" && motionPath.continuousPacing === "legacyArcLength" && (
-                    <div style={{ ...UI.hint, marginTop: 2 }}>Legacy constant-speed mode uses this value only in the run total. Select “authored durations” below to make this leg’s travel time exact.</div>
-                  )}
                 </>
               )}
 
@@ -4775,31 +4330,6 @@ function DevDashboard() {
                     <span style={{ fontSize: 9 }}>{Math.round(selectedNode.departureEaseStrength * 100)}%</span>
                   </div>
                 </>
-              )}
-
-              {selectedJunction && (
-                <div style={{ marginTop: 5, padding: "4px 5px", borderRadius: 5, background: "#eef5f1", fontSize: 9 }}>
-                  {selectedJunction.hold > 0 ? (
-                    <span>junction: intentional stop · incoming {selectedJunction.incoming.toFixed(3)} u/s · outgoing 0</span>
-                  ) : (
-                    <>
-                      <div>junction velocity · in {selectedJunction.incoming.toFixed(3)} u/s · out {selectedJunction.outgoing.toFixed(3)} u/s</div>
-                      {Number.isFinite(selectedJunction.suggestedOutgoingDuration) && (
-                        <div style={UI.row}>
-                          <span>arc pace-match next leg: {selectedJunction.suggestedOutgoingDuration.toFixed(2)}s</span>
-                          <span style={chipStyle(false)} onClick={() => {
-                            const nodes = motionPath.nodes.map((node, index) =>
-                              index === selectedPathNode + 1
-                                ? { ...node, duration: selectedJunction.suggestedOutgoingDuration }
-                                : node
-                            );
-                            commitMotionPath({ ...motionPath, nodes });
-                          }}>apply</span>
-                        </div>
-                      )}
-                    </>
-                  )}
-                </div>
               )}
 
               <div style={{ ...UI.row, marginTop: 4 }}>
@@ -4846,28 +4376,6 @@ function DevDashboard() {
             }}
             onPointerUp={() => syncPoseControls(sampleMotionPath(compiledPath, pathProgressRef.current))}
           />
-          {!!velocityDiagnostics.speeds.length && (
-            <div style={{ marginTop: 3 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 8, color: "#6f8879" }}>
-                <span>spatial velocity |v|(t)</span>
-                <span>avg {velocityDiagnostics.average.toFixed(3)} · max {velocityDiagnostics.max.toFixed(3)} u/s</span>
-              </div>
-              <svg viewBox="0 0 260 48" width="100%" height="48" preserveAspectRatio="none" style={{ display: "block", background: "#f7faf8", border: "1px solid #dbe7df", borderRadius: 4 }}>
-                <line x1="0" y1="46" x2="260" y2="46" stroke="#c9d9cf" strokeWidth="1" />
-                <polyline
-                  fill="none"
-                  stroke="#2e7d52"
-                  strokeWidth="1.5"
-                  points={velocityDiagnostics.speeds.map((value, index) => {
-                    const x = velocityDiagnostics.speeds.length > 1 ? index * 260 / (velocityDiagnostics.speeds.length - 1) : 0;
-                    const y = 45 - (velocityDiagnostics.max > 1e-9 ? value / velocityDiagnostics.max : 0) * 42;
-                    return `${x.toFixed(2)},${y.toFixed(2)}`;
-                  }).join(" ")}
-                />
-                <line x1={pathProgress * 260} y1="1" x2={pathProgress * 260} y2="47" stroke="#ff4f7b" strokeWidth="1" />
-              </svg>
-            </div>
-          )}
           <div style={UI.row}>
             <span style={chipStyle(pathPlaying, true)} onClick={() => pathPlaying ? pauseMotionPath(true) : playMotionPath()}>
               {pathPlaying ? "❚❚ pause" : "▶ preview"}
@@ -4878,7 +4386,7 @@ function DevDashboard() {
 
         <div style={{ ...UI.row, marginTop: 6, padding: "4px 5px", borderRadius: 6, background: "#eaf5ee" }}>
           <b style={{ fontSize: 9, color: "#2e7d52", marginRight: 5 }}>PRODUCTION PRESET</b>
-          <span style={{ fontSize: 9 }}>Catmull–Rom · authored durations · monotone scalars · gesture glass · quaternion</span>
+          <span style={{ fontSize: 9 }}>Catmull–Rom uniform · arc length · continuous · linear · quaternion</span>
           <span style={chipStyle(false)} onClick={() => commitMotionPath(applyProductionPreset(motionPath))}>apply</span>
         </div>
         <details>
@@ -4897,19 +4405,6 @@ function DevDashboard() {
           <span style={chipStyle(motionPath.loop)} onClick={() => commitMotionPath({ ...motionPath, loop: !motionPath.loop })}>loop</span>
         </div>
         <div style={UI.row}>
-          <span style={{ fontSize: 9, width: 78 }}>continuous pace</span>
-          <select style={{ ...SEL_STYLE, maxWidth: 150 }} value={motionPath.continuousPacing} onChange={(e) => commitMotionPath({ ...motionPath, continuousPacing: e.target.value })}>
-            <option value="durationWeighted">authored durations</option>
-            <option value="legacyArcLength">legacy constant speed</option>
-          </select>
-          <span style={chipStyle(false)} onClick={matchDurationsToArcSpeed}>match arc</span>
-        </div>
-        <div style={UI.row}>
-          <span style={{ fontSize: 9, width: 78 }}>scalar tracks</span>
-          <span style={chipStyle(motionPath.scalarInterpolation === "monotone", true)} onClick={() => commitMotionPath({ ...motionPath, scalarInterpolation: "monotone" })}>monotone</span>
-          <span style={chipStyle(motionPath.scalarInterpolation === "linear", true)} onClick={() => commitMotionPath({ ...motionPath, scalarInterpolation: "linear" })}>legacy linear</span>
-        </div>
-        <div style={UI.row}>
           <span style={{ fontSize: 9, width: 78 }}>continuous ease</span>
           <select style={SEL_STYLE} value={motionPath.globalEase} onChange={(e) => commitMotionPath({ ...motionPath, globalEase: e.target.value })}>{Object.entries(MOTION_EASE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
         </div>
@@ -4921,11 +4416,6 @@ function DevDashboard() {
         <div style={{ ...UI.hint, marginTop: 2 }}>The default applies only to nodes set to inherit. Click any node above to override its incoming leg or add a hold.</div>
         <div style={{ marginTop: 5, padding: "5px 6px", border: "1px solid #a9cfba", borderRadius: 6, background: "#f6fbf8" }}>
           <b style={{ fontSize: 9, color: "#2e7d52" }}>GLASS REGISTRATION MOTION</b>
-          <div style={{ ...UI.row, marginTop: 3 }}>
-            <span style={{ fontSize: 9, width: 42 }}>TRACK</span>
-            <span style={chipStyle(motionPath.glassInterpolation === "gesture", true)} onClick={() => commitMotionPath({ ...motionPath, glassInterpolation: "gesture" })}>gesture</span>
-            <span style={chipStyle(motionPath.glassInterpolation === "segment", true)} onClick={() => commitMotionPath({ ...motionPath, glassInterpolation: "segment" })}>legacy segment</span>
-          </div>
           <div style={{ ...UI.row, marginTop: 3 }}>
             <span style={{ fontSize: 9, width: 42 }}>OUT</span>
             <select style={SEL_STYLE} value={motionPath.glassOutEase} onChange={(e) => commitMotionPath({ ...motionPath, glassOutEase: e.target.value })}>{Object.entries(MOTION_EASE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
@@ -4941,9 +4431,9 @@ function DevDashboard() {
           <div style={UI.row}>
             <span style={{ fontSize: 9, width: 95 }}>return duration</span>
             <input type="range" min={0.1} max={1} step={0.01} value={motionPath.glassReturnSpan} style={{ width: 130, accentColor: "#2e7d52" }} onChange={(e) => commitMotionPath({ ...motionPath, glassReturnSpan: Number(e.target.value) }, false)} />
-            <span style={{ fontSize: 9 }}>{Math.round(motionPath.glassReturnSpan * 100)}% {motionPath.glassInterpolation === "gesture" ? "gesture" : "leg"}</span>
+            <span style={{ fontSize: 9 }}>{Math.round(motionPath.glassReturnSpan * 100)}% leg</span>
           </div>
-          <div style={{ ...UI.hint, marginTop: 2 }}>Gesture mode eases once across every contiguous OUT or RETURN run. Lower return duration completes the whole return earlier without moving the OLED.</div>
+          <div style={{ ...UI.hint, marginTop: 2 }}>OUT/RETURN affect only glass registration XYZ. Lower return duration finishes the glass movement earlier within that camera leg.</div>
         </div>
         <div style={{ ...UI.row, alignItems: "center" }}>
           <span style={{ fontSize: 9, width: 38 }}>speed</span>
@@ -5637,7 +5127,7 @@ function DevGizmo() {
 //   ?glass=rough,env,opac,cc,ccr  v3.9 front-glass material
 //   ?glassfx=...                   deterministic sweep/glint/environment
 //   ?envp=studio   ?envb=0        reflected world + IBL blur
-//   ?crack=on,exX,exY             crack ON/OFF + fracture registration
+//   ?crack=4.1,on,exX,exY,severity,sharpness
 //   ?motion=<base64url-json>       self-contained slot-based motion path
 //   ?mp=0.5                       freeze motion-path progress for capture
 //   ?snap=1                    deterministic capture (Playwright)
@@ -5849,7 +5339,13 @@ function resolveRuntimeConfig() {
   const crackParam = params.get("crack");
   if (crackParam) {
     const q = crackParam.split(",").map((v) => parseFloat(v));
-    if (q.length === 3 && q.every((v) => !isNaN(v))) {
+    if (q.length === 6 && q.every((v) => !isNaN(v)) && Math.abs(q[0] - 4.1) < 0.001) {
+      // v7.4.1 format: version, on, exitX, exitY, severity, sharpness.
+      CRACK.on = q[1] > 0.5;
+      CRACK.exit = [q[2], q[3]];
+      CRACK.severity = Math.max(0, Math.min(1, q[4]));
+      CRACK.sharpness = Math.max(0.35, Math.min(3, q[5]));
+    } else if (q.length === 3 && q.every((v) => !isNaN(v))) {
       // v7.3 / v3.11 format: on, exitX, exitY.
       CRACK.on = q[0] > 0.5;
       CRACK.exit = [q[1], q[2]];
@@ -6467,7 +5963,8 @@ function IPhoneExploded({
   // means the PNG's own alpha carves the shape, so the pane is invisible
   // everywhere except along the fractures — which sit ON TOP of the clean
   // glass beneath. depthWrite off so it cannot fight the pane it lies on.
-  // Visibility is BINARY (CRACK.on) — a crack has no opacity dial.
+  // CRACK.on remains binary. Severity and sharpness only reshape the texture
+  // alpha and do not alter the pane, its parenting, depth, or registration.
   // ---------------------------------------------------------
   const crackMat = useMemo(() => {
     const m = new THREE.MeshPhysicalMaterial({
@@ -6498,6 +5995,28 @@ function IPhoneExploded({
       polygonOffsetFactor: -3,
       polygonOffsetUnits: -3,
     });
+    m.onBeforeCompile = (shader) => {
+      shader.uniforms.uCrackSeverity = { value: CRACK.severity };
+      shader.uniforms.uCrackSharpness = { value: CRACK.sharpness };
+      shader.fragmentShader = shader.fragmentShader.replace(
+        "#include <map_fragment>",
+        `#include <map_fragment>
+         diffuseColor.a = clamp(
+           pow(clamp(diffuseColor.a, 0.0, 1.0), uCrackSharpness) * uCrackSeverity,
+           0.0,
+           1.0
+         );`
+      );
+      shader.fragmentShader = shader.fragmentShader.replace(
+        "void main() {",
+        `uniform float uCrackSeverity;
+         uniform float uCrackSharpness;
+         void main() {`
+      );
+      m.userData.crackAppearanceUniforms = shader.uniforms;
+      syncCrackAppearance();
+    };
+    m.customProgramCacheKey = () => "iglass-crack-appearance-v1";
     m.visible = CRACK.on;
     DEV.crackMat = m;
     return m;
@@ -6696,16 +6215,13 @@ function IPhoneExploded({
   // ---------------------------------------------------------
   // ANIMATION
   // ---------------------------------------------------------
-  useFrame((state, delta) => {
+  useFrame((state) => {
     // pathPreview is a ONE-FRAME flag. The path engine re-arms it on every
     // pose write it makes, so damping stays bypassed for the whole playback
     // or scrub — but the moment the engine stops writing, damping is
     // restored. (The v7.2 defect: set once, never cleared — one path scrub
     // killed render damping for the rest of the session.)
-    const frameDelta = Math.max(0, Math.min(0.25, Number(delta) || 0));
-    const damp = CAPTURE_SNAP || DEV.pathPreview
-      ? 1
-      : 1 - Math.pow(0.9, frameDelta * 60);
+    const damp = CAPTURE_SNAP || DEV.pathPreview ? 1 : 0.1;
     DEV.pathPreview = false;
 
     // ---- v3.8 LIGHT apply. Runs in production too (URL-driven look
@@ -6797,7 +6313,10 @@ function IPhoneExploded({
     // its only other truth is whether it is there at all.
     if (crackGroupRef.current && hasCrack) {
       crackGroupRef.current.position.set(CRACK.exit[0], CRACK.exit[1], 0);
-      if (DEV.crackMat) DEV.crackMat.visible = CRACK.on;
+      if (DEV.crackMat) {
+        DEV.crackMat.visible = CRACK.on;
+        syncCrackAppearance();
+      }
     }
 
     if (oledGroupRef.current) {
