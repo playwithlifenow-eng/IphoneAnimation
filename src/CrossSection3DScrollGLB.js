@@ -18,8 +18,16 @@ import { Leva, useControls, button, folder } from "leva";
 
 gsap.registerPlugin(ScrollTrigger);
 
-const IGLASS_APP_VERSION = "7.4.9";
+const IGLASS_APP_VERSION = "7.5.0";
 
+// ============================================
+// v7.5.0 — CURRENT-PATH IMPORT
+//
+//   ROUND TRIP       The current-path-only AI JSON can now be imported after
+//                    external editing without requiring a full studio backup.
+//   SCOPED RESTORE   Import restores only the pose slots referenced by that
+//                    path. Unrelated slots and the saved-path library remain.
+//
 // ============================================
 // v7.4.9 — SPLIT CURRENT-PATH / STUDIO EXPORTS
 //
@@ -1133,6 +1141,41 @@ function persistMotionPath(path) {
   } catch (e) {
     /* storage blocked -> path remains session-only */
   }
+}
+
+function motionPathFromCurrentPathExport(payload) {
+  const source = payload?.path;
+  if (!source || !Array.isArray(source.nodes)) {
+    throw new Error("current-path JSON has no path.nodes array");
+  }
+  const nodes = source.nodes.map((node) => {
+    const timing = node.timing || {};
+    const slot = Number.isInteger(node.slotIndex)
+      ? node.slotIndex
+      : Number(node.slotNumber) - 1;
+    if (!Number.isInteger(slot) || slot < 0 || slot >= SLOT_COUNT) {
+      throw new Error(`invalid slot on current-path node ${node.nodeNumber ?? "?"}`);
+    }
+    return {
+      slot,
+      duration: Number(timing.duration),
+      hold: Number(timing.hold),
+      motionMode: timing.motionMode,
+      ease: timing.arrivalEase,
+      easeStrength: Number(timing.arrivalEaseStrength),
+      departureEase: timing.departureEase,
+      departureEaseStrength: Number(timing.departureEaseStrength),
+      position: Array.isArray(node.positionOverride)
+        ? node.positionOverride.map(Number)
+        : null,
+      pose: node.pose && typeof node.pose === "object" ? { ...node.pose } : null,
+    };
+  });
+  return normaliseMotionPath({
+    ...(source.settings || {}),
+    name: source.name || "Imported current path",
+    nodes,
+  });
 }
 
 function resolveMotionNodePose(node, slots) {
@@ -3708,7 +3751,7 @@ function DevDashboard() {
   const [selectedPathNode, setSelectedPathNode] = useState(-1);
   const [pathProgress, setPathProgress] = useState(0);
   const [pathPlaying, setPathPlaying] = useState(false);
-  const [status, setStatus] = useState("v7.4.9 — split current-path / studio exports");
+  const [status, setStatus] = useState("v7.5.0 — current-path import");
   const [library, setLibrary] = useState(loadMotionLibrary);
   const [libraryId, setLibraryId] = useState("");
   const [importText, setImportText] = useState("");
@@ -4417,7 +4460,16 @@ function DevDashboard() {
   const importStudio = () => {
     try {
       const parsed = JSON.parse(importText);
-      if (parsed.type === "iglass-motion-studio" && parsed.path) {
+      let successStatus = "import complete";
+      if (parsed.type === "iglass-current-path") {
+        const path = motionPathFromCurrentPathExport(parsed);
+        const restored = slotsWithSavedPathSnapshot(path, slotsRef.current);
+        commitSlots(restored.slots);
+        commitMotionPath(path);
+        setLibraryId("");
+        setSelectedPathNode(-1);
+        successStatus = `imported CURRENT PATH · ${path.nodes.length} nodes · restored ${restored.restored} referenced poses`;
+      } else if (parsed.type === "iglass-motion-studio" && parsed.path) {
         if (
           Number.isFinite(parsed.crackPositionDefaults?.x) &&
           Number.isFinite(parsed.crackPositionDefaults?.y)
@@ -4450,14 +4502,16 @@ function DevDashboard() {
         persistSlotRecord(SLOT_THUMB_KEY, thumbs);
         if (Array.isArray(parsed.library)) persistLibrary(parsed.library);
         commitMotionPath(normaliseMotionPath(parsed.path));
+        successStatus = "imported FULL STUDIO BACKUP";
       } else if (Array.isArray(parsed.nodes) && parsed.nodes.every((n) => Number.isInteger(n.slot))) {
         commitMotionPath(normaliseMotionPath(parsed));
+        successStatus = `imported editable path · ${parsed.nodes.length} nodes`;
       } else {
         throw new Error("not an editable studio/path JSON file");
       }
       setShowImport(false);
       setImportText("");
-      setStatus("import complete");
+      setStatus(successStatus);
     } catch (e) {
       setStatus(`import failed: ${e.message}`);
     }
@@ -5005,7 +5059,7 @@ function DevDashboard() {
           <span style={chipStyle(showImport)} onClick={() => setShowImport(!showImport)}>import JSON</span>
         </div>
         <div style={UI.hint}>CURRENT PATH is the AI-analysis file. Full studio backup is the restorable workspace containing every saved path.</div>
-        {showImport && <div><textarea value={importText} placeholder="Paste a studio JSON export or editable path JSON" style={{ width: 276, height: 90, fontSize: 9 }} onChange={(e) => setImportText(e.target.value)} /><div><span style={chipStyle(false, true)} onClick={importStudio}>apply import</span></div></div>}
+        {showImport && <div><textarea value={importText} placeholder="Paste CURRENT PATH, full studio backup, or legacy editable path JSON" style={{ width: 276, height: 90, fontSize: 9 }} onChange={(e) => setImportText(e.target.value)} /><div><span style={chipStyle(false, true)} onClick={importStudio}>apply import</span></div><div style={UI.hint}>CURRENT PATH import updates only its referenced pose slots; unrelated slots and saved paths remain unchanged.</div></div>}
       </details>
 
       <details>
