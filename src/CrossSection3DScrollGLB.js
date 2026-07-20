@@ -18,7 +18,19 @@ import { Leva, useControls, button, folder } from "leva";
 
 gsap.registerPlugin(ScrollTrigger);
 
-const IGLASS_APP_VERSION = "7.5.0";
+const IGLASS_APP_VERSION = "7.5.1";
+
+// ============================================
+// v7.5.1 — CRACK FADE + LANDED-GLASS SHINE
+//
+//   CRACK FADE       crackOn remains the saved node truth, but path playback
+//                    now interpolates a render presence between OFF and ON.
+//                    Severity and sharpness continue to interpolate with it.
+//   TERMINAL SHINE   The automatic sweep remains appended after the final
+//                    node when glass registration is exactly back at home.
+//                    Its production defaults match the approved look.
+//
+// ============================================
 
 // ============================================
 // v7.5.0 — CURRENT-PATH IMPORT
@@ -526,12 +538,12 @@ const GLASS = {
 const SHINE = {
   progress: 0,
   range: [0, 1],
-  speed: 0.5,
-  sweepStrength: 0.24,
-  broadWidth: 0.24,
-  stripWidth: 0.035,
-  angleDeg: -18,
-  persistent: 0.035,
+  speed: 0.7,
+  sweepStrength: 0.23,
+  broadWidth: 0.23,
+  stripWidth: 0.04,
+  angleDeg: -41,
+  persistent: 0.04,
   glint: true,
   glintStrength: 0.7,
   glintSize: 0.12,
@@ -549,10 +561,11 @@ const SHINE = {
 // CRACK — presence, pane registration, and user-requested appearance controls.
 //
 // ON/OFF is saved into the pose slot with everything else — THAT is the
-// glass swap: pose A wears the crack, pose B does not. exit is where the
-// fracture pattern sits on the pane (X/Y only — a crack has no independent
-// depth). Severity and sharpness affect only the texture's rendered alpha.
-// Timeline progress never overrides `on`.
+// glass swap: pose A wears the crack, pose B does not. During path playback,
+// `mix` is derived from the adjacent nodes so an OFF → ON or ON → OFF change
+// fades instead of popping. exit is where the fracture pattern sits on the
+// pane (X/Y only — a crack has no independent depth). Severity and sharpness
+// remain authored pose values and interpolate normally.
 // ---------------------------------------------------------
 const CRACK_DEFAULT_POSITION_KEY = "iglass_crack_default_position_v1";
 
@@ -581,6 +594,7 @@ const initialCrackDefaultPosition = loadCrackDefaultPosition();
 
 const CRACK = {
   on: true,
+  mix: 1,
   defaultExit: [...initialCrackDefaultPosition],
   exit: [...initialCrackDefaultPosition],
   useDefault: true,
@@ -653,6 +667,7 @@ const DEV = {
 function syncCrackAppearance() {
   const uniforms = DEV.crackMat?.userData?.crackAppearanceUniforms;
   if (!uniforms) return;
+  uniforms.uCrackPresence.value = Math.max(0, Math.min(1, CRACK.mix));
   uniforms.uCrackSeverity.value = Math.max(0, Math.min(1, CRACK.severity));
   uniforms.uCrackSharpness.value = Math.max(0.35, Math.min(3, CRACK.sharpness));
 }
@@ -1701,6 +1716,8 @@ function interpolateMotionPose(path, trackT, spatial) {
   );
   const aCrackPosition = effectivePoseCrackPosition(a);
   const bCrackPosition = effectivePoseCrackPosition(b);
+  const aCrackPresence = a.crackOn === false ? 0 : 1;
+  const bCrackPresence = b.crackOn === false ? 0 : 1;
 
   for (const key of Object.keys(a)) {
     if (
@@ -1723,6 +1740,12 @@ function interpolateMotionPose(path, trackT, spatial) {
   out.crackUseDefault = t < 1
     ? poseUsesDefaultCrackPosition(a)
     : poseUsesDefaultCrackPosition(b);
+  out.__crackPresence = THREE.MathUtils.lerp(
+    aCrackPresence,
+    bCrackPresence,
+    t
+  );
+  out.crackOn = out.__crackPresence > 0.0001;
   out.__crackPositionResolved = true;
 
   for (const keys of POSE_ROTATION_GROUPS) {
@@ -1922,7 +1945,13 @@ function applyPoseParamsDirect(pose) {
     GLASS_REG.y = clampReg(pose.glassRegY);
     GLASS_REG.z = clampReg(pose.glassRegZ);
   }
-  if (typeof pose.crackOn === "boolean") CRACK.on = pose.crackOn;
+  if (Number.isFinite(pose.__crackPresence)) {
+    CRACK.mix = Math.max(0, Math.min(1, pose.__crackPresence));
+    CRACK.on = CRACK.mix > 0.0001;
+  } else if (typeof pose.crackOn === "boolean") {
+    CRACK.on = pose.crackOn;
+    CRACK.mix = pose.crackOn ? 1 : 0;
+  }
   CRACK.useDefault = poseUsesDefaultCrackPosition(pose);
   CRACK.exit = pose.__crackPositionResolved &&
     [pose.crackExitX, pose.crackExitY].every(Number.isFinite)
@@ -3028,7 +3057,9 @@ function DevControls({ initialP }) {
           value: CRACK.on,
           label: "CRACK  (saved in the pose slot)",
           onChange: (v) => {
-            CRACK.on = v;
+            CRACK.on = !!v;
+            CRACK.mix = CRACK.on ? 1 : 0;
+            syncCrackAppearance();
           },
         },
         crackDefaultX: {
@@ -3751,7 +3782,7 @@ function DevDashboard() {
   const [selectedPathNode, setSelectedPathNode] = useState(-1);
   const [pathProgress, setPathProgress] = useState(0);
   const [pathPlaying, setPathPlaying] = useState(false);
-  const [status, setStatus] = useState("v7.5.0 — current-path import");
+  const [status, setStatus] = useState("v7.5.1 — crack fade + landed-glass shine");
   const [library, setLibrary] = useState(loadMotionLibrary);
   const [libraryId, setLibraryId] = useState("");
   const [importText, setImportText] = useState("");
@@ -5951,6 +5982,7 @@ function resolveRuntimeConfig() {
       CRACK.useDefault = false;
     }
   }
+  CRACK.mix = CRACK.on ? 1 : 0;
 
   // ---- LIGHT channel (v3.8) — applies in production too ----
   const lightParam = params.get("light");
@@ -6555,8 +6587,9 @@ function IPhoneExploded({
   // means the PNG's own alpha carves the shape, so the pane is invisible
   // everywhere except along the fractures — which sit ON TOP of the clean
   // glass beneath. depthWrite off so it cannot fight the pane it lies on.
-  // CRACK.on remains binary. Severity and sharpness only reshape the texture
-  // alpha and do not alter the pane, its parenting, depth, or registration.
+  // crackOn remains binary in saved poses. CRACK.mix is a runtime-only path
+  // interpolation value. Severity and sharpness reshape the texture alpha;
+  // presence fades the complete result without changing registration.
   // ---------------------------------------------------------
   const crackMat = useMemo(() => {
     const m = new THREE.MeshPhysicalMaterial({
@@ -6588,28 +6621,31 @@ function IPhoneExploded({
       polygonOffsetUnits: -3,
     });
     m.onBeforeCompile = (shader) => {
+      shader.uniforms.uCrackPresence = { value: CRACK.mix };
       shader.uniforms.uCrackSeverity = { value: CRACK.severity };
       shader.uniforms.uCrackSharpness = { value: CRACK.sharpness };
       shader.fragmentShader = shader.fragmentShader.replace(
         "#include <map_fragment>",
         `#include <map_fragment>
          diffuseColor.a = clamp(
-           pow(clamp(diffuseColor.a, 0.0, 1.0), uCrackSharpness) * uCrackSeverity,
+           pow(clamp(diffuseColor.a, 0.0, 1.0), uCrackSharpness)
+             * uCrackSeverity * uCrackPresence,
            0.0,
            1.0
          );`
       );
       shader.fragmentShader = shader.fragmentShader.replace(
         "void main() {",
-        `uniform float uCrackSeverity;
+        `uniform float uCrackPresence;
+         uniform float uCrackSeverity;
          uniform float uCrackSharpness;
          void main() {`
       );
       m.userData.crackAppearanceUniforms = shader.uniforms;
       syncCrackAppearance();
     };
-    m.customProgramCacheKey = () => "iglass-crack-appearance-v1";
-    m.visible = CRACK.on;
+    m.customProgramCacheKey = () => "iglass-crack-appearance-v2-presence";
+    m.visible = CRACK.mix > 0.0001;
     DEV.crackMat = m;
     return m;
   }, [crackTex]);
@@ -6906,7 +6942,7 @@ function IPhoneExploded({
     if (crackGroupRef.current && hasCrack) {
       crackGroupRef.current.position.set(CRACK.exit[0], CRACK.exit[1], 0);
       if (DEV.crackMat) {
-        DEV.crackMat.visible = CRACK.on;
+        DEV.crackMat.visible = CRACK.mix > 0.0001;
         syncCrackAppearance();
       }
     }
