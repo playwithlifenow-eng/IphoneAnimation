@@ -18,7 +18,23 @@ import { Leva, useControls, button, folder } from "leva";
 
 gsap.registerPlugin(ScrollTrigger);
 
-const IGLASS_APP_VERSION = "7.5.5";
+const IGLASS_APP_VERSION = "7.5.6";
+
+// ============================================
+// v7.5.6 — VISUAL POSE + SAVED-PATH LIBRARIES
+//
+//   POSE BROWSER      The 100-slot working library is now a four-column grid
+//                     of the real WebGL thumbnails captured with each pose.
+//                     Existing filled slots 101–150 remain visible so older
+//                     studio data and path references are never discarded.
+//   DIRECT DELETE     Select a pose thumbnail, then use the single Delete
+//                     action. The former refresh/clear/move/copy/swap card is
+//                     removed.
+//   PATH STORYBOARDS  Every saved path shows its ordered node thumbnails.
+//   UI CLEANUP        Production Preset, 3D Path, Ghosts and Drag Handles
+//                     controls are removed without changing path data.
+//
+// ============================================
 
 // ============================================
 // v7.5.5 — REFLECTION LIGHTING / NO PROJECTED SHADOWS
@@ -1028,6 +1044,7 @@ const SLOT_KEY = "iglass_pose_slots_v1";
 const SLOT_META_KEY = "iglass_pose_slot_meta_v1";
 const SLOT_THUMB_KEY = "iglass_pose_slot_thumbs_v1";
 const SLOT_COUNT = 150;
+const PRIMARY_SLOT_COUNT = 100;
 const MOTION_PATH_KEY = "iglass_motion_path_v1";
 const MOTION_LIBRARY_KEY = "iglass_motion_path_library_v1";
 const LEGACY_MOTION_COMPARE_KEY = "iglass_motion_compare_v1";
@@ -3854,7 +3871,7 @@ const UI = {
     position: "fixed",
     top: 12,
     left: 12,
-    width: 306,
+    width: 390,
     zIndex: 1000,
     background: "rgba(255,255,255,0.95)",
     border: "1px solid #dde8e0",
@@ -3919,20 +3936,6 @@ const SEL_STYLE = {
   maxWidth: 96,
 };
 
-const slotStyle = (filled) => ({
-  width: 20,
-  height: 20,
-  borderRadius: 4,
-  border: "1px solid " + (filled ? "#2e7d52" : "#d5e2d9"),
-  background: filled ? "#3c9a68" : "#fbfdfb",
-  color: filled ? "#ffffff" : "#9ab0a2",
-  fontSize: 8,
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  cursor: "pointer",
-});
-
 function DevDashboard() {
   const [, force] = useState(0);
   const panelRef = useRef(null);
@@ -3942,12 +3945,11 @@ function DevDashboard() {
   const [slotMeta, setSlotMeta] = useState(() => loadSlotRecord(SLOT_META_KEY, {}));
   const [slotThumbs, setSlotThumbs] = useState(() => loadSlotRecord(SLOT_THUMB_KEY, {}));
   const [selectedSlot, setSelectedSlot] = useState(-1);
-  const [slotTarget, setSlotTarget] = useState(1);
   const [slotSearch, setSlotSearch] = useState("");
   const [selectedPathNode, setSelectedPathNode] = useState(-1);
   const [pathProgress, setPathProgress] = useState(0);
   const [pathPlaying, setPathPlaying] = useState(false);
-  const [status, setStatus] = useState("v7.5.5 — reflection lighting / no projected shadows");
+  const [status, setStatus] = useState("v7.5.6 — visual pose + saved-path libraries");
   const [library, setLibrary] = useState(loadMotionLibrary);
   const [libraryId, setLibraryId] = useState("");
   const [importText, setImportText] = useState("");
@@ -4067,7 +4069,7 @@ function DevDashboard() {
 
   useEffect(() => {
     const cw = (DEV.canvasEl && DEV.canvasEl.clientWidth) || window.innerWidth || 1600;
-    const pw = collapsed ? 0 : panelRef.current ? panelRef.current.offsetWidth : 306;
+    const pw = collapsed ? 0 : panelRef.current ? panelRef.current.offsetWidth : 390;
     DEV.leftClampNDC = Math.max(-0.9, Math.min(-0.15, -1 + (2 * (22 + pw)) / cw));
   });
 
@@ -4256,7 +4258,6 @@ function DevDashboard() {
   const slotClick = (i, ev) => {
     const currentSlots = slotsRef.current;
     setSelectedSlot(i);
-    setSlotTarget(i + 1);
     if (ev.shiftKey) saveSlot(i);
     else if ((ev.ctrlKey || ev.metaKey) && currentSlots[i]) addPathNode(i);
     else if (currentSlots[i]) {
@@ -4266,9 +4267,9 @@ function DevDashboard() {
   };
 
   const clearSlot = (i, ev) => {
-    ev.preventDefault();
+    if (ev) ev.preventDefault();
     const currentSlots = slotsRef.current;
-    if (!currentSlots[i] || !window.confirm(`Clear pose slot ${i + 1}?`)) return;
+    if (!currentSlots[i] || !window.confirm(`Delete pose slot ${i + 1}?`)) return;
     pauseMotionPath(false);
     const next = [...currentSlots];
     next[i] = null;
@@ -4281,83 +4282,8 @@ function DevDashboard() {
     setSlotThumbs(thumbs);
     persistSlotRecord(SLOT_META_KEY, meta);
     persistSlotRecord(SLOT_THUMB_KEY, thumbs);
-    setStatus(`cleared slot ${i + 1}; path references are shown red`);
-  };
-
-  const relocateSlot = (mode) => {
-    const currentSlots = slotsRef.current;
-    const from = selectedSlot;
-    const to = Math.max(0, Math.min(SLOT_COUNT - 1, Number(slotTarget) - 1));
-    if (from < 0 || !currentSlots[from] || from === to) return;
-    if (mode === "move" && currentSlots[to]) {
-      setStatus(`slot ${to + 1} is occupied — use swap or choose an empty slot`);
-      return;
-    }
-    const next = [...currentSlots];
-    const meta = { ...slotMeta };
-    const thumbs = { ...slotThumbs };
-    if (mode === "copy") {
-      if (currentSlots[to] && !window.confirm(`Replace slot ${to + 1} with a copy?`)) return;
-      next[to] = { ...next[from] };
-      meta[to] = { ...(meta[from] || {}), name: `${meta[from]?.name || `Pose ${from + 1}`} copy` };
-      if (thumbs[from]) thumbs[to] = thumbs[from];
-    } else if (mode === "swap") {
-      [next[from], next[to]] = [next[to], next[from]];
-      const aMeta = meta[from];
-      const bMeta = meta[to];
-      const aThumb = thumbs[from];
-      const bThumb = thumbs[to];
-      if (bMeta) meta[from] = bMeta; else delete meta[from];
-      if (aMeta) meta[to] = aMeta; else delete meta[to];
-      if (bThumb) thumbs[from] = bThumb; else delete thumbs[from];
-      if (aThumb) thumbs[to] = aThumb; else delete thumbs[to];
-    } else {
-      next[to] = next[from];
-      next[from] = null;
-      if (meta[from]) meta[to] = meta[from]; else delete meta[to];
-      if (thumbs[from]) thumbs[to] = thumbs[from]; else delete thumbs[to];
-      delete meta[from];
-      delete thumbs[from];
-    }
-    let path = motionPath;
-    if (mode !== "copy") {
-      const nodes = motionPath.nodes.map((node) => {
-        if (mode === "swap") {
-          if (node.slot === from) return { ...node, slot: to };
-          if (node.slot === to) return { ...node, slot: from };
-        } else if (node.slot === from) return { ...node, slot: to };
-        return node;
-      });
-      path = { ...motionPath, nodes };
-      commitMotionPath(path);
-    }
-    commitSlots(next);
-    setSlotMeta(meta);
-    setSlotThumbs(thumbs);
-    setSelectedSlot(to);
-    setSlotTarget(to + 1);
-    persistSlotRecord(SLOT_META_KEY, meta);
-    persistSlotRecord(SLOT_THUMB_KEY, thumbs);
-    setStatus(`${mode} slot ${from + 1} ${mode === "copy" ? "to" : "↔"} ${to + 1}`);
-  };
-
-  const renameSelectedSlot = (name) => {
-    if (selectedSlot < 0) return;
-    const meta = {
-      ...slotMeta,
-      [selectedSlot]: { ...(slotMeta[selectedSlot] || {}), name, updatedAt: new Date().toISOString() },
-    };
-    setSlotMeta(meta);
-    persistSlotRecord(SLOT_META_KEY, meta);
-  };
-
-  const refreshThumbnail = () => {
-    if (selectedSlot < 0 || !slots[selectedSlot]) return;
-    const thumb = capturePoseThumbnail();
-    if (!thumb) return;
-    const thumbs = { ...slotThumbs, [selectedSlot]: thumb };
-    setSlotThumbs(thumbs);
-    persistSlotRecord(SLOT_THUMB_KEY, thumbs);
+    if (selectedSlot === i) setSelectedSlot(-1);
+    setStatus(`deleted slot ${i + 1}; path references are shown red`);
   };
 
   const applyBulk = (scope) => {
@@ -4713,7 +4639,14 @@ function DevDashboard() {
     }
   };
 
-  const filledCount = slots.filter(Boolean).length;
+  const primaryFilledCount = slots.slice(0, PRIMARY_SLOT_COUNT).filter(Boolean).length;
+  const legacySlotIndexes = slots
+    .map((pose, i) => (i >= PRIMARY_SLOT_COUNT && pose ? i : -1))
+    .filter((i) => i >= PRIMARY_SLOT_COUNT);
+  const visibleSlotIndexes = [
+    ...Array.from({ length: PRIMARY_SLOT_COUNT }, (_, i) => i),
+    ...legacySlotIndexes,
+  ];
   const selectedNode = motionPath.nodes[selectedPathNode] || null;
   const selectedPose = selectedNode
     ? resolveMotionNodePose(selectedNode, slots)
@@ -4865,51 +4798,71 @@ function DevDashboard() {
       </details>
 
       <details open>
-        <summary style={UI.head}>💾 named pose library ({filledCount}/{SLOT_COUNT})</summary>
-        <input value={slotSearch} placeholder="filter by slot name…" style={{ ...SEL_STYLE, maxWidth: "100%", width: 276 }} onChange={(e) => setSlotSearch(e.target.value)} />
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(10, 20px)", gap: 3, marginTop: 5 }}>
-          {slots.map((pose, i) => {
+        <summary style={UI.head}>💾 named pose library ({primaryFilledCount}/{PRIMARY_SLOT_COUNT}{legacySlotIndexes.length ? ` + ${legacySlotIndexes.length} legacy` : ""})</summary>
+        <div style={{ ...UI.row, flexWrap: "nowrap", gap: 4 }}>
+          <input value={slotSearch} placeholder="filter by slot name…" style={{ ...SEL_STYLE, maxWidth: "none", minWidth: 0, flex: 1 }} onChange={(e) => setSlotSearch(e.target.value)} />
+          <span
+            aria-disabled={selectedSlot < 0 || !slots[selectedSlot]}
+            style={{
+              ...chipStyle(false, true),
+              margin: 0,
+              opacity: selectedSlot >= 0 && slots[selectedSlot] ? 1 : 0.4,
+              cursor: selectedSlot >= 0 && slots[selectedSlot] ? "pointer" : "default",
+            }}
+            onClick={(e) => {
+              if (selectedSlot >= 0 && slots[selectedSlot]) clearSlot(selectedSlot, e);
+            }}
+          >Delete</span>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 6, marginTop: 6 }}>
+          {visibleSlotIndexes.map((i) => {
+            const pose = slots[i];
             const name = slotMeta[i]?.name || `Pose ${i + 1}`;
             const match = !slotSearch || name.toLowerCase().includes(slotSearch.toLowerCase()) || String(i + 1).includes(slotSearch);
+            const selected = selectedSlot === i;
             return (
               <div
                 key={i}
-                style={{ ...slotStyle(!!pose), outline: selectedSlot === i ? "2px solid #173d2a" : "none", opacity: match ? 1 : 0.2 }}
-                title={pose ? `S${i + 1}: ${name}\nclick warp · Ctrl-click add to path · right-click clear` : `S${i + 1}: Shift-click to save`}
+                style={{
+                  position: "relative",
+                  aspectRatio: "30 / 17",
+                  overflow: "hidden",
+                  borderRadius: 6,
+                  border: `2px solid ${selected ? "#173d2a" : pose ? "#2e7d52" : "#d5e2d9"}`,
+                  background: pose ? "#e8f0eb" : "#fbfdfb",
+                  boxShadow: selected ? "0 0 0 2px rgba(23,61,42,.2)" : "none",
+                  cursor: "pointer",
+                  opacity: match ? 1 : 0.18,
+                  boxSizing: "border-box",
+                }}
+                title={pose ? `S${i + 1}: ${name}\nclick warp · Ctrl-click add to path` : `S${i + 1}: Shift-click to save`}
                 onClick={(e) => slotClick(i, e)}
-                onContextMenu={(e) => clearSlot(i, e)}
-              >{i + 1}</div>
+              >
+                {pose && slotThumbs[i] ? (
+                  <img
+                    src={slotThumbs[i]}
+                    alt={`Pose ${i + 1}: ${name}`}
+                    draggable={false}
+                    style={{ width: "100%", height: "100%", display: "block", objectFit: "cover" }}
+                  />
+                ) : (
+                  <span style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: pose ? "#6f8879" : "#9ab0a2", fontSize: 8 }}>
+                    {pose ? "no render" : "empty"}
+                  </span>
+                )}
+                <span style={{ position: "absolute", top: 3, left: 3, padding: "1px 3px", borderRadius: 3, background: pose ? "rgba(9,20,14,.72)" : "rgba(238,244,240,.9)", color: pose ? "#ffffff" : "#708579", fontSize: 8, lineHeight: 1.25 }}>
+                  {i + 1}
+                </span>
+                {pose && (
+                  <span style={{ position: "absolute", right: 0, bottom: 0, left: 0, padding: "8px 3px 2px", overflow: "hidden", background: "linear-gradient(transparent, rgba(5,14,9,.72))", color: "#ffffff", fontSize: 7, lineHeight: 1.2, textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {name}
+                  </span>
+                )}
+              </div>
             );
           })}
         </div>
-        <div style={{ ...UI.hint, marginTop: 4 }}>Windows: Shift-click saves · Ctrl-click appends · click previews.</div>
-        {selectedSlot >= 0 && slots[selectedSlot] && (
-          <div style={{ marginTop: 5, padding: 5, border: "1px solid #d5e2d9", borderRadius: 6 }}>
-            <div style={{ display: "flex", gap: 6 }}>
-              {slotThumbs[selectedSlot] ? (
-                <img src={slotThumbs[selectedSlot]} alt={`Preview of ${slotMeta[selectedSlot]?.name || `pose slot ${selectedSlot + 1}`}`} width="96" height="54" style={{ objectFit: "cover", borderRadius: 4, border: "1px solid #d5e2d9" }} />
-              ) : <div style={{ width: 96, height: 54, background: "#eef4f0", borderRadius: 4 }} />}
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 9 }}>slot {selectedSlot + 1}</div>
-                <input value={slotMeta[selectedSlot]?.name || `Pose ${selectedSlot + 1}`} style={{ ...SEL_STYLE, maxWidth: 155, width: 155 }} onChange={(e) => renameSelectedSlot(e.target.value)} />
-                <div>
-                  <span style={chipStyle(false)} onClick={refreshThumbnail}>📸 refresh</span>
-                  <span style={chipStyle(false)} onClick={(e) => clearSlot(selectedSlot, e)}>clear</span>
-                </div>
-              </div>
-            </div>
-            <div style={{ ...UI.hint, marginTop: 3 }}>
-              xyz {slots[selectedSlot].sposX?.toFixed(2)}, {slots[selectedSlot].sposY?.toFixed(2)}, {slots[selectedSlot].sposZ?.toFixed(2)} · rot {slots[selectedSlot].srotX?.toFixed(0)}°, {slots[selectedSlot].srotY?.toFixed(0)}°, {slots[selectedSlot].srotZ?.toFixed(0)}°
-            </div>
-            <div style={{ ...UI.row, marginTop: 3 }}>
-              <span style={{ fontSize: 9, marginRight: 4 }}>destination</span>
-              <input type="number" min={1} max={SLOT_COUNT} value={slotTarget} style={smallNumber} onChange={(e) => setSlotTarget(e.target.value)} />
-              <span style={chipStyle(false)} onClick={() => relocateSlot("move")}>move</span>
-              <span style={chipStyle(false)} onClick={() => relocateSlot("copy")}>copy</span>
-              <span style={chipStyle(false)} onClick={() => relocateSlot("swap")}>swap</span>
-            </div>
-          </div>
-        )}
+        <div style={{ ...UI.hint, marginTop: 4 }}>Shift-click saves · Ctrl-click appends · click previews. Filled legacy slots above 100 remain visible.</div>
       </details>
 
       <details open>
@@ -5121,11 +5074,6 @@ function DevDashboard() {
           </div>
         </div>
 
-        <div style={{ ...UI.row, marginTop: 6, padding: "4px 5px", borderRadius: 6, background: "#eaf5ee" }}>
-          <b style={{ fontSize: 9, color: "#2e7d52", marginRight: 5 }}>PRODUCTION PRESET</b>
-          <span style={{ fontSize: 9 }}>Catmull–Rom uniform · arc length · continuous · linear · quaternion</span>
-          <span style={chipStyle(false)} onClick={() => commitMotionPath(applyProductionPreset(motionPath))}>apply</span>
-        </div>
         <details>
           <summary style={{ ...UI.head, marginTop: 5 }}>advanced path settings</summary>
         <div style={{ ...UI.row, marginTop: 5 }}>
@@ -5187,11 +5135,6 @@ function DevDashboard() {
         {motionPath.orientationMode !== "quaternion" && <div style={UI.row}><span style={{ fontSize: 9 }}>orientation offset°</span>{["x", "y", "z"].map((axis, i) => <label key={axis} style={{ fontSize: 9 }}>{axis}<input type="number" step={1} value={motionPath.orientationOffset[i]} style={smallNumber} onChange={(e) => { const orientationOffset = [...motionPath.orientationOffset]; orientationOffset[i] = Number(e.target.value); commitMotionPath({ ...motionPath, orientationOffset }); }} /></label>)}</div>}
         </details>
         <div style={UI.row}>
-          <span style={chipStyle(motionPath.showPath)} onClick={() => commitMotionPath({ ...motionPath, showPath: !motionPath.showPath }, false)}>3D path</span>
-          <span style={chipStyle(motionPath.showGhosts)} onClick={() => commitMotionPath({ ...motionPath, showGhosts: !motionPath.showGhosts }, false)}>ghosts</span>
-          <span style={chipStyle(motionPath.editHandles)} onClick={() => commitMotionPath({ ...motionPath, editHandles: !motionPath.editHandles }, false)}>drag handles</span>
-        </div>
-        <div style={UI.row}>
           <span style={chipStyle(false)} onClick={undoPath}>undo</span>
           <span style={chipStyle(false)} onClick={redoPath}>redo</span>
           <span style={chipStyle(false)} onClick={() => { commitMotionPath(defaultMotionPath()); setSelectedPathNode(-1); }}>clear</span>
@@ -5233,6 +5176,27 @@ function DevDashboard() {
                 <span style={chipStyle(false)} onClick={() => savePathVersion(false, entry.id)}>+ version</span>
                 <span style={chipStyle(false)} onClick={() => { if (window.confirm("Delete this saved path and all versions?")) { persistLibrary(library.filter((item) => item.id !== entry.id)); if (libraryId === entry.id) setLibraryId(""); } }}>×</span>
                 <span style={chipStyle(true, true)} onClick={() => playLibraryVersion(entry)}>▶ PLAY</span>
+              </div>
+              <div style={{ display: "flex", flexWrap: "nowrap", gap: 5, marginTop: 5, marginLeft: 18, paddingBottom: 3, overflowX: "auto" }}>
+                {latestPath.nodes.map((node, nodeIndex) => {
+                  const thumbnail = slotThumbs[node.slot];
+                  return (
+                    <div
+                      key={`${node.slot}-${nodeIndex}`}
+                      title={`node ${nodeIndex + 1} · slot ${node.slot + 1}`}
+                      style={{ position: "relative", flex: "0 0 78px", aspectRatio: "30 / 17", overflow: "hidden", border: `1px solid ${thumbnail ? "#a9cfba" : "#d5e2d9"}`, borderRadius: 5, background: "#eef4f0" }}
+                    >
+                      {thumbnail ? (
+                        <img src={thumbnail} alt={`Node ${nodeIndex + 1}, pose slot ${node.slot + 1}`} draggable={false} style={{ width: "100%", height: "100%", display: "block", objectFit: "cover" }} />
+                      ) : (
+                        <span style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "#8aa094", fontSize: 7 }}>no render</span>
+                      )}
+                      <span style={{ position: "absolute", top: 2, left: 2, padding: "1px 3px", borderRadius: 3, background: "rgba(9,20,14,.72)", color: "#ffffff", fontSize: 7, lineHeight: 1.2 }}>
+                        {nodeIndex + 1}:S{node.slot + 1}
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
               <div style={{ ...UI.row, marginLeft: 18 }}>
                 {entry.versions.map((version, versionIndex) => (
