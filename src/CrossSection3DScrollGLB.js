@@ -6,6 +6,7 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import {
   Environment,
   Lightformer,
+  SoftShadows,
   useGLTF,
   useTexture,
   TransformControls,
@@ -18,7 +19,19 @@ import { Leva, useControls, button, folder } from "leva";
 
 gsap.registerPlugin(ScrollTrigger);
 
-const IGLASS_APP_VERSION = "7.5.2";
+const IGLASS_APP_VERSION = "7.5.3";
+
+// ============================================
+// v7.5.3 — PREMIUM LIVE STUDIO LIGHTING
+//
+//   REFLECTION RIG  The existing custom Lightformer environment is enabled
+//                   with a narrower, brighter hero strip for edge definition.
+//   REAL SHADOWS    Opaque phone components now cast/receive one configured
+//                   dynamic key shadow with PCSS softening.
+//   LANDING SHADOW  A transparent shadow-only catcher fades in near the end
+//                   of motion-path playback; the CSS page remains visible.
+//
+// ============================================
 
 // ============================================
 // v7.5.2 — UNDERSIDE CRACK VISIBILITY
@@ -453,13 +466,22 @@ const GLASS_REG_RANGE = 25;
 // Overridable: ?light=amb,key,fill,env,exp
 // ============================================
 const LIGHT = {
-  amb: 0.1,
+  amb: 0.05,
   key: 1.2,
-  fill: 0.35,
-  env: 0.4,
+  fill: 0.25,
+  env: 0.5,
   exp: 1.0,
   preset: "studio", // the HDRI whose SHAPES get reflected in the glass
   blur: 0.0, // blurs the IBL itself — softens every reflection at once
+};
+
+// One dynamic shadow-casting key. The transparent catcher is invisible
+// except for its shadow and fades in only for the final landing phase.
+const STUDIO_SHADOW = {
+  catcherOpacity: 0.18,
+  catcherStart: 0.82,
+  catcherY: -0.15,
+  catcherZ: -0.35,
 };
 
 const ENV_PRESETS = [
@@ -563,9 +585,9 @@ const SHINE = {
   glintSpread: 0.055,
   glintX: 0.78,
   glintY: 0.78,
-  customEnv: false,
+  customEnv: true,
   envBroad: 2.0,
-  envStrip: 4.0,
+  envStrip: 8.0,
   envRim: 1.4,
 };
 
@@ -2777,10 +2799,51 @@ function DevControls({ initialP }) {
   const [, set] = useControls(() => ({
     drive: { value: driveLabel(), editable: false },
 
-    // ---- v7 LIGHTING. The stable key/fill/IBL values remain internal;
-    // only the two production decisions stay exposed. ----
+    // ---- v7.5.3 PREMIUM LIGHTING. Direct, environment and landing-shadow
+    // values are exposed independently so exposure is only the final trim. ----
     "💡 lighting": folder(
       {
+        lightAmbient: {
+          value: LIGHT.amb,
+          min: 0,
+          max: 1,
+          step: 0.01,
+          label: "ambient fill",
+          onChange: (v) => {
+            LIGHT.amb = v;
+          },
+        },
+        lightKey: {
+          value: LIGHT.key,
+          min: 0,
+          max: 5,
+          step: 0.05,
+          label: "shadow key",
+          onChange: (v) => {
+            LIGHT.key = v;
+          },
+        },
+        lightFill: {
+          value: LIGHT.fill,
+          min: 0,
+          max: 3,
+          step: 0.05,
+          label: "cool fill",
+          onChange: (v) => {
+            LIGHT.fill = v;
+          },
+        },
+        lightEnvironment: {
+          value: LIGHT.env,
+          min: 0,
+          max: 3,
+          step: 0.05,
+          label: "environment intensity",
+          onChange: (v) => {
+            LIGHT.env = v;
+            DEV.dirtyLight = true;
+          },
+        },
         exp: {
           value: LIGHT.exp,
           min: 0.1,
@@ -2799,6 +2862,46 @@ function DevControls({ initialP }) {
           onChange: (v) => {
             LIGHT.preset = v;
             if (DEV.setEnv) DEV.setEnv(LIGHT.preset, LIGHT.blur);
+          },
+        },
+        shadowCatcherOpacity: {
+          value: STUDIO_SHADOW.catcherOpacity,
+          min: 0,
+          max: 0.6,
+          step: 0.01,
+          label: "landing shadow opacity",
+          onChange: (v) => {
+            STUDIO_SHADOW.catcherOpacity = v;
+          },
+        },
+        shadowCatcherStart: {
+          value: STUDIO_SHADOW.catcherStart,
+          min: 0,
+          max: 0.99,
+          step: 0.01,
+          label: "landing shadow starts at path",
+          onChange: (v) => {
+            STUDIO_SHADOW.catcherStart = v;
+          },
+        },
+        shadowCatcherY: {
+          value: STUDIO_SHADOW.catcherY,
+          min: -5,
+          max: 5,
+          step: 0.05,
+          label: "landing shadow Y",
+          onChange: (v) => {
+            STUDIO_SHADOW.catcherY = v;
+          },
+        },
+        shadowCatcherZ: {
+          value: STUDIO_SHADOW.catcherZ,
+          min: -5,
+          max: 5,
+          step: 0.05,
+          label: "landing shadow depth Z",
+          onChange: (v) => {
+            STUDIO_SHADOW.catcherZ = v;
           },
         },
       },
@@ -3876,7 +3979,7 @@ function DevDashboard() {
   const [selectedPathNode, setSelectedPathNode] = useState(-1);
   const [pathProgress, setPathProgress] = useState(0);
   const [pathPlaying, setPathPlaying] = useState(false);
-  const [status, setStatus] = useState("v7.5.2 — depth-tested underside crack");
+  const [status, setStatus] = useState("v7.5.3 — premium live studio lighting");
   const [library, setLibrary] = useState(loadMotionLibrary);
   const [libraryId, setLibraryId] = useState("");
   const [importText, setImportText] = useState("");
@@ -6426,6 +6529,8 @@ function IPhoneExploded({
         DEV.bezelMat = bezelMat; // live handle for the Leva folder
         DEV.bezelMeshes.push(child); // live handle for the isolate toggle
         child.renderOrder = 5; // above the crack overlay (4)
+        child.castShadow = true;
+        child.receiveShadow = true;
         bezel.push(child);
         return;
       }
@@ -6465,6 +6570,9 @@ function IPhoneExploded({
         child.material = glassMat;
         DEV.glassMat = glassMat;
         child.renderOrder = 3;
+        // Do not cast the pane as an opaque rectangular slab.
+        child.castShadow = false;
+        child.receiveShadow = false;
         glass.push(child);
 
         // ---- THE CRACKED PANE'S GEOMETRY ----
@@ -6583,6 +6691,8 @@ function IPhoneExploded({
           oledRimMat,
         ];
         child.renderOrder = 1;
+        child.castShadow = true;
+        child.receiveShadow = true;
         oled.push(child);
         return;
       }
@@ -6643,6 +6753,10 @@ function IPhoneExploded({
       // Coats draw after the opaque body they sit on.
       const isCoat = mat.transparent && child.visible;
       child.renderOrder = isCoat ? 1 : 0;
+      // Transparent gloss coats do not cast duplicate silhouettes. Opaque
+      // chassis/camera geometry supplies the real self-shadow structure.
+      child.castShadow = child.visible && !isCoat;
+      child.receiveShadow = child.visible && !isCoat;
       body.push(child);
     });
 
@@ -7267,6 +7381,7 @@ function PremiumReflectionEnvironment({ preset, blur, revision }) {
   return (
     <Environment
       key={`premium-env-${revision}`}
+      preset={preset}
       resolution={256}
       frames={1}
       blur={blur}
@@ -7286,7 +7401,7 @@ function PremiumReflectionEnvironment({ preset, blur, revision }) {
         color="#fff4df"
         position={[-3.5, 1.5, -5]}
         rotation-y={Math.PI / 2}
-        scale={[7, 0.7, 1]}
+        scale={[10, 0.2, 1]}
       />
       <Lightformer
         form="rect"
@@ -7343,6 +7458,8 @@ function Scene({
   const ambRef = useRef();
   const keyRef = useRef();
   const fillRef = useRef();
+  const shadowCatcherRef = useRef();
+  const shadowCatcherMatRef = useRef();
 
   useFrame(() => {
     // Lights read LIGHT live — no dirty flag needed, these are 3 float
@@ -7350,16 +7467,40 @@ function Scene({
     if (ambRef.current) ambRef.current.intensity = LIGHT.amb;
     if (keyRef.current) keyRef.current.intensity = LIGHT.key;
     if (fillRef.current) fillRef.current.intensity = LIGHT.fill;
+    if (shadowCatcherMatRef.current) {
+      const start = Math.max(0, Math.min(0.99, STUDIO_SHADOW.catcherStart));
+      const landingT = Math.max(
+        0,
+        Math.min(1, (MOTION_DEV.progress - start) / (1 - start))
+      );
+      shadowCatcherMatRef.current.opacity =
+        STUDIO_SHADOW.catcherOpacity * smoothstep(landingT);
+    }
+    if (shadowCatcherRef.current) {
+      shadowCatcherRef.current.position.y = STUDIO_SHADOW.catcherY;
+      shadowCatcherRef.current.position.z = STUDIO_SHADOW.catcherZ;
+    }
   });
 
   return (
     <>
+      <SoftShadows size={12} samples={10} focus={0.4} />
       <ambientLight ref={ambRef} intensity={LIGHT.amb} />
       <directionalLight
         ref={keyRef}
         position={[5, 10, 5]}
         intensity={LIGHT.key}
         castShadow
+        shadow-mapSize-width={2048}
+        shadow-mapSize-height={2048}
+        shadow-camera-near={0.1}
+        shadow-camera-far={30}
+        shadow-camera-left={-5}
+        shadow-camera-right={5}
+        shadow-camera-top={5}
+        shadow-camera-bottom={-5}
+        shadow-bias={-0.0001}
+        shadow-normalBias={0.01}
       />
       <directionalLight
         ref={fillRef}
@@ -7382,6 +7523,22 @@ function Scene({
         blur={envBlur}
         revision={envRevision}
       />
+
+      <mesh
+        ref={shadowCatcherRef}
+        position={[0, STUDIO_SHADOW.catcherY, STUDIO_SHADOW.catcherZ]}
+        receiveShadow
+        renderOrder={-10}
+      >
+        <planeGeometry args={[20, 12]} />
+        <shadowMaterial
+          ref={shadowCatcherMatRef}
+          color="#35404a"
+          transparent
+          opacity={0}
+          depthWrite={false}
+        />
+      </mesh>
 
       <IPhoneExploded
         modelPath={modelPath}
@@ -7775,6 +7932,8 @@ function CrossSection3DScrollGLBScene(props) {
             // what the metal chassis and the studio IBL were doing.
             gl.toneMapping = THREE.ACESFilmicToneMapping;
             gl.toneMappingExposure = LIGHT.exp;
+            gl.shadowMap.enabled = true;
+            gl.shadowMap.type = THREE.PCFShadowMap;
             if ("environmentIntensity" in scene) {
               scene.environmentIntensity = LIGHT.env;
             }
