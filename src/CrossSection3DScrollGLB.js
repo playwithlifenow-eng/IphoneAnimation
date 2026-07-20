@@ -19,7 +19,16 @@ import { Leva, useControls, button, folder } from "leva";
 
 gsap.registerPlugin(ScrollTrigger);
 
-const IGLASS_APP_VERSION = "7.5.3";
+const IGLASS_APP_VERSION = "7.5.4";
+
+// ============================================
+// v7.5.4 — MATERIAL LIGHTING ONLY
+//
+//   Removes the v7.5.3 landing shadow catcher and its controls. The studio
+//   reflection cards and phone self-shadowing remain; no shadow is projected
+//   onto the transparent canvas or surrounding page.
+//
+// ============================================
 
 // ============================================
 // v7.5.3 — PREMIUM LIVE STUDIO LIGHTING
@@ -473,15 +482,6 @@ const LIGHT = {
   exp: 1.0,
   preset: "studio", // the HDRI whose SHAPES get reflected in the glass
   blur: 0.0, // blurs the IBL itself — softens every reflection at once
-};
-
-// One dynamic shadow-casting key. The transparent catcher is invisible
-// except for its shadow and fades in only for the final landing phase.
-const STUDIO_SHADOW = {
-  catcherOpacity: 0.18,
-  catcherStart: 0.82,
-  catcherY: -0.15,
-  catcherZ: -0.35,
 };
 
 const ENV_PRESETS = [
@@ -2864,46 +2864,6 @@ function DevControls({ initialP }) {
             if (DEV.setEnv) DEV.setEnv(LIGHT.preset, LIGHT.blur);
           },
         },
-        shadowCatcherOpacity: {
-          value: STUDIO_SHADOW.catcherOpacity,
-          min: 0,
-          max: 0.6,
-          step: 0.01,
-          label: "landing shadow opacity",
-          onChange: (v) => {
-            STUDIO_SHADOW.catcherOpacity = v;
-          },
-        },
-        shadowCatcherStart: {
-          value: STUDIO_SHADOW.catcherStart,
-          min: 0,
-          max: 0.99,
-          step: 0.01,
-          label: "landing shadow starts at path",
-          onChange: (v) => {
-            STUDIO_SHADOW.catcherStart = v;
-          },
-        },
-        shadowCatcherY: {
-          value: STUDIO_SHADOW.catcherY,
-          min: -5,
-          max: 5,
-          step: 0.05,
-          label: "landing shadow Y",
-          onChange: (v) => {
-            STUDIO_SHADOW.catcherY = v;
-          },
-        },
-        shadowCatcherZ: {
-          value: STUDIO_SHADOW.catcherZ,
-          min: -5,
-          max: 5,
-          step: 0.05,
-          label: "landing shadow depth Z",
-          onChange: (v) => {
-            STUDIO_SHADOW.catcherZ = v;
-          },
-        },
       },
       { collapsed: false }
     ),
@@ -3979,7 +3939,7 @@ function DevDashboard() {
   const [selectedPathNode, setSelectedPathNode] = useState(-1);
   const [pathProgress, setPathProgress] = useState(0);
   const [pathPlaying, setPathPlaying] = useState(false);
-  const [status, setStatus] = useState("v7.5.3 — premium live studio lighting");
+  const [status, setStatus] = useState("v7.5.4 — material lighting only");
   const [library, setLibrary] = useState(loadMotionLibrary);
   const [libraryId, setLibraryId] = useState("");
   const [importText, setImportText] = useState("");
@@ -7458,8 +7418,6 @@ function Scene({
   const ambRef = useRef();
   const keyRef = useRef();
   const fillRef = useRef();
-  const shadowCatcherRef = useRef();
-  const shadowCatcherMatRef = useRef();
 
   useFrame(() => {
     // Lights read LIGHT live — no dirty flag needed, these are 3 float
@@ -7467,19 +7425,6 @@ function Scene({
     if (ambRef.current) ambRef.current.intensity = LIGHT.amb;
     if (keyRef.current) keyRef.current.intensity = LIGHT.key;
     if (fillRef.current) fillRef.current.intensity = LIGHT.fill;
-    if (shadowCatcherMatRef.current) {
-      const start = Math.max(0, Math.min(0.99, STUDIO_SHADOW.catcherStart));
-      const landingT = Math.max(
-        0,
-        Math.min(1, (MOTION_DEV.progress - start) / (1 - start))
-      );
-      shadowCatcherMatRef.current.opacity =
-        STUDIO_SHADOW.catcherOpacity * smoothstep(landingT);
-    }
-    if (shadowCatcherRef.current) {
-      shadowCatcherRef.current.position.y = STUDIO_SHADOW.catcherY;
-      shadowCatcherRef.current.position.z = STUDIO_SHADOW.catcherZ;
-    }
   });
 
   return (
@@ -7523,22 +7468,6 @@ function Scene({
         blur={envBlur}
         revision={envRevision}
       />
-
-      <mesh
-        ref={shadowCatcherRef}
-        position={[0, STUDIO_SHADOW.catcherY, STUDIO_SHADOW.catcherZ]}
-        receiveShadow
-        renderOrder={-10}
-      >
-        <planeGeometry args={[20, 12]} />
-        <shadowMaterial
-          ref={shadowCatcherMatRef}
-          color="#35404a"
-          transparent
-          opacity={0}
-          depthWrite={false}
-        />
-      </mesh>
 
       <IPhoneExploded
         modelPath={modelPath}
