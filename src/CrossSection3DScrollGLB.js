@@ -539,7 +539,7 @@ const SHINE = {
   progress: 0,
   range: [0, 1],
   speed: 0.7,
-  sweepStrength: 0.23,
+  sweepStrength: 0.33,
   broadWidth: 0.23,
   stripWidth: 0.04,
   angleDeg: -41,
