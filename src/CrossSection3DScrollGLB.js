@@ -18,7 +18,19 @@ import { Leva, useControls, button, folder } from "leva";
 
 gsap.registerPlugin(ScrollTrigger);
 
-const IGLASS_APP_VERSION = "7.5.1";
+const IGLASS_APP_VERSION = "7.5.2";
+
+// ============================================
+// v7.5.2 — UNDERSIDE CRACK VISIBILITY
+//
+//   BACKSIDE LAYER   A separate BackSide crack material makes the fracture
+//                    visible from the gap between the lifted glass and OLED.
+//   SAFE OCCLUSION   depthTest stays enabled on the underside layer, so the
+//                    chassis still hides it when the phone is viewed behind.
+//   LIVE CONTROLS    Independent underside shade, opacity, reflection and
+//                    roughness controls do not alter the existing front crack.
+//
+// ============================================
 
 // ============================================
 // v7.5.1 — CRACK FADE + LANDED-GLASS SHINE
@@ -539,7 +551,7 @@ const SHINE = {
   progress: 0,
   range: [0, 1],
   speed: 0.7,
-  sweepStrength: 0.33,
+  sweepStrength: 0.23,
   broadWidth: 0.23,
   stripWidth: 0.04,
   angleDeg: -41,
@@ -602,6 +614,17 @@ const CRACK = {
   sharpness: 1,
 };
 
+// Independent inner-face treatment. These values are global rendering
+// controls, not pose parameters; crack timing/state still comes exclusively
+// from the existing CRACK pose data.
+const CRACK_UNDERSIDE = {
+  enabled: true,
+  shade: 0.35,
+  opacity: 0.7,
+  reflection: 1.2,
+  roughness: 0.2,
+};
+
 function poseUsesDefaultCrackPosition(pose) {
   return pose?.crackUseDefault !== false;
 }
@@ -657,6 +680,7 @@ const DEV = {
   oledRimMat: null, // live handle — the "show OLED rim" toggle
   glassMat: null, // live handle — the front-glass folder
   crackMat: null, // live handle — the cracked-pane folder
+  crackUndersideMat: null, // inner-face crack; depth-tested against the phone
   shineMat: null, // deterministic sweep / glint shader
   setEnv: null, // Scene's setter — preset/blur need a React re-render
   refreshEnvironment: null, // custom Lightformer props need a React render
@@ -665,11 +689,24 @@ const DEV = {
 };
 
 function syncCrackAppearance() {
-  const uniforms = DEV.crackMat?.userData?.crackAppearanceUniforms;
-  if (!uniforms) return;
-  uniforms.uCrackPresence.value = Math.max(0, Math.min(1, CRACK.mix));
-  uniforms.uCrackSeverity.value = Math.max(0, Math.min(1, CRACK.severity));
-  uniforms.uCrackSharpness.value = Math.max(0.35, Math.min(3, CRACK.sharpness));
+  for (const mat of [DEV.crackMat, DEV.crackUndersideMat]) {
+    const uniforms = mat?.userData?.crackAppearanceUniforms;
+    if (!uniforms) continue;
+    uniforms.uCrackPresence.value = Math.max(0, Math.min(1, CRACK.mix));
+    uniforms.uCrackSeverity.value = Math.max(0, Math.min(1, CRACK.severity));
+    uniforms.uCrackSharpness.value = Math.max(0.35, Math.min(3, CRACK.sharpness));
+  }
+}
+
+function syncCrackUndersideMaterial() {
+  const mat = DEV.crackUndersideMat;
+  if (!mat) return;
+  mat.color.setScalar(Math.max(0, Math.min(1, CRACK_UNDERSIDE.shade)));
+  mat.opacity = Math.max(0, Math.min(1, CRACK_UNDERSIDE.opacity));
+  mat.envMapIntensity = Math.max(0, Math.min(3, CRACK_UNDERSIDE.reflection));
+  mat.roughness = Math.max(0, Math.min(1, CRACK_UNDERSIDE.roughness));
+  mat.visible = CRACK_UNDERSIDE.enabled && CRACK.mix > 0.0001;
+  mat.needsUpdate = true;
 }
 
 function applyPremiumGlassMaterial() {
@@ -3144,6 +3181,63 @@ function DevControls({ initialP }) {
             wireTap("crackSharpness", v);
           },
         },
+        "underside view": folder(
+          {
+            crackUndersideEnabled: {
+              value: CRACK_UNDERSIDE.enabled,
+              label: "show crack from underneath",
+              onChange: (v) => {
+                CRACK_UNDERSIDE.enabled = !!v;
+                syncCrackUndersideMaterial();
+              },
+            },
+            crackUndersideShade: {
+              value: CRACK_UNDERSIDE.shade,
+              min: 0,
+              max: 1,
+              step: 0.01,
+              label: "underside shade  dark → light",
+              onChange: (v) => {
+                CRACK_UNDERSIDE.shade = v;
+                syncCrackUndersideMaterial();
+              },
+            },
+            crackUndersideOpacity: {
+              value: CRACK_UNDERSIDE.opacity,
+              min: 0,
+              max: 1,
+              step: 0.01,
+              label: "underside opacity",
+              onChange: (v) => {
+                CRACK_UNDERSIDE.opacity = v;
+                syncCrackUndersideMaterial();
+              },
+            },
+            crackUndersideReflection: {
+              value: CRACK_UNDERSIDE.reflection,
+              min: 0,
+              max: 3,
+              step: 0.05,
+              label: "underside reflection",
+              onChange: (v) => {
+                CRACK_UNDERSIDE.reflection = v;
+                syncCrackUndersideMaterial();
+              },
+            },
+            crackUndersideRoughness: {
+              value: CRACK_UNDERSIDE.roughness,
+              min: 0,
+              max: 1,
+              step: 0.01,
+              label: "underside roughness",
+              onChange: (v) => {
+                CRACK_UNDERSIDE.roughness = v;
+                syncCrackUndersideMaterial();
+              },
+            },
+          },
+          { collapsed: false }
+        ),
       },
       { collapsed: true }
     ),
@@ -3782,7 +3876,7 @@ function DevDashboard() {
   const [selectedPathNode, setSelectedPathNode] = useState(-1);
   const [pathProgress, setPathProgress] = useState(0);
   const [pathPlaying, setPathPlaying] = useState(false);
-  const [status, setStatus] = useState("v7.5.1 — crack fade + landed-glass shine");
+  const [status, setStatus] = useState("v7.5.2 — depth-tested underside crack");
   const [library, setLibrary] = useState(loadMotionLibrary);
   const [libraryId, setLibraryId] = useState("");
   const [importText, setImportText] = useState("");
@@ -6651,6 +6745,72 @@ function IPhoneExploded({
   }, [crackTex]);
 
   // ---------------------------------------------------------
+  // UNDERSIDE CRACK — separate inner-face material.
+  //
+  // The existing front material remains FrontSide/depthTest:false. This
+  // second material renders only the reverse face and keeps depth testing,
+  // so it is visible from the glass/OLED gap but cannot draw through the
+  // chassis when the phone is viewed from behind.
+  // ---------------------------------------------------------
+  const crackUndersideMat = useMemo(() => {
+    const m = new THREE.MeshPhysicalMaterial({
+      map: crackTex,
+      color: new THREE.Color().setScalar(CRACK_UNDERSIDE.shade),
+      transparent: true,
+      opacity: CRACK_UNDERSIDE.opacity,
+      roughness: CRACK_UNDERSIDE.roughness,
+      metalness: 0,
+      depthWrite: false,
+      depthTest: true,
+      envMapIntensity: CRACK_UNDERSIDE.reflection,
+      clearcoat: 1,
+      clearcoatRoughness: 0.08,
+      side: THREE.BackSide,
+      polygonOffset: true,
+      polygonOffsetFactor: -3,
+      polygonOffsetUnits: -3,
+    });
+    m.onBeforeCompile = (shader) => {
+      shader.uniforms.uCrackPresence = { value: CRACK.mix };
+      shader.uniforms.uCrackSeverity = { value: CRACK.severity };
+      shader.uniforms.uCrackSharpness = { value: CRACK.sharpness };
+      shader.fragmentShader = shader.fragmentShader.replace(
+        "#include <map_fragment>",
+        `#include <map_fragment>
+         diffuseColor.a = clamp(
+           pow(clamp(diffuseColor.a, 0.0, 1.0), uCrackSharpness)
+             * uCrackSeverity * uCrackPresence,
+           0.0,
+           1.0
+         );`
+      );
+      shader.fragmentShader = shader.fragmentShader.replace(
+        "void main() {",
+        `uniform float uCrackPresence;
+         uniform float uCrackSeverity;
+         uniform float uCrackSharpness;
+         void main() {`
+      );
+      m.userData.crackAppearanceUniforms = shader.uniforms;
+      syncCrackAppearance();
+    };
+    m.customProgramCacheKey = () => "iglass-crack-underside-v1";
+    m.visible = CRACK_UNDERSIDE.enabled && CRACK.mix > 0.0001;
+    DEV.crackUndersideMat = m;
+    syncCrackUndersideMaterial();
+    return m;
+  }, [crackTex]);
+
+  useEffect(() => {
+    return () => {
+      crackUndersideMat.dispose();
+      if (DEV.crackUndersideMat === crackUndersideMat) {
+        DEV.crackUndersideMat = null;
+      }
+    };
+  }, [crackUndersideMat]);
+
+  // ---------------------------------------------------------
   // PREMIUM CLEAN-GLASS OPTICS (v6)
   //
   // The material is intentionally a pure function of SHINE + scrollState.
@@ -6945,6 +7105,10 @@ function IPhoneExploded({
         DEV.crackMat.visible = CRACK.mix > 0.0001;
         syncCrackAppearance();
       }
+      if (DEV.crackUndersideMat) {
+        DEV.crackUndersideMat.visible =
+          CRACK_UNDERSIDE.enabled && CRACK.mix > 0.0001;
+      }
     }
 
     if (oledGroupRef.current) {
@@ -7036,6 +7200,11 @@ function IPhoneExploded({
                 <mesh
                   geometry={crackGeo}
                   material={crackMat}
+                  renderOrder={4}
+                />
+                <mesh
+                  geometry={crackGeo}
+                  material={crackUndersideMat}
                   renderOrder={4}
                 />
               </group>
