@@ -6,7 +6,6 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import {
   Environment,
   Lightformer,
-  SoftShadows,
   useGLTF,
   useTexture,
   TransformControls,
@@ -19,7 +18,16 @@ import { Leva, useControls, button, folder } from "leva";
 
 gsap.registerPlugin(ScrollTrigger);
 
-const IGLASS_APP_VERSION = "7.5.4";
+const IGLASS_APP_VERSION = "7.5.5";
+
+// ============================================
+// v7.5.5 — REFLECTION LIGHTING / NO PROJECTED SHADOWS
+//
+//   Removes all v7.5.3 mesh shadow flags, PCSS soft-shadow injection and
+//   shadow-key configuration. The premium Lightformer reflections and direct
+//   material lighting remain unchanged.
+//
+// ============================================
 
 // ============================================
 // v7.5.4 — MATERIAL LIGHTING ONLY
@@ -3939,7 +3947,7 @@ function DevDashboard() {
   const [selectedPathNode, setSelectedPathNode] = useState(-1);
   const [pathProgress, setPathProgress] = useState(0);
   const [pathPlaying, setPathPlaying] = useState(false);
-  const [status, setStatus] = useState("v7.5.4 — material lighting only");
+  const [status, setStatus] = useState("v7.5.5 — reflection lighting / no projected shadows");
   const [library, setLibrary] = useState(loadMotionLibrary);
   const [libraryId, setLibraryId] = useState("");
   const [importText, setImportText] = useState("");
@@ -6489,8 +6497,6 @@ function IPhoneExploded({
         DEV.bezelMat = bezelMat; // live handle for the Leva folder
         DEV.bezelMeshes.push(child); // live handle for the isolate toggle
         child.renderOrder = 5; // above the crack overlay (4)
-        child.castShadow = true;
-        child.receiveShadow = true;
         bezel.push(child);
         return;
       }
@@ -6530,9 +6536,6 @@ function IPhoneExploded({
         child.material = glassMat;
         DEV.glassMat = glassMat;
         child.renderOrder = 3;
-        // Do not cast the pane as an opaque rectangular slab.
-        child.castShadow = false;
-        child.receiveShadow = false;
         glass.push(child);
 
         // ---- THE CRACKED PANE'S GEOMETRY ----
@@ -6651,8 +6654,6 @@ function IPhoneExploded({
           oledRimMat,
         ];
         child.renderOrder = 1;
-        child.castShadow = true;
-        child.receiveShadow = true;
         oled.push(child);
         return;
       }
@@ -6713,10 +6714,6 @@ function IPhoneExploded({
       // Coats draw after the opaque body they sit on.
       const isCoat = mat.transparent && child.visible;
       child.renderOrder = isCoat ? 1 : 0;
-      // Transparent gloss coats do not cast duplicate silhouettes. Opaque
-      // chassis/camera geometry supplies the real self-shadow structure.
-      child.castShadow = child.visible && !isCoat;
-      child.receiveShadow = child.visible && !isCoat;
       body.push(child);
     });
 
@@ -7429,23 +7426,11 @@ function Scene({
 
   return (
     <>
-      <SoftShadows size={12} samples={10} focus={0.4} />
       <ambientLight ref={ambRef} intensity={LIGHT.amb} />
       <directionalLight
         ref={keyRef}
         position={[5, 10, 5]}
         intensity={LIGHT.key}
-        castShadow
-        shadow-mapSize-width={2048}
-        shadow-mapSize-height={2048}
-        shadow-camera-near={0.1}
-        shadow-camera-far={30}
-        shadow-camera-left={-5}
-        shadow-camera-right={5}
-        shadow-camera-top={5}
-        shadow-camera-bottom={-5}
-        shadow-bias={-0.0001}
-        shadow-normalBias={0.01}
       />
       <directionalLight
         ref={fillRef}
@@ -7847,7 +7832,6 @@ function CrossSection3DScrollGLBScene(props) {
       >
         <Canvas
           camera={{ position: [0, 0, 2.8], fov: 35, near: 0.01 }}
-          shadows
           dpr={[1, 2]}
           gl={{
             antialias: true,
@@ -7861,8 +7845,6 @@ function CrossSection3DScrollGLBScene(props) {
             // what the metal chassis and the studio IBL were doing.
             gl.toneMapping = THREE.ACESFilmicToneMapping;
             gl.toneMappingExposure = LIGHT.exp;
-            gl.shadowMap.enabled = true;
-            gl.shadowMap.type = THREE.PCFShadowMap;
             if ("environmentIntensity" in scene) {
               scene.environmentIntensity = LIGHT.env;
             }
