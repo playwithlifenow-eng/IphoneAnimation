@@ -18,7 +18,33 @@ import { Leva, useControls, button, folder } from "leva";
 
 gsap.registerPlugin(ScrollTrigger);
 
-const IGLASS_APP_VERSION = "7.5.6";
+const IGLASS_APP_VERSION = "7.5.8";
+
+// ============================================
+// v7.5.8 — PATH OVERLAY REMOVAL
+//
+//   OVERLAY REMOVAL   The 3D path line, node markers, playhead, wireframe
+//                     ghosts and selected-node drag handles are no longer
+//                     mounted in the scene. Path data and 2D controls remain.
+//
+// ============================================
+
+// ============================================
+// v7.5.7 — COINCIDENT-NODE + THUMBNAIL INTEGRITY FIXES
+//
+//   STATIC LEGS       Consecutive nodes at the same Stage XYZ now retain
+//                     their authored time and interpolate non-spatial pose
+//                     channels instead of collapsing to the curve midpoint.
+//   NODE TRACKING      Spatial ties use authored timeline position, so the
+//                     active-node indicator can distinguish static nodes.
+//   LEGACY GLASS       Missing glass-registration keys resolve to the defined
+//                     home values on both sides of an interpolation.
+//   PATH THUMBNAILS    New saved-path versions retain their own ordered node
+//                     thumbnails instead of reading later slot replacements.
+//   THUMB BACKFILL     Clicking a filled "no render" pose captures its exact
+//                     restored view automatically; no extra UI is added.
+//
+// ============================================
 
 // ============================================
 // v7.5.6 — VISUAL POSE + SAVED-PATH LIBRARIES
@@ -1399,6 +1425,23 @@ function effectiveNodeMotionMode(path, index) {
   return path?.continuous === false ? "custom" : "continuous";
 }
 
+function spatialLegIsStatic(nodes, start, end) {
+  const a = nodes?.[start]?.position;
+  const b = nodes?.[end]?.position;
+  if (
+    !Array.isArray(a) ||
+    !Array.isArray(b) ||
+    a.length !== 3 ||
+    b.length !== 3 ||
+    !a.every(Number.isFinite) ||
+    !b.every(Number.isFinite)
+  ) return false;
+  const dx = a[0] - b[0];
+  const dy = a[1] - b[1];
+  const dz = a[2] - b[2];
+  return dx * dx + dy * dy + dz * dz <= 1e-12;
+}
+
 function trackTToPathU(path, trackT) {
   const target = Math.max(0, Math.min(1, Number(trackT) || 0));
   if (!path.arcLength || target <= 0 || target >= 1) return target;
@@ -1451,6 +1494,16 @@ function buildMotionTimeline(path) {
       continue;
     }
 
+    // Arc-length curves have no spatial parameter for a zero-distance leg.
+    // Give that leg its own temporal event so glass registration, teardown P,
+    // shine and every other pose channel can still travel between its nodes.
+    if (spatialLegIsStatic(nodes, incoming - 1, incoming)) {
+      pushTravel(incoming - 1, incoming, "static", nodeTravelDuration(nodes[incoming]));
+      pushHold(incoming);
+      incoming += 1;
+      continue;
+    }
+
     const start = incoming - 1;
     let end = incoming;
     let duration = nodeTravelDuration(nodes[incoming]);
@@ -1459,7 +1512,8 @@ function buildMotionTimeline(path) {
       !acceleratingFromHold &&
       end < last &&
       nodeHoldDuration(nodes[end]) <= 0 &&
-      effectiveNodeMotionMode(path, end + 1) === "continuous"
+      effectiveNodeMotionMode(path, end + 1) === "continuous" &&
+      !spatialLegIsStatic(nodes, end, end + 1)
     ) {
       end += 1;
       duration += nodeTravelDuration(nodes[end]);
@@ -1562,18 +1616,47 @@ function sampleMotionPlayback(path, progress, speedOverride) {
   return { pose, pathProgress, ...timing };
 }
 
+function expectedMotionNodeIndex(path, progress) {
+  const timeline = buildMotionTimeline(path);
+  if (!timeline.events.length || timeline.total <= 0) {
+    return Math.max(0, path.nodes.length - 1);
+  }
+  let time = Math.max(0, Math.min(1, progress)) * timeline.total;
+  for (const event of timeline.events) {
+    if (time <= event.duration) {
+      if (event.type === "hold") return event.index;
+      const raw = Math.max(0, Math.min(1, time / event.duration));
+      return THREE.MathUtils.lerp(
+        event.start,
+        event.end,
+        motionEventProgress(path, event, raw)
+      );
+    }
+    time -= event.duration;
+  }
+  return path.nodes.length - 1;
+}
+
 function nearestMotionNode(path, progress) {
   if (!path || !path.nodes?.length) return -1;
   if (path.nodes.length === 1) return 0;
-  const pose = sampleMotionPath(path, Math.max(0, Math.min(1, progress)));
+  const clamped = Math.max(0, Math.min(1, progress));
+  const pose = sampleMotionPath(path, clamped);
   if (!pose) return -1;
   const point = new THREE.Vector3(pose.sposX, pose.sposY, pose.sposZ);
+  const expectedIndex = expectedMotionNodeIndex(path, clamped);
   let nearest = 0;
   let nearestDistance = Infinity;
   path.nodes.forEach((node, i) => {
     if (!Array.isArray(node.position)) return;
     const distance = point.distanceToSquared(new THREE.Vector3(...node.position));
-    if (distance < nearestDistance) {
+    if (
+      distance < nearestDistance - 1e-12 ||
+      (
+        Math.abs(distance - nearestDistance) <= 1e-12 &&
+        Math.abs(i - expectedIndex) < Math.abs(nearest - expectedIndex)
+      )
+    ) {
       nearestDistance = distance;
       nearest = i;
     }
@@ -1803,14 +1886,25 @@ function interpolateMotionPose(path, trackT, spatial) {
   const aCrackPresence = a.crackOn === false ? 0 : 1;
   const bCrackPresence = b.crackOn === false ? 0 : 1;
 
-  for (const key of Object.keys(a)) {
+  const glassValues = {
+    glassRegX: [aGlass.x, bGlass.x],
+    glassRegY: [aGlass.y, bGlass.y],
+    glassRegZ: [aGlass.z, bGlass.z],
+  };
+  const poseKeys = new Set([
+    ...Object.keys(a),
+    ...Object.keys(b),
+    ...POSE_GLASS_REG_KEYS,
+  ]);
+
+  for (const key of poseKeys) {
     if (
       POSE_ROTATION_KEYS.has(key) ||
       POSE_CRACK_POSITION_KEYS.has(key) ||
       ["sposX", "sposY", "sposZ"].includes(key)
     ) continue;
-    const av = a[key];
-    const bv = b[key];
+    const av = POSE_GLASS_REG_KEYS.has(key) ? glassValues[key][0] : a[key];
+    const bv = POSE_GLASS_REG_KEYS.has(key) ? glassValues[key][1] : b[key];
     if (typeof av === "number" && typeof bv === "number") {
       const parameterT = POSE_GLASS_REG_KEYS.has(key) ? glassT : t;
       out[key] = av + (bv - av) * parameterT;
@@ -1909,6 +2003,20 @@ function sampleMotionEvent(path, event, raw) {
     const u = THREE.MathUtils.lerp(event.startU, event.endU, eased);
     const spatial = positionTrackSample(path, u);
     return interpolateMotionPose(path, spatial.trackT, spatial);
+  }
+  if (event.mode === "static") {
+    const trackT = THREE.MathUtils.lerp(
+      event.startTrackT,
+      event.endTrackT,
+      eased
+    );
+    const start = new THREE.Vector3(...path.nodes[event.start].position);
+    const end = new THREE.Vector3(...path.nodes[event.end].position);
+    return interpolateMotionPose(path, trackT, {
+      point: start.clone().lerp(end, eased),
+      tangent: new THREE.Vector3(0, 0, -1),
+      trackT,
+    });
   }
   return sampleAtTrack(
     path,
@@ -3949,7 +4057,7 @@ function DevDashboard() {
   const [selectedPathNode, setSelectedPathNode] = useState(-1);
   const [pathProgress, setPathProgress] = useState(0);
   const [pathPlaying, setPathPlaying] = useState(false);
-  const [status, setStatus] = useState("v7.5.6 — visual pose + saved-path libraries");
+  const [status, setStatus] = useState("v7.5.8 — path overlay removed");
   const [library, setLibrary] = useState(loadMotionLibrary);
   const [libraryId, setLibraryId] = useState("");
   const [importText, setImportText] = useState("");
@@ -3974,6 +4082,7 @@ function DevDashboard() {
   const slotsRef = useRef(slots);
   const slotRevisionRef = useRef(0);
   const libraryRef = useRef(library);
+  const thumbnailCaptureTokenRef = useRef(0);
 
   const commitSlots = (nextSlots) => {
     slotsRef.current = nextSlots;
@@ -4075,6 +4184,7 @@ function DevDashboard() {
 
   useEffect(() => () => {
     if (pathPlaybackRef.current.raf) cancelAnimationFrame(pathPlaybackRef.current.raf);
+    thumbnailCaptureTokenRef.current += 1;
   }, []);
 
   const pauseMotionPath = (syncControls = true) => {
@@ -4255,14 +4365,41 @@ function DevDashboard() {
     setStatus(`saved S${i + 1} · Glass Y ${Number(savedPose.glassRegY).toFixed(2)}`);
   };
 
+  const captureMissingSlotThumbnail = (i, token) => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (
+          token !== thumbnailCaptureTokenRef.current ||
+          !slotsRef.current[i]
+        ) return;
+        const thumb = capturePoseThumbnail();
+        if (!thumb) return;
+        setSlotThumbs((current) => {
+          if (current[i]) return current;
+          const thumbs = { ...current, [i]: thumb };
+          persistSlotRecord(SLOT_THUMB_KEY, thumbs);
+          return thumbs;
+        });
+        setStatus(`rendered pose slot ${i + 1}`);
+      });
+    });
+  };
+
   const slotClick = (i, ev) => {
     const currentSlots = slotsRef.current;
+    const thumbnailToken = ++thumbnailCaptureTokenRef.current;
     setSelectedSlot(i);
     if (ev.shiftKey) saveSlot(i);
     else if ((ev.ctrlKey || ev.metaKey) && currentSlots[i]) addPathNode(i);
     else if (currentSlots[i]) {
       pauseMotionPath(false);
       warpToParams(currentSlots[i]);
+      if (!slotThumbs[i]) {
+        // Thumbnail backfills must capture the authored pose, not a damped
+        // intermediate frame while glass/material controls are settling.
+        DEV.pathPreview = true;
+        captureMissingSlotThumbnail(i, thumbnailToken);
+      }
     }
   };
 
@@ -4419,11 +4556,16 @@ function DevDashboard() {
       return;
     }
     const savedAt = new Date().toISOString();
+    const slotThumbnails = {};
+    embeddedPath.nodes.forEach((node) => {
+      if (slotThumbs[node.slot]) slotThumbnails[node.slot] = slotThumbs[node.slot];
+    });
     const version = {
       savedAt,
       appVersion: IGLASS_APP_VERSION,
       snapshotSource: "authoritative-slots",
       slotRevision: slotRevisionRef.current,
+      slotThumbnails,
       path: embeddedPath,
     };
     let next;
@@ -4456,6 +4598,17 @@ function DevDashboard() {
     if (!version) return;
     const path = normaliseMotionPath(version.path);
     const restored = restoreSavedPathSnapshot(path);
+    if (
+      version.slotThumbnails &&
+      typeof version.slotThumbnails === "object" &&
+      Object.keys(version.slotThumbnails).length
+    ) {
+      setSlotThumbs((current) => {
+        const thumbs = { ...current, ...version.slotThumbnails };
+        persistSlotRecord(SLOT_THUMB_KEY, thumbs);
+        return thumbs;
+      });
+    }
     commitMotionPath(path);
     setLibraryId(entry.id);
     setStatus(`loaded ${entry.name} v${versionIndex + 1} · restored ${restored.restored} node poses`);
@@ -4847,7 +5000,7 @@ function DevDashboard() {
                   />
                 ) : (
                   <span style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: pose ? "#6f8879" : "#9ab0a2", fontSize: 8 }}>
-                    {pose ? "no render" : "empty"}
+                    {pose ? "click to render" : "empty"}
                   </span>
                 )}
                 <span style={{ position: "absolute", top: 3, left: 3, padding: "1px 3px", borderRadius: 3, background: pose ? "rgba(9,20,14,.72)" : "rgba(238,244,240,.9)", color: pose ? "#ffffff" : "#708579", fontSize: 8, lineHeight: 1.25 }}>
@@ -5179,7 +5332,9 @@ function DevDashboard() {
               </div>
               <div style={{ display: "flex", flexWrap: "nowrap", gap: 5, marginTop: 5, marginLeft: 18, paddingBottom: 3, overflowX: "auto" }}>
                 {latestPath.nodes.map((node, nodeIndex) => {
-                  const thumbnail = slotThumbs[node.slot];
+                  const thumbnail =
+                    latestVersion?.slotThumbnails?.[node.slot] ||
+                    slotThumbs[node.slot];
                   return (
                     <div
                       key={`${node.slot}-${nodeIndex}`}
@@ -7426,7 +7581,6 @@ function Scene({
         explodeDistance={explodeDistance}
       />
 
-      {dev && <MotionPathOverlay />}
       {dev && <DevGizmo />}
     </>
   );
