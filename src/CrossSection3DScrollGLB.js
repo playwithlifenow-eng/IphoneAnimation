@@ -18,7 +18,21 @@ import { Leva, useControls, button, folder } from "leva";
 
 gsap.registerPlugin(ScrollTrigger);
 
-const IGLASS_APP_VERSION = "7.5.9";
+const IGLASS_APP_VERSION = "7.5.10";
+
+// ============================================
+// v7.5.10 — STABLE DUAL LONG-EDGE FEED
+//
+//   LONG EDGES        Reports the pane's two real long edges (local x-min
+//                     and x-max) instead of joining whichever two corners
+//                     happen to be highest on screen.
+//   NEAR / FAR        Classifies those two stable edges by live camera-space
+//                     depth and sends both. Framer chooses the calibrated
+//                     nearside/far-side boundary without guessing geometry.
+//   PROGRESS FEED     A changed parent p also emits even if the pane is nearly
+//                     stationary, so the 0.781 / 0.796 gates cannot miss.
+//
+// ============================================
 
 // ============================================
 // v7.5.9 — GLASS EDGE FEED
@@ -7474,18 +7488,10 @@ function IPhoneExploded({
 // actually is on screen; it only knows p.
 //
 // THE FIX: this reporter projects the front pane's real world-space
-// bounding corners through the LIVE camera every frame, takes the two
-// topmost projected points — the pane's upper screen-space edge — and
-// posts that line to the parent in normalized viewport coordinates.
-// The parent then clips the headline along that exact line. The angle,
-// the timing, and the left-first entry all fall out of the physics.
-//
-// WHY MEASURED, NOT ASSUMED: which local-space corners form the upper
-// edge depends on the stage rotation, the phone's settle quaternion and
-// the camera — all of which change through the path. Sorting the four
-// projected corners by screen Y each frame is invariant to every one of
-// those. No local-axis assumption survives a stage rotation; this one
-// doesn't make any.
+// bounding corners through the LIVE camera every frame. It reports both
+// actual LONG edges: local corner pairs 0→3 (x-min) and 1→2 (x-max).
+// Their camera-space depth identifies the nearside and far-side edges.
+// No diagonal, short edge or changing pair can enter the feed.
 //
 // WHY IT IS A DUMB EMITTER: no arming threshold, no hysteresis, no
 // knowledge of headlines. It reports geometry. Every reveal decision —
@@ -7504,8 +7510,8 @@ function GlassEdgeReporter() {
   // Resolved once. The parent's origin comes from document.referrer, so
   // the message is never broadcast to "*" in production. If the referrer
   // is unavailable (some privacy configurations strip it), the feed stays
-  // silent rather than posting cross-origin blind — the parent falls back
-  // to its timed wipe, which is exactly the pre-v7.5.9 behaviour.
+  // silent rather than posting cross-origin blind. The parent keeps H3
+  // hidden until a calibrated edge feed is available.
   const targetOrigin = useMemo(() => {
     if (typeof window === "undefined" || window.self === window.top) return null;
     try {
@@ -7523,6 +7529,14 @@ function GlassEdgeReporter() {
   const cornersRef = useRef(null);
   const scratchRef = useRef({
     v: new THREE.Vector3(),
+    view: new THREE.Vector3(),
+    world: [
+      new THREE.Vector3(),
+      new THREE.Vector3(),
+      new THREE.Vector3(),
+      new THREE.Vector3(),
+    ],
+    viewDepth: [0, 0, 0, 0],
     projected: [
       { x: 0, y: 0 },
       { x: 0, y: 0 },
@@ -7555,43 +7569,78 @@ function GlassEdgeReporter() {
     // own world-matrix update happens before the frame callbacks.
     mesh.updateWorldMatrix(true, false);
 
-    const { v, projected } = scratchRef.current;
+    const { v, view, world, viewDepth, projected } = scratchRef.current;
     for (let i = 0; i < 4; i++) {
-      v.copy(cornersRef.current[i]).applyMatrix4(mesh.matrixWorld).project(camera);
+      world[i].copy(cornersRef.current[i]).applyMatrix4(mesh.matrixWorld);
+      view.copy(world[i]).applyMatrix4(camera.matrixWorldInverse);
+      viewDepth[i] = -view.z;
+      v.copy(world[i]).project(camera);
       // NDC (-1..1, y-up) -> normalized viewport (0..1, y-DOWN), which is
       // the convention the DOM uses on the other side.
       projected[i].x = (v.x + 1) * 0.5;
       projected[i].y = (1 - v.y) * 0.5;
     }
 
-    // Sort by screen Y ascending; the two smallest are the upper edge.
-    const order = [0, 1, 2, 3].sort((a, b) => projected[a].y - projected[b].y);
-    let a = projected[order[0]];
-    let b = projected[order[1]];
-    // Order the endpoints left→right so the parent never has to.
-    if (a.x > b.x) {
-      const swap = a;
-      a = b;
-      b = swap;
-    }
+    const makeEdge = (id, i0, i1) => {
+      let a = projected[i0];
+      let b = projected[i1];
+      if (a.x > b.x) {
+        const swap = a;
+        a = b;
+        b = swap;
+      }
+      return {
+        id,
+        depth: (viewDepth[i0] + viewDepth[i1]) * 0.5,
+        a: { x: a.x, y: a.y },
+        b: { x: b.x, y: b.y },
+      };
+    };
+
+    const xMinEdge = makeEdge("x-min", 0, 3);
+    const xMaxEdge = makeEdge("x-max", 1, 2);
+    const near = xMinEdge.depth <= xMaxEdge.depth ? xMinEdge : xMaxEdge;
+    const far = near === xMinEdge ? xMaxEdge : xMinEdge;
+    const p = scrollState.parentProgress;
 
     const last = lastSentRef.current;
     if (
       last &&
-      Math.abs(last.ax - a.x) < GLASS_EDGE_FEED.epsilon &&
-      Math.abs(last.ay - a.y) < GLASS_EDGE_FEED.epsilon &&
-      Math.abs(last.bx - b.x) < GLASS_EDGE_FEED.epsilon &&
-      Math.abs(last.by - b.y) < GLASS_EDGE_FEED.epsilon
+      last.nearId === near.id &&
+      last.farId === far.id &&
+      Math.abs(last.nax - near.a.x) < GLASS_EDGE_FEED.epsilon &&
+      Math.abs(last.nay - near.a.y) < GLASS_EDGE_FEED.epsilon &&
+      Math.abs(last.nbx - near.b.x) < GLASS_EDGE_FEED.epsilon &&
+      Math.abs(last.nby - near.b.y) < GLASS_EDGE_FEED.epsilon &&
+      Math.abs(last.fax - far.a.x) < GLASS_EDGE_FEED.epsilon &&
+      Math.abs(last.fay - far.a.y) < GLASS_EDGE_FEED.epsilon &&
+      Math.abs(last.fbx - far.b.x) < GLASS_EDGE_FEED.epsilon &&
+      Math.abs(last.fby - far.b.y) < GLASS_EDGE_FEED.epsilon &&
+      Math.abs(last.p - p) < GLASS_EDGE_FEED.epsilon
     ) return;
 
-    lastSentRef.current = { ax: a.x, ay: a.y, bx: b.x, by: b.y };
+    lastSentRef.current = {
+      nearId: near.id,
+      farId: far.id,
+      nax: near.a.x,
+      nay: near.a.y,
+      nbx: near.b.x,
+      nby: near.b.y,
+      fax: far.a.x,
+      fay: far.a.y,
+      fbx: far.b.x,
+      fby: far.b.y,
+      p,
+    };
 
     window.parent.postMessage(
       {
         type: "glass-edge",
-        p: scrollState.parentProgress,
-        a: { x: a.x, y: a.y },
-        b: { x: b.x, y: b.y },
+        p,
+        // Legacy single-line fields now carry the stable far-side edge.
+        a: far.a,
+        b: far.b,
+        edges: { near, far },
       },
       targetOrigin
     );
