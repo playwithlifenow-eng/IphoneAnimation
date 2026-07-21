@@ -18,7 +18,21 @@ import { Leva, useControls, button, folder } from "leva";
 
 gsap.registerPlugin(ScrollTrigger);
 
-const IGLASS_APP_VERSION = "7.5.13";
+const IGLASS_APP_VERSION = "7.5.14";
+
+// ============================================
+// v7.5.14 — CONTINUOUS STATIC REFLECTION COVERAGE
+//
+//   REVERSE COVERAGE  Three restrained Lightformer cards fill the positive-Z
+//                     hemisphere left empty by the original studio rig.
+//   NATURAL TRAVEL    The cards remain fixed in world space, so their reflected
+//                     shapes travel naturally as the phone rotates.
+//   SINGLE CAPTURE    The expanded environment is still captured once only;
+//                     no CubeCamera or per-frame environment renders are added.
+//   EXISTING DIALS    New broad/strip/rim cards inherit the existing studio-card
+//                     controls. No defaults, materials or animation logic change.
+//
+// ============================================
 
 // ============================================
 // v7.5.13 — POSE-ANIMATED ILLUMINATION
@@ -8085,6 +8099,33 @@ function PremiumReflectionEnvironment({ preset, blur, revision }) {
         position={[0, -4, -6]}
         rotation-x={-Math.PI / 2}
         scale={[3, 3, 1]}
+      />
+      {/* v7.5.14 — restrained positive-Z coverage. These cards use the
+          existing broad/strip/rim families, remain static, and are captured
+          in the same single environment render as the original rig. */}
+      <Lightformer
+        form="rect"
+        intensity={SHINE.envBroad * 0.42}
+        color="#f3f8ff"
+        position={[0, 1.8, 8]}
+        scale={[8, 4.5, 1]}
+        onUpdate={(self) => self.lookAt(0, 0, 0)}
+      />
+      <Lightformer
+        form="rect"
+        intensity={SHINE.envStrip * 0.22}
+        color="#fff1dd"
+        position={[6.5, -0.4, 3.5]}
+        scale={[6.5, 0.18, 1]}
+        onUpdate={(self) => self.lookAt(0, 0, 0)}
+      />
+      <Lightformer
+        form="rect"
+        intensity={SHINE.envRim * 0.6}
+        color="#c8ddff"
+        position={[-6, 4.5, 2.5]}
+        scale={[5, 1.1, 1]}
+        onUpdate={(self) => self.lookAt(0, 0, 0)}
       />
     </Environment>
   );
