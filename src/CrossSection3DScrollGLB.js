@@ -18,7 +18,27 @@ import { Leva, useControls, button, folder } from "leva";
 
 gsap.registerPlugin(ScrollTrigger);
 
-const IGLASS_APP_VERSION = "7.5.8";
+const IGLASS_APP_VERSION = "7.5.9";
+
+// ============================================
+// v7.5.9 — GLASS EDGE FEED
+//
+//   EDGE REPORTER     In embedded scroll mode the app projects the front
+//                     pane's four bounding corners through the live camera
+//                     each frame and posts the pane's upper screen-space
+//                     edge to the parent as {type:'glass-edge', a, b} in
+//                     normalized viewport coords (0–1, y-down). The parent
+//                     Framer driver uses that line as the clip boundary for
+//                     the "just the glass" reveal — physically locked, not
+//                     a timed approximation.
+//   DUMB EMITTER      All reveal thresholds (arming, hysteresis) live on
+//                     the Framer side. The emitter only reports geometry,
+//                     epsilon-gated so it is silent when nothing moves.
+//   PARENT PROGRESS   scrollState.parentProgress now records the parent
+//                     page's scroll progress in scroll mode; the edge
+//                     payload carries it for diagnostics.
+//
+// ============================================
 
 // ============================================
 // v7.5.8 — PATH OVERLAY REMOVAL
@@ -751,6 +771,7 @@ const DEV = {
   bezelMeshes: [], // live handles — the "hide bezel" isolate toggle
   oledRimMat: null, // live handle — the "show OLED rim" toggle
   glassMat: null, // live handle — the front-glass folder
+  glassPaneMesh: null, // live handle — v7.5.9 glass edge feed projection source
   crackMat: null, // live handle — the cracked-pane folder
   crackUndersideMat: null, // inner-face crack; depth-tested against the phone
   shineMat: null, // deterministic sweep / glint shader
@@ -4057,7 +4078,7 @@ function DevDashboard() {
   const [selectedPathNode, setSelectedPathNode] = useState(-1);
   const [pathProgress, setPathProgress] = useState(0);
   const [pathPlaying, setPathPlaying] = useState(false);
-  const [status, setStatus] = useState("v7.5.8 — path overlay removed");
+  const [status, setStatus] = useState("v7.5.9 — glass edge feed");
   const [library, setLibrary] = useState(loadMotionLibrary);
   const [libraryId, setLibraryId] = useState("");
   const [importText, setImportText] = useState("");
@@ -6353,6 +6374,9 @@ const scrollState = {
   oledOffset: 0,
   phoneOffset: 0,
   rotate: 0,
+  // v7.5.9 — the parent page's scroll progress in embedded scroll mode.
+  // Carried on the glass-edge payload for diagnostics; never drives motion.
+  parentProgress: 0,
 };
 
 function bondGlassToOLED() {
@@ -6654,6 +6678,10 @@ function IPhoneExploded({
         });
         child.material = glassMat;
         DEV.glassMat = glassMat;
+        // v7.5.9 — the edge reporter projects THIS mesh's world-space
+        // bounding corners through the live camera. Held as a live handle
+        // so the reporter never has to re-traverse the scene graph.
+        DEV.glassPaneMesh = child;
         child.renderOrder = 3;
         glass.push(child);
 
@@ -7166,6 +7194,9 @@ function IPhoneExploded({
     return () => {
       if (DEV.modelGroup === modelGroupRef.current) DEV.modelGroup = null;
       if (DEV.stageGroup === stageGroupRef.current) DEV.stageGroup = null;
+      if (DEV.glassPaneMesh && !DEV.glassPaneMesh.parent) {
+        DEV.glassPaneMesh = null;
+      }
     };
   }, []);
 
@@ -7434,6 +7465,142 @@ function IPhoneExploded({
 }
 
 // ============================================
+// GLASS EDGE FEED (v7.5.9)
+//
+// THE PROBLEM THIS SOLVES: the parent Framer driver was clipping the
+// "just the glass" headline on a TIMED polygon — a guess at where the
+// descending pane's edge would be at a given p. It could never lock to
+// the physical edge, because the parent has no idea where the glass
+// actually is on screen; it only knows p.
+//
+// THE FIX: this reporter projects the front pane's real world-space
+// bounding corners through the LIVE camera every frame, takes the two
+// topmost projected points — the pane's upper screen-space edge — and
+// posts that line to the parent in normalized viewport coordinates.
+// The parent then clips the headline along that exact line. The angle,
+// the timing, and the left-first entry all fall out of the physics.
+//
+// WHY MEASURED, NOT ASSUMED: which local-space corners form the upper
+// edge depends on the stage rotation, the phone's settle quaternion and
+// the camera — all of which change through the path. Sorting the four
+// projected corners by screen Y each frame is invariant to every one of
+// those. No local-axis assumption survives a stage rotation; this one
+// doesn't make any.
+//
+// WHY IT IS A DUMB EMITTER: no arming threshold, no hysteresis, no
+// knowledge of headlines. It reports geometry. Every reveal decision —
+// when the clip starts mattering, what counts as "entered" — belongs to
+// the parent, where the text lives and its box is known.
+// ============================================
+const GLASS_EDGE_FEED = {
+  // Movement below this (in normalized viewport units) is not worth a
+  // postMessage — it is sub-pixel on any realistic viewport.
+  epsilon: 0.0008,
+};
+
+function GlassEdgeReporter() {
+  const { camera } = useThree();
+
+  // Resolved once. The parent's origin comes from document.referrer, so
+  // the message is never broadcast to "*" in production. If the referrer
+  // is unavailable (some privacy configurations strip it), the feed stays
+  // silent rather than posting cross-origin blind — the parent falls back
+  // to its timed wipe, which is exactly the pre-v7.5.9 behaviour.
+  const targetOrigin = useMemo(() => {
+    if (typeof window === "undefined" || window.self === window.top) return null;
+    try {
+      if (document.referrer) return new URL(document.referrer).origin;
+    } catch (e) {
+      /* malformed referrer -> no feed */
+    }
+    return null;
+  }, []);
+
+  // Four bounding corners of the pane in ITS OWN local space, measured
+  // once from the geometry. The pane is a flat sheet, so the mid-Z plane
+  // is the sheet itself; taking the box's four XY corners at zMid gives
+  // the pane's actual rectangle, not an inflated 3D box.
+  const cornersRef = useRef(null);
+  const scratchRef = useRef({
+    v: new THREE.Vector3(),
+    projected: [
+      { x: 0, y: 0 },
+      { x: 0, y: 0 },
+      { x: 0, y: 0 },
+      { x: 0, y: 0 },
+    ],
+  });
+  const lastSentRef = useRef(null);
+
+  useFrame(() => {
+    if (!targetOrigin) return;
+    const mesh = DEV.glassPaneMesh;
+    if (!mesh || !mesh.geometry) return;
+
+    if (!cornersRef.current) {
+      if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
+      const box = mesh.geometry.boundingBox;
+      if (!box) return;
+      const zMid = (box.min.z + box.max.z) * 0.5;
+      cornersRef.current = [
+        new THREE.Vector3(box.min.x, box.min.y, zMid),
+        new THREE.Vector3(box.max.x, box.min.y, zMid),
+        new THREE.Vector3(box.max.x, box.max.y, zMid),
+        new THREE.Vector3(box.min.x, box.max.y, zMid),
+      ];
+    }
+
+    // The glass group is written in the same useFrame pass that runs
+    // above this one, so the matrices need an explicit refresh — R3F's
+    // own world-matrix update happens before the frame callbacks.
+    mesh.updateWorldMatrix(true, false);
+
+    const { v, projected } = scratchRef.current;
+    for (let i = 0; i < 4; i++) {
+      v.copy(cornersRef.current[i]).applyMatrix4(mesh.matrixWorld).project(camera);
+      // NDC (-1..1, y-up) -> normalized viewport (0..1, y-DOWN), which is
+      // the convention the DOM uses on the other side.
+      projected[i].x = (v.x + 1) * 0.5;
+      projected[i].y = (1 - v.y) * 0.5;
+    }
+
+    // Sort by screen Y ascending; the two smallest are the upper edge.
+    const order = [0, 1, 2, 3].sort((a, b) => projected[a].y - projected[b].y);
+    let a = projected[order[0]];
+    let b = projected[order[1]];
+    // Order the endpoints left→right so the parent never has to.
+    if (a.x > b.x) {
+      const swap = a;
+      a = b;
+      b = swap;
+    }
+
+    const last = lastSentRef.current;
+    if (
+      last &&
+      Math.abs(last.ax - a.x) < GLASS_EDGE_FEED.epsilon &&
+      Math.abs(last.ay - a.y) < GLASS_EDGE_FEED.epsilon &&
+      Math.abs(last.bx - b.x) < GLASS_EDGE_FEED.epsilon &&
+      Math.abs(last.by - b.y) < GLASS_EDGE_FEED.epsilon
+    ) return;
+
+    lastSentRef.current = { ax: a.x, ay: a.y, bx: b.x, by: b.y };
+
+    window.parent.postMessage(
+      {
+        type: "glass-edge",
+        p: scrollState.parentProgress,
+        a: { x: a.x, y: a.y },
+        b: { x: b.x, y: b.y },
+      },
+      targetOrigin
+    );
+  });
+
+  return null;
+}
+
+// ============================================
 // Scene
 //
 // LIGHTING (v3.8). The old rig ran FIVE sources at once — ambient 0.8, two
@@ -7506,6 +7673,7 @@ function Scene({
   crackTexture,
   explodeDistance,
   dev,
+  glassEdgeFeed,
 }) {
   const [envPreset, setEnvPreset] = useState(LIGHT.preset);
   const [envBlur, setEnvBlur] = useState(LIGHT.blur);
@@ -7580,6 +7748,12 @@ function Scene({
         crackTexture={crackTexture}
         explodeDistance={explodeDistance}
       />
+
+      {/* v7.5.9 — mounted only in embedded scroll mode. Mounted AFTER
+          IPhoneExploded so its useFrame runs after the glass group has
+          been written this frame; it therefore reports the pose the
+          viewer is actually about to see, not the previous one. */}
+      {glassEdgeFeed && <GlassEdgeReporter />}
 
       {dev && <DevGizmo />}
     </>
@@ -7733,6 +7907,9 @@ function CrossSection3DScrollGLBScene(props) {
     DEV.applyProgress = applyProgress;
 
     const applyRuntimeProgress = (progress) => {
+      // v7.5.9 — record the driving progress so the glass-edge payload can
+      // carry it. Diagnostic only; it never feeds back into the motion.
+      scrollState.parentProgress = Math.max(0, Math.min(1, progress));
       if (runtimeMotionPath) {
         const sample = sampleMotionPlayback(
           runtimeMotionPath,
@@ -7987,6 +8164,7 @@ function CrossSection3DScrollGLBScene(props) {
             crackTexture={crackTexture}
             explodeDistance={explodeDistance}
             dev={dev}
+            glassEdgeFeed={mode === "scroll"}
           />
         </Canvas>
       </div>
