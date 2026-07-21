@@ -18,7 +18,21 @@ import { Leva, useControls, button, folder } from "leva";
 
 gsap.registerPlugin(ScrollTrigger);
 
-const IGLASS_APP_VERSION = "7.5.12";
+const IGLASS_APP_VERSION = "7.5.13";
+
+// ============================================
+// v7.5.13 — POSE-ANIMATED ILLUMINATION
+//
+//   OLED LUMINANCE    The unlit OLED texture now has a 0–1 luminance channel
+//                     that saves in pose slots and interpolates on paths.
+//   LIGHTING POSES    Ambient, key, fill, environment and exposure are now
+//                     first-class numeric pose/path channels.
+//   MOVING LIGHTS     Key/fill XYZ and colour temperature are pose channels;
+//                     the original positions and colours remain the defaults.
+//   LEGACY SAFE       Old slots and motion payloads are completed from the
+//                     active URL/static lighting baseline before playback.
+//
+// ============================================
 
 // ============================================
 // v7.5.12 — PATH-NATIVE FULL AUTOPLAY
@@ -586,7 +600,7 @@ const GLASS_REG_RANGE = 25;
 //   exp   ACES tone-mapping exposure. Rolls highlights off instead of
 //         clipping them. This is what stops the blowout.
 //
-// Overridable: ?light=amb,key,fill,env,exp
+// Overridable: ?light=amb,key,fill,env,exp,keyX,keyY,keyZ,keyK,fillX,fillY,fillZ,fillK
 // ============================================
 const LIGHT = {
   amb: 0.05,
@@ -594,6 +608,10 @@ const LIGHT = {
   fill: 0.25,
   env: 0.5,
   exp: 1.0,
+  keyPosition: [5, 10, 5],
+  fillPosition: [-6, 3, 4],
+  keyTemperature: 6500,
+  fillTemperature: 9000,
   preset: "studio", // the HDRI whose SHAPES get reflected in the glass
   blur: 0.0, // blurs the IBL itself — softens every reflection at once
 };
@@ -637,12 +655,88 @@ const ENV_PRESETS = [
 //   front cap  nz ~ -1.0     back cap  nz ~ +1.0     rim  nz ~ 0.0
 //
 // -0.5 sits in the gap. -1.0 would starve the cap; 0.0 is the v3.8 bug.
-// Overridable: ?oled=-0.5
+// Overridable: ?oled=faceCut,showRim,luminance
 // ---------------------------------------------------------
 const OLED = {
   faceCut: -0.5,
   showRim: false, // the slab's side wall — artefact, hidden by default
+  luminance: 1,
 };
+
+const LIGHT_TEMPERATURE_MIN = 2000;
+const LIGHT_TEMPERATURE_MAX = 12000;
+const LIGHT_KEY_BASE_SRGB = [1, 1, 1];
+const LIGHT_FILL_BASE_SRGB = [0xe8 / 255, 0xf0 / 255, 1];
+
+function clampLightPosition(value) {
+  return Math.max(-20, Math.min(20, Number(value) || 0));
+}
+
+function clampLightTemperature(value) {
+  return Math.max(
+    LIGHT_TEMPERATURE_MIN,
+    Math.min(LIGHT_TEMPERATURE_MAX, Number(value) || 6500)
+  );
+}
+
+function temperatureSrgb(temperature) {
+  const t = clampLightTemperature(temperature) / 100;
+  const clampByte = (value) => Math.max(0, Math.min(255, value)) / 255;
+  const red = t <= 66
+    ? 255
+    : 329.698727446 * Math.pow(t - 60, -0.1332047592);
+  const green = t <= 66
+    ? 99.4708025861 * Math.log(t) - 161.1195681661
+    : 288.1221695283 * Math.pow(t - 60, -0.0755148492);
+  const blue = t >= 66
+    ? 255
+    : t <= 19
+    ? 0
+    : 138.5177312231 * Math.log(t - 10) - 305.0447927307;
+  return [clampByte(red), clampByte(green), clampByte(blue)];
+}
+
+function setTemperatureTint(target, temperature, neutral, baseSrgb) {
+  const color = temperatureSrgb(temperature);
+  const anchor = temperatureSrgb(neutral);
+  const corrected = color.map((channel, index) =>
+    Math.max(
+      0,
+      Math.min(1, channel * (baseSrgb[index] / Math.max(0.000001, anchor[index])))
+    )
+  );
+  target.setRGB(corrected[0], corrected[1], corrected[2], THREE.SRGBColorSpace);
+  return target;
+}
+
+function animatedLightingPoseDefaults() {
+  return {
+    oledLuminance: OLED.luminance,
+    lightAmbient: LIGHT.amb,
+    lightKey: LIGHT.key,
+    lightFill: LIGHT.fill,
+    lightEnvironment: LIGHT.env,
+    exp: LIGHT.exp,
+    lightKeyX: LIGHT.keyPosition[0],
+    lightKeyY: LIGHT.keyPosition[1],
+    lightKeyZ: LIGHT.keyPosition[2],
+    lightKeyTemperature: LIGHT.keyTemperature,
+    lightFillX: LIGHT.fillPosition[0],
+    lightFillY: LIGHT.fillPosition[1],
+    lightFillZ: LIGHT.fillPosition[2],
+    lightFillTemperature: LIGHT.fillTemperature,
+  };
+}
+
+function withAnimatedLightingDefaults(pose) {
+  if (!pose || typeof pose !== "object") return pose;
+  const next = { ...pose };
+  const defaults = animatedLightingPoseDefaults();
+  for (const [key, value] of Object.entries(defaults)) {
+    if (!Number.isFinite(next[key])) next[key] = value;
+  }
+  return next;
+}
 
 // ---------------------------------------------------------
 // GLASS (v3.9) — the front pane's material, as dials.
@@ -814,6 +908,7 @@ const DEV = {
   bezelMat: null, // live handle — the bezel Leva folder writes through it
   bezelMeshes: [], // live handles — the "hide bezel" isolate toggle
   oledRimMat: null, // live handle — the "show OLED rim" toggle
+  oledScreenMats: [], // live handles — pose-animated OLED luminance
   glassMat: null, // live handle — the front-glass folder
   glassPaneMesh: null, // live handle — v7.5.9 glass edge feed projection source
   crackMat: null, // live handle — the cracked-pane folder
@@ -844,6 +939,14 @@ function syncCrackUndersideMaterial() {
   mat.roughness = Math.max(0, Math.min(1, CRACK_UNDERSIDE.roughness));
   mat.visible = CRACK_UNDERSIDE.enabled && CRACK.mix > 0.0001;
   mat.needsUpdate = true;
+}
+
+function syncOledLuminance() {
+  const luminance = Math.max(0, Math.min(1, Number(OLED.luminance) || 0));
+  for (const mat of DEV.oledScreenMats) {
+    if (!mat?.color) continue;
+    mat.color.setScalar(luminance);
+  }
 }
 
 function applyPremiumGlassMaterial() {
@@ -966,6 +1069,20 @@ const DRIVE_READERS = {
   lift: () => SETTLE.arcLift,
   pscale: () => SETTLE.scale,
   shine: () => SHINE.progress,
+  oledLuminance: () => OLED.luminance,
+  lightAmbient: () => LIGHT.amb,
+  lightKey: () => LIGHT.key,
+  lightFill: () => LIGHT.fill,
+  lightEnvironment: () => LIGHT.env,
+  exp: () => LIGHT.exp,
+  lightKeyX: () => LIGHT.keyPosition[0],
+  lightKeyY: () => LIGHT.keyPosition[1],
+  lightKeyZ: () => LIGHT.keyPosition[2],
+  lightKeyTemperature: () => LIGHT.keyTemperature,
+  lightFillX: () => LIGHT.fillPosition[0],
+  lightFillY: () => LIGHT.fillPosition[1],
+  lightFillZ: () => LIGHT.fillPosition[2],
+  lightFillTemperature: () => LIGHT.fillTemperature,
   // v7.3 — glass reg and crack registration are first-class pose/path
   // parameters: saved in slots, interpolated by paths, wireable.
   glassRegX: () => GLASS_REG.x,
@@ -995,6 +1112,20 @@ const DRIVE_CLAMPS = {
   lift: [-0.5, 0.5],
   pscale: [0.2, 1.5],
   shine: [0, 1],
+  oledLuminance: [0, 1],
+  lightAmbient: [0, 1],
+  lightKey: [0, 5],
+  lightFill: [0, 3],
+  lightEnvironment: [0, 3],
+  exp: [0.1, 3],
+  lightKeyX: [-20, 20],
+  lightKeyY: [-20, 20],
+  lightKeyZ: [-20, 20],
+  lightKeyTemperature: [LIGHT_TEMPERATURE_MIN, LIGHT_TEMPERATURE_MAX],
+  lightFillX: [-20, 20],
+  lightFillY: [-20, 20],
+  lightFillZ: [-20, 20],
+  lightFillTemperature: [LIGHT_TEMPERATURE_MIN, LIGHT_TEMPERATURE_MAX],
   glassRegX: [-GLASS_REG_RANGE, GLASS_REG_RANGE],
   glassRegY: [-GLASS_REG_RANGE, GLASS_REG_RANGE],
   glassRegZ: [-GLASS_REG_RANGE, GLASS_REG_RANGE],
@@ -1254,7 +1385,9 @@ function normaliseMotionPath(saved) {
             Array.isArray(n.position) && n.position.length === 3 && n.position.every(Number.isFinite)
               ? n.position.map(Number)
               : null,
-          pose: n.pose && typeof n.pose === "object" ? { ...n.pose } : null,
+          pose: n.pose && typeof n.pose === "object"
+            ? withAnimatedLightingDefaults(n.pose)
+            : null,
         }))
     : [];
   return {
@@ -1358,7 +1491,9 @@ function motionPathFromCurrentPathExport(payload) {
       position: Array.isArray(node.positionOverride)
         ? node.positionOverride.map(Number)
         : null,
-      pose: node.pose && typeof node.pose === "object" ? { ...node.pose } : null,
+      pose: node.pose && typeof node.pose === "object"
+        ? withAnimatedLightingDefaults(node.pose)
+        : null,
     };
   });
   return normaliseMotionPath({
@@ -1413,7 +1548,7 @@ function slotsWithSavedPathSnapshot(path, slots) {
       typeof node.pose !== "object"
     ) continue;
     nextSlots[node.slot] = {
-      ...node.pose,
+      ...withAnimatedLightingDefaults(node.pose),
       shine: Number.isFinite(node.pose.shine) ? node.pose.shine : 0,
     };
     restored++;
@@ -1818,6 +1953,18 @@ function sampleQuaternionTrack(nodes, keys, trackT) {
   const t = scaled - i;
   const q0 = poseQuaternion(nodes[i].pose, keys);
   const q1 = alignQuaternion(poseQuaternion(nodes[i + 1].pose, keys), q0);
+
+  // A hold is a deliberate angular-velocity boundary. Use direct SLERP on
+  // both legs touching it, so neighbouring nodes
+  // cannot bend the arrival or departure tangent. Two-node paths likewise
+  // have no continuous interior junction that would benefit from SQUAD.
+  const holdBoundary =
+    nodeHoldDuration(nodes[i]) > 0 ||
+    nodeHoldDuration(nodes[i + 1]) > 0;
+  if (nodes.length === 2 || holdBoundary) {
+    return new THREE.Quaternion().slerpQuaternions(q0, q1, t).normalize();
+  }
+
   const qm = alignQuaternion(poseQuaternion(nodes[Math.max(0, i - 1)].pose, keys), q0);
   const q2 = alignQuaternion(
     poseQuaternion(nodes[Math.min(nodes.length - 1, i + 2)].pose, keys),
@@ -2218,6 +2365,47 @@ function applyPoseParamsDirect(pose) {
   if (Number.isFinite(pose.shine)) {
     SHINE.progress = Math.max(0, Math.min(1, pose.shine));
   }
+  if (Number.isFinite(pose.oledLuminance)) {
+    OLED.luminance = Math.max(0, Math.min(1, pose.oledLuminance));
+    syncOledLuminance();
+  }
+  if (Number.isFinite(pose.lightAmbient)) {
+    LIGHT.amb = Math.max(0, Math.min(1, pose.lightAmbient));
+  }
+  if (Number.isFinite(pose.lightKey)) {
+    LIGHT.key = Math.max(0, Math.min(5, pose.lightKey));
+  }
+  if (Number.isFinite(pose.lightFill)) {
+    LIGHT.fill = Math.max(0, Math.min(3, pose.lightFill));
+  }
+  if (Number.isFinite(pose.lightEnvironment)) {
+    LIGHT.env = Math.max(0, Math.min(3, pose.lightEnvironment));
+    DEV.dirtyLight = true;
+  }
+  if (Number.isFinite(pose.exp)) {
+    LIGHT.exp = Math.max(0.1, Math.min(3, pose.exp));
+    DEV.dirtyLight = true;
+  }
+  if ([pose.lightKeyX, pose.lightKeyY, pose.lightKeyZ].every(Number.isFinite)) {
+    LIGHT.keyPosition = [
+      clampLightPosition(pose.lightKeyX),
+      clampLightPosition(pose.lightKeyY),
+      clampLightPosition(pose.lightKeyZ),
+    ];
+  }
+  if (Number.isFinite(pose.lightKeyTemperature)) {
+    LIGHT.keyTemperature = clampLightTemperature(pose.lightKeyTemperature);
+  }
+  if ([pose.lightFillX, pose.lightFillY, pose.lightFillZ].every(Number.isFinite)) {
+    LIGHT.fillPosition = [
+      clampLightPosition(pose.lightFillX),
+      clampLightPosition(pose.lightFillY),
+      clampLightPosition(pose.lightFillZ),
+    ];
+  }
+  if (Number.isFinite(pose.lightFillTemperature)) {
+    LIGHT.fillTemperature = clampLightTemperature(pose.lightFillTemperature);
+  }
   // v7.3 — glass registration is a pose/path parameter. This is the swap
   // choreography: drive the unit out along a path, flip crack OFF at the
   // out-of-shot node, drive it back in clean.
@@ -2305,7 +2493,7 @@ function decodeMotionPath(value) {
             Array.isArray(node.position) && node.position.length === 3
               ? node.position.map(Number)
               : [node.pose.sposX, node.pose.sposY, node.pose.sposZ],
-          pose: node.pose,
+          pose: withAnimatedLightingDefaults(node.pose),
         }));
       if (!nodes.length) return null;
       const legacy = Number(parsed.version) < 2;
@@ -2358,7 +2546,7 @@ function loadSlots() {
         const pose = arr[i];
         out[i] = pose && typeof pose === "object"
           ? {
-              ...pose,
+              ...withAnimatedLightingDefaults(pose),
               shine: Number.isFinite(pose.shine) ? pose.shine : 0,
             }
           : null;
@@ -2692,7 +2880,17 @@ function serialiseParams(params) {
   // in the Playwright capture exactly like the pose is.
   params.set(
     "light",
-    [LIGHT.amb, LIGHT.key, LIGHT.fill, LIGHT.env, LIGHT.exp]
+    [
+      LIGHT.amb,
+      LIGHT.key,
+      LIGHT.fill,
+      LIGHT.env,
+      LIGHT.exp,
+      ...LIGHT.keyPosition,
+      LIGHT.keyTemperature,
+      ...LIGHT.fillPosition,
+      LIGHT.fillTemperature,
+    ]
       .map((v) => v.toFixed(3))
       .join(",")
   );
@@ -2700,7 +2898,10 @@ function serialiseParams(params) {
     "bezel",
     [BEZEL.env, BEZEL.rough, BEZEL.offset].map((v) => v.toFixed(2)).join(",")
   );
-  params.set("oled", `${OLED.faceCut.toFixed(2)},${OLED.showRim ? 1 : 0}`);
+  params.set(
+    "oled",
+    `${OLED.faceCut.toFixed(2)},${OLED.showRim ? 1 : 0},${OLED.luminance.toFixed(3)}`
+  );
   params.set(
     "glass",
     [GLASS.rough, GLASS.env, GLASS.opacity, GLASS.clearcoat, GLASS.ccRough]
@@ -3047,6 +3248,46 @@ function DevControls({ initialP }) {
             LIGHT.key = v;
           },
         },
+        lightKeyX: {
+          value: LIGHT.keyPosition[0],
+          min: -20,
+          max: 20,
+          step: 0.1,
+          label: "key position X",
+          onChange: (v) => {
+            LIGHT.keyPosition[0] = clampLightPosition(v);
+          },
+        },
+        lightKeyY: {
+          value: LIGHT.keyPosition[1],
+          min: -20,
+          max: 20,
+          step: 0.1,
+          label: "key position Y",
+          onChange: (v) => {
+            LIGHT.keyPosition[1] = clampLightPosition(v);
+          },
+        },
+        lightKeyZ: {
+          value: LIGHT.keyPosition[2],
+          min: -20,
+          max: 20,
+          step: 0.1,
+          label: "key position Z",
+          onChange: (v) => {
+            LIGHT.keyPosition[2] = clampLightPosition(v);
+          },
+        },
+        lightKeyTemperature: {
+          value: LIGHT.keyTemperature,
+          min: LIGHT_TEMPERATURE_MIN,
+          max: LIGHT_TEMPERATURE_MAX,
+          step: 100,
+          label: "key temperature K",
+          onChange: (v) => {
+            LIGHT.keyTemperature = clampLightTemperature(v);
+          },
+        },
         lightFill: {
           value: LIGHT.fill,
           min: 0,
@@ -3055,6 +3296,46 @@ function DevControls({ initialP }) {
           label: "cool fill",
           onChange: (v) => {
             LIGHT.fill = v;
+          },
+        },
+        lightFillX: {
+          value: LIGHT.fillPosition[0],
+          min: -20,
+          max: 20,
+          step: 0.1,
+          label: "fill position X",
+          onChange: (v) => {
+            LIGHT.fillPosition[0] = clampLightPosition(v);
+          },
+        },
+        lightFillY: {
+          value: LIGHT.fillPosition[1],
+          min: -20,
+          max: 20,
+          step: 0.1,
+          label: "fill position Y",
+          onChange: (v) => {
+            LIGHT.fillPosition[1] = clampLightPosition(v);
+          },
+        },
+        lightFillZ: {
+          value: LIGHT.fillPosition[2],
+          min: -20,
+          max: 20,
+          step: 0.1,
+          label: "fill position Z",
+          onChange: (v) => {
+            LIGHT.fillPosition[2] = clampLightPosition(v);
+          },
+        },
+        lightFillTemperature: {
+          value: LIGHT.fillTemperature,
+          min: LIGHT_TEMPERATURE_MIN,
+          max: LIGHT_TEMPERATURE_MAX,
+          step: 100,
+          label: "fill temperature K",
+          onChange: (v) => {
+            LIGHT.fillTemperature = clampLightTemperature(v);
           },
         },
         lightEnvironment: {
@@ -3626,6 +3907,17 @@ function DevControls({ initialP }) {
     // Drag toward -1 and the rim goes black long before the cap starves. ----
     "📺 oled": folder(
       {
+        oledLuminance: {
+          value: OLED.luminance,
+          min: 0,
+          max: 1,
+          step: 0.01,
+          label: "screen luminance / reveal",
+          onChange: (v) => {
+            OLED.luminance = Math.max(0, Math.min(1, v));
+            syncOledLuminance();
+          },
+        },
         oledCut: {
           value: OLED.faceCut,
           min: -1,
@@ -4148,7 +4440,7 @@ function DevDashboard() {
   const [selectedPathNode, setSelectedPathNode] = useState(-1);
   const [pathProgress, setPathProgress] = useState(0);
   const [pathPlaying, setPathPlaying] = useState(false);
-  const [status, setStatus] = useState("v7.5.9 — glass edge feed");
+  const [status, setStatus] = useState("v7.5.13 — pose-animated illumination");
   const [library, setLibrary] = useState(loadMotionLibrary);
   const [libraryId, setLibraryId] = useState("");
   const [importText, setImportText] = useState("");
@@ -4856,7 +5148,10 @@ function DevDashboard() {
         const nextSlots = Array(SLOT_COUNT).fill(null);
         (parsed.slots || []).slice(0, SLOT_COUNT).forEach((pose, i) => {
           nextSlots[i] = pose && typeof pose === "object"
-            ? { ...pose, shine: Number.isFinite(pose.shine) ? pose.shine : 0 }
+            ? {
+                ...withAnimatedLightingDefaults(pose),
+                shine: Number.isFinite(pose.shine) ? pose.shine : 0,
+              }
             : null;
         });
         const meta = parsed.slotMeta || {};
@@ -6102,9 +6397,9 @@ function DevGizmo() {
 //   ?pscale=0.8                SETTLE.scale
 //   ?spos / ?srot / ?sscale    STAGE transform
 //   ?glassreg=x,y,z            glass-unit registration (clamped to ±25)
-//   ?light=amb,key,fill,env,exp   v3.8 lighting rig
+//   ?light=amb,key,fill,env,exp,keyX,keyY,keyZ,keyK,fillX,fillY,fillZ,fillK
 //   ?bezel=env,rough,offset       v3.8.1 bezel dials
-//   ?oled=-0.5,0                  OLED face-split cut, rim on/off
+//   ?oled=-0.5,0,1                OLED face-split, rim, luminance
 //   ?glass=rough,env,opac,cc,ccr  v3.9 front-glass material
 //   ?glassfx=...                   deterministic sweep/glint/environment
 //   ?envp=studio   ?envb=0        reflected world + IBL blur
@@ -6210,6 +6505,9 @@ function resolveRuntimeConfig() {
     }
     if (parts.length > 1 && !isNaN(parts[1])) {
       OLED.showRim = parts[1] === 1;
+    }
+    if (parts.length > 2 && !isNaN(parts[2])) {
+      OLED.luminance = Math.max(0, Math.min(1, parts[2]));
     }
   }
 
@@ -6363,12 +6661,21 @@ function resolveRuntimeConfig() {
   const lightParam = params.get("light");
   if (lightParam) {
     const parts = lightParam.split(",").map((v) => parseFloat(v));
-    if (parts.length === 5 && parts.every((v) => !isNaN(v))) {
+    if (
+      (parts.length === 5 || parts.length === 13) &&
+      parts.every((v) => !isNaN(v))
+    ) {
       LIGHT.amb = parts[0];
       LIGHT.key = parts[1];
       LIGHT.fill = parts[2];
       LIGHT.env = parts[3];
       LIGHT.exp = parts[4];
+      if (parts.length === 13) {
+        LIGHT.keyPosition = parts.slice(5, 8).map(clampLightPosition);
+        LIGHT.keyTemperature = clampLightTemperature(parts[8]);
+        LIGHT.fillPosition = parts.slice(9, 12).map(clampLightPosition);
+        LIGHT.fillTemperature = clampLightTemperature(parts[12]);
+      }
     }
   }
   DEV.dirtyLight = true;
@@ -6684,6 +6991,7 @@ function IPhoneExploded({
     const bezel = [];
     let crack = null;
     DEV.bezelMeshes = [];
+    DEV.oledScreenMats = [];
 
     // World matrices for the INTACT graph — ground truth for the rebase.
     // MUST run before any mesh is re-parented by <primitive>.
@@ -6866,11 +7174,15 @@ function IPhoneExploded({
         oledRimMat.visible = OLED.showRim;
         DEV.oledRimMat = oledRimMat;
 
+        const oledScreenMat = new THREE.MeshBasicMaterial({
+          map: oledTexture,
+          color: new THREE.Color().setScalar(OLED.luminance),
+          toneMapped: false,
+        });
+        DEV.oledScreenMats.push(oledScreenMat);
+
         child.material = [
-          new THREE.MeshBasicMaterial({
-            map: oledTexture,
-            toneMapped: false,
-          }),
+          oledScreenMat,
           new THREE.MeshBasicMaterial({
             color: new THREE.Color(0x000000),
             toneMapped: false,
@@ -7838,8 +8150,26 @@ function Scene({
     // Lights read LIGHT live — no dirty flag needed, these are 3 float
     // writes per frame and it keeps the Leva drag perfectly smooth.
     if (ambRef.current) ambRef.current.intensity = LIGHT.amb;
-    if (keyRef.current) keyRef.current.intensity = LIGHT.key;
-    if (fillRef.current) fillRef.current.intensity = LIGHT.fill;
+    if (keyRef.current) {
+      keyRef.current.intensity = LIGHT.key;
+      keyRef.current.position.fromArray(LIGHT.keyPosition);
+      setTemperatureTint(
+        keyRef.current.color,
+        LIGHT.keyTemperature,
+        6500,
+        LIGHT_KEY_BASE_SRGB
+      );
+    }
+    if (fillRef.current) {
+      fillRef.current.intensity = LIGHT.fill;
+      fillRef.current.position.fromArray(LIGHT.fillPosition);
+      setTemperatureTint(
+        fillRef.current.color,
+        LIGHT.fillTemperature,
+        9000,
+        LIGHT_FILL_BASE_SRGB
+      );
+    }
   });
 
   return (
@@ -7847,12 +8177,12 @@ function Scene({
       <ambientLight ref={ambRef} intensity={LIGHT.amb} />
       <directionalLight
         ref={keyRef}
-        position={[5, 10, 5]}
+        position={LIGHT.keyPosition}
         intensity={LIGHT.key}
       />
       <directionalLight
         ref={fillRef}
-        position={[-6, 3, 4]}
+        position={LIGHT.fillPosition}
         intensity={LIGHT.fill}
         color="#e8f0ff"
       />
