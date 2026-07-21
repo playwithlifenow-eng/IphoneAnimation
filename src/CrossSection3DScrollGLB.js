@@ -18,7 +18,22 @@ import { Leva, useControls, button, folder } from "leva";
 
 gsap.registerPlugin(ScrollTrigger);
 
-const IGLASS_APP_VERSION = "7.5.11";
+const IGLASS_APP_VERSION = "7.5.12";
+
+// ============================================
+// v7.5.12 — PATH-NATIVE FULL AUTOPLAY
+//
+//   NO SCROLL GATE    Once the GLB has rendered two frames, the complete
+//                     authored motion path plays automatically from 0 to 1.
+//   NATIVE HOLDS      Node holds remain part of sampleMotionPlayback; there
+//                     is no second artificial pause at a fixed parent p.
+//   INTRO SYNC        The first authored hold boundary is reported to Framer
+//                     so its black→white lift and silver "imagine" reveal
+//                     finish exactly on the arrival at slot 120.
+//   SMOOTH LAUNCH     The first leg now honours node 1's authored departure
+//                     easing even though there is no hold before it.
+//
+// ============================================
 
 // ============================================
 // v7.5.11 — RENDER-GATED HYBRID AUTOPLAY
@@ -1666,6 +1681,30 @@ function sampleMotionPlayback(path, progress, speedOverride) {
   return { pose, pathProgress, ...timing };
 }
 
+function playbackProgressAtFirstHold(path, speedOverride) {
+  const timeline = buildMotionTimeline(path);
+  const holdEventIndex = timeline.events.findIndex(
+    (event) => event.type === "hold" && event.index > 0
+  );
+  if (holdEventIndex < 0) return null;
+
+  const authoredElapsed = timeline.events
+    .slice(0, holdEventIndex)
+    .reduce((sum, event) => sum + event.duration, 0);
+  const pathSpeed = Math.max(
+    0.1,
+    Number(speedOverride ?? path?.speed) || 1
+  );
+  const totalDuration = Math.max(
+    0.000001,
+    motionPlaybackTiming(path, speedOverride).totalDuration
+  );
+  return Math.max(
+    0,
+    Math.min(1, authoredElapsed / pathSpeed / totalDuration)
+  );
+}
+
 function expectedMotionNodeIndex(path, progress) {
   const timeline = buildMotionTimeline(path);
   if (!timeline.events.length || timeline.total <= 0) {
@@ -2014,11 +2053,13 @@ function motionEventProgress(path, event, raw) {
   const startNode = path.nodes[event.start];
   const endNode = path.nodes[event.end];
   const startsAfterHold = nodeHoldDuration(startNode) > 0;
+  const startsAtPath = event.start === 0;
+  const usesDepartureEase = startsAfterHold || startsAtPath;
   const endsAtHold = nodeHoldDuration(endNode) > 0;
-  const departureEase = startsAfterHold
+  const departureEase = usesDepartureEase
     ? (MOTION_EASES[startNode.departureEase] ? startNode.departureEase : "accelerate")
     : null;
-  const departureStrength = startsAfterHold
+  const departureStrength = usesDepartureEase
     ? Math.max(0, Math.min(1, Number(startNode.departureEaseStrength) || 0))
     : 0;
 
@@ -6084,10 +6125,6 @@ function resolveRuntimeConfig() {
       ? "scroll"
       : "standalone";
   const bg = params.get("bg") || "transparent";
-  const holdParam = parseFloat(params.get("hold"));
-  const autoplayHold = !isNaN(holdParam)
-    ? Math.max(0.001, Math.min(0.999, holdParam))
-    : 0.2;
 
   const settleParam = params.get("settle");
   if (settleParam) {
@@ -6362,7 +6399,6 @@ function resolveRuntimeConfig() {
     dev,
     motionPath,
     motionFreezeP,
-    autoplayHold,
   };
 }
 
@@ -7968,8 +8004,17 @@ function CrossSection3DScrollGLBScene(props) {
     dev,
     motionPath: runtimeMotionPath,
     motionFreezeP,
-    autoplayHold,
   } = useMemo(resolveRuntimeConfig, []);
+
+  const introEnd = useMemo(() => {
+    if (!runtimeMotionPath) return 0.2;
+    return (
+      playbackProgressAtFirstHold(
+        runtimeMotionPath,
+        runtimeMotionPath.speed
+      ) ?? 0.2
+    );
+  }, [runtimeMotionPath]);
 
   const containerRef = useRef(null);
   const stickyRef = useRef(null);
@@ -7991,10 +8036,11 @@ function CrossSection3DScrollGLBScene(props) {
         type: "iglass-scene-ready",
         version: IGLASS_APP_VERSION,
         progress: scrollState.parentProgress,
+        introEnd,
       },
       parentTargetOrigin
     );
-  }, [sceneReady, parentTargetOrigin]);
+  }, [sceneReady, introEnd, parentTargetOrigin]);
 
   useEffect(() => {
     const applyProgress = (p) => {
@@ -8106,10 +8152,6 @@ function CrossSection3DScrollGLBScene(props) {
           )
         : 7;
       let tween = null;
-      let holding = false;
-      let released = false;
-      let complete = false;
-      let touchStartY = null;
 
       const postAutoplay = (type, progress) => {
         if (window.self === window.top) return;
@@ -8118,60 +8160,6 @@ function CrossSection3DScrollGLBScene(props) {
           parentTargetOrigin
         );
       };
-
-      const resume = () => {
-        if (!holding || released || !tween) return;
-        released = true;
-        holding = false;
-        postAutoplay("iglass-autoplay-resumed", proxy.p);
-        tween.resume();
-      };
-
-      const onMessage = (event) => {
-        if (
-          parentTargetOrigin !== "*" &&
-          event.origin !== parentTargetOrigin
-        ) return;
-        if (event.data?.type === "iglass-autoplay-resume") resume();
-      };
-      const onLocalWheel = (event) => {
-        if (complete) return;
-        event.preventDefault();
-        if (event.deltaY > 0) resume();
-      };
-      const onLocalTouchStart = (event) => {
-        touchStartY = event.touches[0]?.clientY ?? null;
-      };
-      const onLocalTouchMove = (event) => {
-        if (complete) return;
-        const currentY = event.touches[0]?.clientY;
-        event.preventDefault();
-        if (
-          touchStartY !== null &&
-          typeof currentY === "number" &&
-          touchStartY - currentY > 8
-        ) resume();
-      };
-      const onLocalTouchEnd = () => {
-        touchStartY = null;
-      };
-      const onLocalKey = (event) => {
-        if (complete || !["ArrowDown", "PageDown", " "].includes(event.key))
-          return;
-        event.preventDefault();
-        resume();
-      };
-
-      window.addEventListener("message", onMessage);
-      window.addEventListener("wheel", onLocalWheel, { passive: false });
-      window.addEventListener("touchstart", onLocalTouchStart, {
-        passive: true,
-      });
-      window.addEventListener("touchmove", onLocalTouchMove, {
-        passive: false,
-      });
-      window.addEventListener("touchend", onLocalTouchEnd);
-      window.addEventListener("keydown", onLocalKey);
       applyRuntimeProgress(0);
 
       tween = gsap.to(proxy, {
@@ -8181,30 +8169,13 @@ function CrossSection3DScrollGLBScene(props) {
         delay: 0,
         repeat: 0,
         yoyo: false,
-        onUpdate: () => {
-          if (!released && proxy.p >= autoplayHold) {
-            holding = true;
-            tween?.pause();
-            proxy.p = autoplayHold;
-            applyRuntimeProgress(autoplayHold);
-            postAutoplay("iglass-autoplay-hold", autoplayHold);
-            return;
-          }
-          applyRuntimeProgress(proxy.p);
-        },
+        onUpdate: () => applyRuntimeProgress(proxy.p),
         onComplete: () => {
-          complete = true;
           applyRuntimeProgress(1);
           postAutoplay("iglass-autoplay-complete", 1);
         },
       });
       return () => {
-        window.removeEventListener("message", onMessage);
-        window.removeEventListener("wheel", onLocalWheel);
-        window.removeEventListener("touchstart", onLocalTouchStart);
-        window.removeEventListener("touchmove", onLocalTouchMove);
-        window.removeEventListener("touchend", onLocalTouchEnd);
-        window.removeEventListener("keydown", onLocalKey);
         tween?.kill();
       };
     }
@@ -8229,7 +8200,6 @@ function CrossSection3DScrollGLBScene(props) {
     runtimeMotionPath,
     motionFreezeP,
     sceneReady,
-    autoplayHold,
     parentTargetOrigin,
     scrollDistance,
     glassStagger,
