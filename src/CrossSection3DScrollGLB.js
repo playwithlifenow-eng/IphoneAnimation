@@ -18,7 +18,22 @@ import { Leva, useControls, button, folder } from "leva";
 
 gsap.registerPlugin(ScrollTrigger);
 
-const IGLASS_APP_VERSION = "7.5.10";
+const IGLASS_APP_VERSION = "7.5.11";
+
+// ============================================
+// v7.5.11 — RENDER-GATED HYBRID AUTOPLAY
+//
+//   TRUE READY        Autoplay cannot start until the GLB, textures and
+//                     scene have completed two rendered frames.
+//   FIRST HOLD        Autoplay stops exactly at p=0.20 (URL-overridable via
+//                     ?hold=) and waits for one parent resume message.
+//   SHARED PROGRESS   Autoplay progress is posted to Framer every frame so
+//                     the DOM headlines remain on the same clock.
+//   ONE-WAY PLAYBACK  After the first downward gesture, playback continues
+//                     once to p=1; it does not loop or yoyo.
+//   EDGE CONTINUITY   The calibrated dual-edge feed also runs in autoplay.
+//
+// ============================================
 
 // ============================================
 // v7.5.10 — STABLE DUAL LONG-EDGE FEED
@@ -6069,6 +6084,10 @@ function resolveRuntimeConfig() {
       ? "scroll"
       : "standalone";
   const bg = params.get("bg") || "transparent";
+  const holdParam = parseFloat(params.get("hold"));
+  const autoplayHold = !isNaN(holdParam)
+    ? Math.max(0.001, Math.min(0.999, holdParam))
+    : 0.2;
 
   const settleParam = params.get("settle");
   if (settleParam) {
@@ -6336,7 +6355,15 @@ function resolveRuntimeConfig() {
   let freezeP = !isNaN(pParam) ? Math.max(0, Math.min(1, pParam)) : null;
   if (dev && freezeP === null) freezeP = 0.5;
 
-  return { mode, bg, freezeP, dev, motionPath, motionFreezeP };
+  return {
+    mode,
+    bg,
+    freezeP,
+    dev,
+    motionPath,
+    motionFreezeP,
+    autoplayHold,
+  };
 }
 
 function phaseMap(p) {
@@ -7715,6 +7742,24 @@ function PremiumReflectionEnvironment({ preset, blur, revision }) {
   );
 }
 
+// The iframe's load event only means its HTML loaded. This reporter waits
+// until the actual phone mesh exists and then allows two R3F render passes
+// before declaring the scene visible to the parent.
+function SceneReadyReporter({ onReady }) {
+  const renderedFramesRef = useRef(0);
+  const sentRef = useRef(false);
+
+  useFrame(() => {
+    if (sentRef.current || !DEV.glassPaneMesh) return;
+    renderedFramesRef.current += 1;
+    if (renderedFramesRef.current < 2) return;
+    sentRef.current = true;
+    onReady();
+  });
+
+  return null;
+}
+
 function Scene({
   modelPath,
   screenTexture,
@@ -7723,6 +7768,7 @@ function Scene({
   explodeDistance,
   dev,
   glassEdgeFeed,
+  onReady,
 }) {
   const [envPreset, setEnvPreset] = useState(LIGHT.preset);
   const [envBlur, setEnvBlur] = useState(LIGHT.blur);
@@ -7798,11 +7844,13 @@ function Scene({
         explodeDistance={explodeDistance}
       />
 
-      {/* v7.5.9 — mounted only in embedded scroll mode. Mounted AFTER
+      {/* v7.5.11 — mounted in embedded scroll and autoplay modes. Mounted AFTER
           IPhoneExploded so its useFrame runs after the glass group has
           been written this frame; it therefore reports the pose the
           viewer is actually about to see, not the previous one. */}
       {glassEdgeFeed && <GlassEdgeReporter />}
+
+      <SceneReadyReporter onReady={onReady} />
 
       {dev && <DevGizmo />}
     </>
@@ -7920,10 +7968,33 @@ function CrossSection3DScrollGLBScene(props) {
     dev,
     motionPath: runtimeMotionPath,
     motionFreezeP,
+    autoplayHold,
   } = useMemo(resolveRuntimeConfig, []);
 
   const containerRef = useRef(null);
   const stickyRef = useRef(null);
+  const [sceneReady, setSceneReady] = useState(false);
+  const parentTargetOrigin = useMemo(() => {
+    if (typeof document === "undefined") return "*";
+    try {
+      if (document.referrer) return new URL(document.referrer).origin;
+    } catch (e) {
+      /* malformed referrer -> guarded wildcard fallback */
+    }
+    return "*";
+  }, []);
+
+  useEffect(() => {
+    if (!sceneReady || window.self === window.top) return;
+    window.parent.postMessage(
+      {
+        type: "iglass-scene-ready",
+        version: IGLASS_APP_VERSION,
+        progress: scrollState.parentProgress,
+      },
+      parentTargetOrigin
+    );
+  }, [sceneReady, parentTargetOrigin]);
 
   useEffect(() => {
     const applyProgress = (p) => {
@@ -7956,18 +8027,29 @@ function CrossSection3DScrollGLBScene(props) {
     DEV.applyProgress = applyProgress;
 
     const applyRuntimeProgress = (progress) => {
+      const clamped = Math.max(0, Math.min(1, progress));
       // v7.5.9 — record the driving progress so the glass-edge payload can
       // carry it. Diagnostic only; it never feeds back into the motion.
-      scrollState.parentProgress = Math.max(0, Math.min(1, progress));
+      scrollState.parentProgress = clamped;
       if (runtimeMotionPath) {
         const sample = sampleMotionPlayback(
           runtimeMotionPath,
-          progress,
+          clamped,
           runtimeMotionPath.speed
         );
         if (sample.pose) applyPoseParamsDirect(sample.pose);
       } else {
-        applyProgress(progress);
+        applyProgress(clamped);
+      }
+      if (
+        mode === "autoplay" &&
+        sceneReady &&
+        window.self !== window.top
+      ) {
+        window.parent.postMessage(
+          { type: "iglass-autoplay-progress", progress: clamped },
+          parentTargetOrigin
+        );
       }
     };
 
@@ -7988,6 +8070,11 @@ function CrossSection3DScrollGLBScene(props) {
 
     if (runtimeMotionPath) applyRuntimeProgress(0);
 
+    if (mode === "autoplay" && !sceneReady) {
+      applyRuntimeProgress(0);
+      return;
+    }
+
     if (mode === "scroll") {
       document.documentElement.style.overflow = "hidden";
       document.body.style.overflow = "hidden";
@@ -8003,9 +8090,6 @@ function CrossSection3DScrollGLBScene(props) {
       };
 
       window.addEventListener("message", onMessage);
-      if (window.parent) {
-        window.parent.postMessage({ type: "iglass-3d-ready" }, "*");
-      }
       return () => window.removeEventListener("message", onMessage);
     }
 
@@ -8021,21 +8105,108 @@ function CrossSection3DScrollGLBScene(props) {
               .totalDuration
           )
         : 7;
-      const tween = gsap.to(proxy, {
+      let tween = null;
+      let holding = false;
+      let released = false;
+      let complete = false;
+      let touchStartY = null;
+
+      const postAutoplay = (type, progress) => {
+        if (window.self === window.top) return;
+        window.parent.postMessage(
+          { type, progress, version: IGLASS_APP_VERSION },
+          parentTargetOrigin
+        );
+      };
+
+      const resume = () => {
+        if (!holding || released || !tween) return;
+        released = true;
+        holding = false;
+        postAutoplay("iglass-autoplay-resumed", proxy.p);
+        tween.resume();
+      };
+
+      const onMessage = (event) => {
+        if (
+          parentTargetOrigin !== "*" &&
+          event.origin !== parentTargetOrigin
+        ) return;
+        if (event.data?.type === "iglass-autoplay-resume") resume();
+      };
+      const onLocalWheel = (event) => {
+        if (complete) return;
+        event.preventDefault();
+        if (event.deltaY > 0) resume();
+      };
+      const onLocalTouchStart = (event) => {
+        touchStartY = event.touches[0]?.clientY ?? null;
+      };
+      const onLocalTouchMove = (event) => {
+        if (complete) return;
+        const currentY = event.touches[0]?.clientY;
+        event.preventDefault();
+        if (
+          touchStartY !== null &&
+          typeof currentY === "number" &&
+          touchStartY - currentY > 8
+        ) resume();
+      };
+      const onLocalTouchEnd = () => {
+        touchStartY = null;
+      };
+      const onLocalKey = (event) => {
+        if (complete || !["ArrowDown", "PageDown", " "].includes(event.key))
+          return;
+        event.preventDefault();
+        resume();
+      };
+
+      window.addEventListener("message", onMessage);
+      window.addEventListener("wheel", onLocalWheel, { passive: false });
+      window.addEventListener("touchstart", onLocalTouchStart, {
+        passive: true,
+      });
+      window.addEventListener("touchmove", onLocalTouchMove, {
+        passive: false,
+      });
+      window.addEventListener("touchend", onLocalTouchEnd);
+      window.addEventListener("keydown", onLocalKey);
+      applyRuntimeProgress(0);
+
+      tween = gsap.to(proxy, {
         p: 1,
         duration: runtimeDuration,
         ease: runtimeMotionPath ? "none" : "power2.inOut",
-        delay: 1,
-        repeat: runtimeMotionPath
-          ? runtimeMotionPath.loop === false
-            ? 0
-            : -1
-          : -1,
-        yoyo: runtimeMotionPath ? false : true,
-        repeatDelay: runtimeMotionPath ? 0 : 1.2,
-        onUpdate: () => applyRuntimeProgress(proxy.p),
+        delay: 0,
+        repeat: 0,
+        yoyo: false,
+        onUpdate: () => {
+          if (!released && proxy.p >= autoplayHold) {
+            holding = true;
+            tween?.pause();
+            proxy.p = autoplayHold;
+            applyRuntimeProgress(autoplayHold);
+            postAutoplay("iglass-autoplay-hold", autoplayHold);
+            return;
+          }
+          applyRuntimeProgress(proxy.p);
+        },
+        onComplete: () => {
+          complete = true;
+          applyRuntimeProgress(1);
+          postAutoplay("iglass-autoplay-complete", 1);
+        },
       });
-      return () => tween.kill();
+      return () => {
+        window.removeEventListener("message", onMessage);
+        window.removeEventListener("wheel", onLocalWheel);
+        window.removeEventListener("touchstart", onLocalTouchStart);
+        window.removeEventListener("touchmove", onLocalTouchMove);
+        window.removeEventListener("touchend", onLocalTouchEnd);
+        window.removeEventListener("keydown", onLocalKey);
+        tween?.kill();
+      };
     }
 
     if (!containerRef.current || !stickyRef.current) return;
@@ -8057,6 +8228,9 @@ function CrossSection3DScrollGLBScene(props) {
     freezeP,
     runtimeMotionPath,
     motionFreezeP,
+    sceneReady,
+    autoplayHold,
+    parentTargetOrigin,
     scrollDistance,
     glassStagger,
     oledStagger,
@@ -8213,7 +8387,8 @@ function CrossSection3DScrollGLBScene(props) {
             crackTexture={crackTexture}
             explodeDistance={explodeDistance}
             dev={dev}
-            glassEdgeFeed={mode === "scroll"}
+            glassEdgeFeed={mode === "scroll" || mode === "autoplay"}
+            onReady={() => setSceneReady(true)}
           />
         </Canvas>
       </div>
