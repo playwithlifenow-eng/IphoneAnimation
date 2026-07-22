@@ -18,7 +18,22 @@ import { Leva, useControls, button, folder } from "leva";
 
 gsap.registerPlugin(ScrollTrigger);
 
-const IGLASS_APP_VERSION = "7.5.16";
+const IGLASS_APP_VERSION = "7.5.17";
+
+// ============================================
+// v7.5.17 — CRACK UV-EDGE CLIP
+//
+//   NO EDGE STREAKS  Crack alpha is explicitly zero outside transformed UV
+//                    bounds instead of inheriting ClampToEdge border pixels.
+//   SAFE REGISTRATION X/Y registration can move the fracture texture without
+//                    drawing straight lines from its edge into the pane.
+//   SOFT CROP        A derivative-sized feather removes the final texel seam
+//                    while preserving the authored fracture pattern.
+//   BOTH FACES       The same UV law is applied to front and underside crack.
+//   SCOPED CHANGE    Glass geometry, crack position values, motion, lighting
+//                    and all material controls remain unchanged.
+//
+// ============================================
 
 // ============================================
 // v7.5.16 — DEPARTURE MOTION RESTORED
@@ -7413,9 +7428,18 @@ function IPhoneExploded({
       shader.fragmentShader = shader.fragmentShader.replace(
         "#include <map_fragment>",
         `#include <map_fragment>
+         vec2 crackUvFeather = max(fwidth(vMapUv) * 1.5, vec2(0.00001));
+         vec2 crackUvInside =
+           smoothstep(vec2(0.0), crackUvFeather, vMapUv) *
+           (vec2(1.0) - smoothstep(
+             vec2(1.0) - crackUvFeather,
+             vec2(1.0),
+             vMapUv
+           ));
+         float crackUvMask = crackUvInside.x * crackUvInside.y;
          diffuseColor.a = clamp(
            pow(clamp(diffuseColor.a, 0.0, 1.0), uCrackSharpness)
-             * uCrackSeverity * uCrackPresence,
+             * uCrackSeverity * uCrackPresence * crackUvMask,
            0.0,
            1.0
          );`
@@ -7430,7 +7454,7 @@ function IPhoneExploded({
       m.userData.crackAppearanceUniforms = shader.uniforms;
       syncCrackAppearance();
     };
-    m.customProgramCacheKey = () => "iglass-crack-appearance-v2-presence";
+    m.customProgramCacheKey = () => "iglass-crack-appearance-v3-uv-clip";
     m.visible = CRACK.mix > 0.0001;
     DEV.crackMat = m;
     return m;
@@ -7469,9 +7493,18 @@ function IPhoneExploded({
       shader.fragmentShader = shader.fragmentShader.replace(
         "#include <map_fragment>",
         `#include <map_fragment>
+         vec2 crackUvFeather = max(fwidth(vMapUv) * 1.5, vec2(0.00001));
+         vec2 crackUvInside =
+           smoothstep(vec2(0.0), crackUvFeather, vMapUv) *
+           (vec2(1.0) - smoothstep(
+             vec2(1.0) - crackUvFeather,
+             vec2(1.0),
+             vMapUv
+           ));
+         float crackUvMask = crackUvInside.x * crackUvInside.y;
          diffuseColor.a = clamp(
            pow(clamp(diffuseColor.a, 0.0, 1.0), uCrackSharpness)
-             * uCrackSeverity * uCrackPresence,
+             * uCrackSeverity * uCrackPresence * crackUvMask,
            0.0,
            1.0
          );`
@@ -7486,7 +7519,7 @@ function IPhoneExploded({
       m.userData.crackAppearanceUniforms = shader.uniforms;
       syncCrackAppearance();
     };
-    m.customProgramCacheKey = () => "iglass-crack-underside-v1";
+    m.customProgramCacheKey = () => "iglass-crack-underside-v2-uv-clip";
     m.visible = CRACK_UNDERSIDE.enabled && CRACK.mix > 0.0001;
     DEV.crackUndersideMat = m;
     syncCrackUndersideMaterial();
