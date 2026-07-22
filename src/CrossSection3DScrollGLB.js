@@ -18,7 +18,21 @@ import { Leva, useControls, button, folder } from "leva";
 
 gsap.registerPlugin(ScrollTrigger);
 
-const IGLASS_APP_VERSION = "7.5.15";
+const IGLASS_APP_VERSION = "7.5.16";
+
+// ============================================
+// v7.5.16 — DEPARTURE MOTION RESTORED
+//
+//   VISIBLE CONTROL   Departure easing is shown for every node with an
+//                     outgoing leg, not only nodes with an authored hold.
+//   WORKING CONTROL   Editing an unheld intermediate departure makes its
+//                     outgoing leg custom so the chosen easing takes effect.
+//   CONTINUITY SAFE   Untouched continuous legs keep their existing sampling;
+//                     saved departure values and legacy paths remain valid.
+//   SCOPED CHANGE     Lighting, crack rendering, materials, poses, autoplay
+//                     and all existing defaults remain unchanged.
+//
+// ============================================
 
 // ============================================
 // v7.5.15 — CRACK SURFACE LOCK
@@ -2235,7 +2249,10 @@ function motionEventProgress(path, event, raw) {
   const endNode = path.nodes[event.end];
   const startsAfterHold = nodeHoldDuration(startNode) > 0;
   const startsAtPath = event.start === 0;
-  const usesDepartureEase = startsAfterHold || startsAtPath;
+  // A custom outgoing leg owns both endpoints even without a hold. Previously
+  // its saved departure easing was ignored unless it started at node 1 or
+  // followed a hold, despite the value already being stored and exported.
+  const usesDepartureEase = startsAfterHold || startsAtPath || event.mode === "custom";
   const endsAtHold = nodeHoldDuration(endNode) > 0;
   const departureEase = usesDepartureEase
     ? (MOTION_EASES[startNode.departureEase] ? startNode.departureEase : "accelerate")
@@ -4737,6 +4754,22 @@ function DevDashboard() {
     commitMotionPath({ ...motionPath, nodes });
   };
 
+  const updateSelectedPathDeparture = (patch) => {
+    if (selectedPathNode < 0 || !motionPath.nodes[selectedPathNode]) return;
+    const outgoingNode = selectedPathNode + 1;
+    if (outgoingNode >= motionPath.nodes.length) return;
+    const nodes = motionPath.nodes.map((node, i) =>
+      i === selectedPathNode ? { ...node, ...patch } : node
+    );
+    const startsAtPath = selectedPathNode === 0;
+    const startsAfterHold = nodeHoldDuration(nodes[selectedPathNode]) > 0;
+    const nextMode = effectiveNodeMotionMode({ ...motionPath, nodes }, outgoingNode);
+    if (!startsAtPath && !startsAfterHold && nextMode !== "custom") {
+      nodes[outgoingNode] = { ...nodes[outgoingNode], motionMode: "custom" };
+    }
+    commitMotionPath({ ...motionPath, nodes });
+  };
+
   const movePathNode = (direction) => {
     const to = selectedPathNode + direction;
     if (selectedPathNode < 0 || to < 0 || to >= motionPath.nodes.length) return;
@@ -5545,15 +5578,15 @@ function DevDashboard() {
                 </label>
               </div>
 
-              {nodeHoldDuration(selectedNode) > 0 && (
+              {selectedPathNode < motionPath.nodes.length - 1 && (
                 <>
                   <div style={{ ...UI.row, marginTop: 3 }}>
                     <span style={{ fontSize: 9, width: 83 }}>departure</span>
-                    <select style={SEL_STYLE} value={selectedNode.departureEase} onChange={(e) => updateSelectedPathNode({ departureEase: e.target.value })}>{Object.entries(MOTION_EASE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
+                    <select style={SEL_STYLE} value={selectedNode.departureEase} onChange={(e) => updateSelectedPathDeparture({ departureEase: e.target.value })}>{Object.entries(MOTION_EASE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
                   </div>
                   <div style={{ ...UI.row, marginTop: 2 }}>
                     <span style={{ fontSize: 9, width: 83 }}>depart amount</span>
-                    <input type="range" min={0} max={1} step={0.01} value={selectedNode.departureEaseStrength} style={{ width: 132, accentColor: "#2e7d52" }} onChange={(e) => updateSelectedPathNode({ departureEaseStrength: Number(e.target.value) })} />
+                    <input type="range" min={0} max={1} step={0.01} value={selectedNode.departureEaseStrength} style={{ width: 132, accentColor: "#2e7d52" }} onChange={(e) => updateSelectedPathDeparture({ departureEaseStrength: Number(e.target.value) })} />
                     <span style={{ fontSize: 9 }}>{Math.round(selectedNode.departureEaseStrength * 100)}%</span>
                   </div>
                 </>
