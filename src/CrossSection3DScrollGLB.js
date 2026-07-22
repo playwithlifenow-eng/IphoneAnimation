@@ -18,7 +18,23 @@ import { Leva, useControls, button, folder } from "leva";
 
 gsap.registerPlugin(ScrollTrigger);
 
-const IGLASS_APP_VERSION = "7.5.14";
+const IGLASS_APP_VERSION = "7.5.15";
+
+// ============================================
+// v7.5.15 — CRACK SURFACE LOCK
+//
+//   FIXED CARRIER     Crack registration now offsets texture UVs; it no
+//                     longer translates the glass-sized overlay geometry.
+//   EXACT TRANSFORM   The crack carrier inherits the source pane's rebased
+//                     position, quaternion and scale.
+//   REAL OCCLUSION    Front-crack depth testing is restored so the OLED,
+//                     bezel and chassis can hide physically covered pixels.
+//   SURFACE BIAS      A tiny local-normal offset places the crack above the
+//                     authored pane/OLED depth defect without visible travel.
+//   SCOPED CHANGE     Crack controls and saved X/Y values remain compatible;
+//                     lighting, materials, paths and all other defaults stay.
+//
+// ============================================
 
 // ============================================
 // v7.5.14 — CONTINUOUS STATIC REFLECTION COVERAGE
@@ -868,6 +884,10 @@ const CRACK_UNDERSIDE = {
   reflection: 1.2,
   roughness: 0.2,
 };
+
+// Local pane units. The source front pane sits fractionally behind the OLED
+// at the docked pose; this is only enough to put the crack on the outer face.
+const CRACK_SURFACE_EPSILON = 0.02;
 
 function poseUsesDefaultCrackPosition(pose) {
   return pose?.crackUseDefault !== false;
@@ -6979,7 +6999,6 @@ function IPhoneExploded({
   }, []);
 
   const glassGroupRef = useRef();
-  const crackGroupRef = useRef();
   const oledGroupRef = useRef();
   const bodyGroupRef = useRef();
   const modelGroupRef = useRef();
@@ -6998,12 +7017,22 @@ function IPhoneExploded({
   // v7.1's decoupling is reverted).
   // Render order: Body 0 → coats 1 → OLED 1 → Glass Front 3 → Bezel 5
   // ---------------------------------------------------------
-  const { glassMeshes, oledMeshes, bodyMeshes, bezelMeshes, crackGeo } = useMemo(() => {
+  const {
+    glassMeshes,
+    oledMeshes,
+    bodyMeshes,
+    bezelMeshes,
+    crackGeo,
+    crackTransform,
+    crackUvScale,
+  } = useMemo(() => {
     const glass = [];
     const oled = [];
     const body = [];
     const bezel = [];
     let crack = null;
+    let crackSourceMesh = null;
+    let crackUvScale = [0, 0];
     DEV.bezelMeshes = [];
     DEV.oledScreenMats = [];
 
@@ -7103,6 +7132,7 @@ function IPhoneExploded({
           }
           const rx = maxX - minX || 1;
           const ry = maxY - minY || 1;
+          crackUvScale = [1 / rx, 1 / ry];
           const uv = new Float32Array(cpos.count * 2);
           for (let i = 0; i < cpos.count; i++) {
             uv[i * 2] = 1.0 - (cpos.getX(i) - minX) / rx;
@@ -7142,6 +7172,7 @@ function IPhoneExploded({
           }
         }
         crack = cg;
+        crackSourceMesh = child;
         return;
       }
 
@@ -7286,12 +7317,24 @@ function IPhoneExploded({
       }
     }
 
+    // The overlay uses cloned local-space pane geometry, so it must also use
+    // the pane mesh's rebased local transform. Geometry alone is insufficient.
+    const crackTransform = crackSourceMesh
+      ? {
+          position: crackSourceMesh.position.clone(),
+          quaternion: crackSourceMesh.quaternion.clone(),
+          scale: crackSourceMesh.scale.clone(),
+        }
+      : null;
+
     return {
       glassMeshes: glass,
       oledMeshes: oled,
       bodyMeshes: body,
       bezelMeshes: bezel,
       crackGeo: crack,
+      crackTransform,
+      crackUvScale,
     };
   }, [clonedScene, oledTexture, maxAniso]);
 
@@ -7314,22 +7357,17 @@ function IPhoneExploded({
       roughness: 0.06,
       metalness: 0.0,
       depthWrite: false,
-      // v3.11.1 fix, carried: the source GLB's front pane can sit
-      // fractionally behind the opaque OLED at the docked pose (the
-      // Blender mesh defect). The crack is the outermost visual surface,
-      // so it must not be rejected by the OLED's depth buffer.
-      depthTest: false,
+      // v7.5.15: the carrier now inherits the pane transform and receives a
+      // tiny local-normal surface bias. Real depth occlusion can therefore
+      // be restored: crack pixels must never draw through the rim/chassis.
+      depthTest: true,
       envMapIntensity: GLASS.env,
       clearcoat: 1.0,
       clearcoatRoughness: 0.04,
       // FrontSide + the back-face strip above. The pane geometry shipped
       // TWO-SIDED (duplicated flipped triangles), so FrontSide alone was
       // powerless — the strip makes it genuinely one-sided, and culling
-      // then hides the crack whenever the phone shows its back, with no
-      // depth test needed. depthTest stays FALSE: at p=0 the pane sits
-      // fractionally behind the opaque OLED slab (the Blender mesh
-      // defect) and polygonOffset cannot win against a surface that is
-      // actually in front. Both fixes coexist; neither trades for the other.
+      // then hides the front crack whenever the phone shows its back.
       side: THREE.FrontSide,
       polygonOffset: true,
       polygonOffsetFactor: -3,
@@ -7723,8 +7761,15 @@ function IPhoneExploded({
     // A child of the moving glass unit. It has no travel of its own — its
     // only transform is where the fracture pattern sits on the pane, and
     // its only other truth is whether it is there at all.
-    if (crackGroupRef.current && hasCrack) {
-      crackGroupRef.current.position.set(CRACK.exit[0], CRACK.exit[1], 0);
+    if (hasCrack) {
+      // Registration moves only the PNG within the fixed pane carrier.
+      // Because the geometry no longer moves, the real pane boundary clips
+      // every crack fragment at every viewing angle.
+      crackTex.offset.set(
+        CRACK.exit[0] * crackUvScale[0],
+        CRACK.exit[1] * crackUvScale[1]
+      );
+      crackTex.updateMatrix();
       if (DEV.crackMat) {
         DEV.crackMat.visible = CRACK.mix > 0.0001;
         syncCrackAppearance();
@@ -7819,16 +7864,22 @@ function IPhoneExploded({
             )}
 
             {/* CRACKED PANE — child of the actual moving front glass. */}
-            {hasCrack && crackGeo && (
-              <group ref={crackGroupRef}>
+            {hasCrack && crackGeo && crackTransform && (
+              <group
+                position={crackTransform.position}
+                quaternion={crackTransform.quaternion}
+                scale={crackTransform.scale}
+              >
                 <mesh
                   geometry={crackGeo}
                   material={crackMat}
+                  position={[0, 0, -CRACK_SURFACE_EPSILON]}
                   renderOrder={4}
                 />
                 <mesh
                   geometry={crackGeo}
                   material={crackUndersideMat}
+                  position={[0, 0, -CRACK_SURFACE_EPSILON]}
                   renderOrder={4}
                 />
               </group>
