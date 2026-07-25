@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>iGlass 3D Exploded View</title>
+
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        background: transparent;
+      }
+
+      /* POSTER-FIRST (v7.5.19)
+         Authored here rather than in React so it paints during HTML parse —
+         before main.js has finished downloading, and long before the 6.5 MB of
+         GLB and textures resolve. CrossSection3DScrollGLB.js dismisses it on
+         scene-ready; it never creates it. */
+      #iglass-poster {
+        position: fixed;
+        inset: 0;
+        z-index: 2;
+        overflow: hidden;
+        pointer-events: none;
+        opacity: 1;
+        will-change: opacity;
+      }
+
+      /* The scene is aspect-invariant on the VERTICAL axis (fov 35, camera z
+         2.8 -> constant 1.766wu viewport height); horizontal extent is what
+         changes with the container. The poster must therefore lock to HEIGHT
+         and crop/extend horizontally about the centre.
+         object-fit: cover is wrong here — on a container wider than the
+         poster's aspect it crops vertically, which the live scene never does. */
+      #iglass-poster img {
+        position: absolute;
+        top: 0;
+        left: 50%;
+        height: 100%;
+        width: auto;
+        max-width: none;
+        transform: translateX(-50%);
+        display: block;
+      }
+    </style>
+  </head>
+
+  <body>
+    <noscript>You need to enable JavaScript to run this app.</noscript>
+
+    <div id="iglass-poster" aria-hidden="true">
+      <img src="/poster.webp" alt="" fetchpriority="high" />
+    </div>
+
+    <div id="root"></div>
+
+    <script>
+      /* Runs at parse, before the bundle. Removes the poster for:
+         - arm B of the A/B test (?poster=0)
+         - the Pose Studio (?dev=1), the capture rig (?snap=1) and the viewport
+           simulator (?simulate=), none of which may ever have an overlay in
+           front of the canvas. */
+      (function () {
+        try {
+          var q = new URLSearchParams(window.location.search);
+          var suppress =
+            q.get("poster") === "0" ||
+            q.get("dev") === "1" ||
+            q.get("snap") === "1" ||
+            q.get("simulate") !== null;
+          if (!suppress) return;
+          var el = document.getElementById("iglass-poster");
+          if (el && el.parentNode) el.parentNode.removeChild(el);
+        } catch (e) {
+          /* no URLSearchParams -> leave the poster in place */
+        }
+      })();
+    </script>
+  </body>
+</html>
