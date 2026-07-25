@@ -18,7 +18,35 @@ import { Leva, useControls, button, folder } from "leva";
 
 gsap.registerPlugin(ScrollTrigger);
 
-const IGLASS_APP_VERSION = "7.5.19";
+const IGLASS_APP_VERSION = "7.5.20";
+
+// ============================================
+// v7.5.20 — CRACK STATE AUTHORITY + PATH OVERWRITE + LEFT LIGHT BANK
+//
+//   CRACK AUTHORITY  CRACK.on is now written by ONE function. Previously
+//                    the toggle went through Leva, and Leva's set() is a
+//                    no-op when its cached value already matches — while
+//                    path playback had mutated CRACK.on directly behind
+//                    its back. Result: the chip appeared to do nothing,
+//                    the crack stayed on, and readPoseParams saved ON.
+//   SLOT PRESERVING  PLAY on the path that is ALREADY loaded now runs the
+//                    LIVE slots instead of re-restoring the saved
+//                    snapshot over them. Restoring wiped every slot edit
+//                    made since the load, which is the second and larger
+//                    reason a crack turned off on a node came back.
+//   SAVE ON A NODE   Mid-fade scrubs no longer save a half-faded crack as
+//                    ON; the saved boolean is the nearer authored state.
+//   PATH OVERWRITE   "update loaded path" overwrites the loaded path's
+//                    latest version in place. "+ version" and "+ save as
+//                    new path" remain for non-destructive saves.
+//   LEFT LIGHT BANK  Three camera-side cards on -X, on one dial
+//                    (SHINE.envLeft), so the front glass, the left chassis
+//                    flank and left-facing crack facets have something to
+//                    reflect. envLeft 0 restores the v7.5.19 look exactly.
+//   SCOPED CHANGE    No geometry, pose, path, easing, damping or
+//                    interpolation value is altered.
+//
+// ============================================
 
 // ============================================
 // v7.5.19 — WEBP TEXTURES + POSTER-FIRST LOAD
@@ -1149,6 +1177,9 @@ const SHINE = {
   envBroad: 2.0,
   envStrip: 8.0,
   envRim: 1.4,
+  // v7.5.20 — one master for the whole left-hand card bank. 0 = the
+  // v7.5.19 rig unchanged; 1 = the mirrored bank at its authored level.
+  envLeft: 1.0,
 };
 
 // ---------------------------------------------------------
@@ -1295,6 +1326,35 @@ function syncCrackUndersideMaterial() {
   mat.roughness = Math.max(0, Math.min(1, CRACK_UNDERSIDE.roughness));
   mat.visible = CRACK_UNDERSIDE.enabled && CRACK.mix > 0.0001;
   mat.needsUpdate = true;
+}
+
+// ---------------------------------------------------------
+// THE ONLY PLACE CRACK ON/OFF IS SET BY A HUMAN (v7.5.20)
+//
+// Every UI route — the dashboard chip, the C shortcut, the Leva checkbox,
+// a slot warp — goes through here. It writes the runtime truth FIRST and
+// mirrors Leva afterwards, never the other way round.
+//
+// The bug this kills: Leva's set() does not emit when the incoming value
+// already equals its cached value. Path playback writes CRACK.on directly
+// (it must — it runs per frame), so Leva's cache and CRACK.on drift apart.
+// Once drifted, `set({ crackOn: !CRACK.on })` could resolve to the value
+// Leva already held, emit nothing, and leave CRACK.on untouched. The chip
+// did nothing, the crack would not go off, and the slot saved ON.
+// ---------------------------------------------------------
+function setCrackOn(value) {
+  const next = !!value;
+  CRACK.on = next;
+  CRACK.mix = next ? 1 : 0;
+  syncCrackAppearance();
+  syncCrackUndersideMaterial();
+  if (DEV.setLeva) {
+    const suspended = WIRE.suspended;
+    WIRE.suspended = true;
+    DEV.setLeva({ crackOn: next });
+    WIRE.suspended = suspended;
+  }
+  return next;
 }
 
 function syncOledLuminance() {
@@ -2811,6 +2871,7 @@ function syncPoseControls(pose) {
     if (LEVA_KEYS.has(k)) writes[k] = pose[k];
   }
   DEV.setLeva(writes);
+  if (typeof pose.crackOn === "boolean") setCrackOn(pose.crackOn);
   WIRE.suspended = false;
 }
 
@@ -2999,7 +3060,10 @@ function readPoseParams() {
   for (const k of Object.keys(DRIVE_READERS)) o[k] = DRIVE_READERS[k]();
   // Glass registration, effective crack X/Y, appearance, and the explicit
   // default/manual crack-position state save with the pose.
-  o.crackOn = CRACK.on;
+  // A mid-leg scrub sits inside an ON -> OFF fade, where CRACK.mix is
+  // fractional. Saving the nearer authored state means a pose captured
+  // just off a node still records the intent, not the transition.
+  o.crackOn = Number.isFinite(CRACK.mix) ? CRACK.mix >= 0.5 : !!CRACK.on;
   o.crackUseDefault = CRACK.useDefault;
   o.p = DEV.lastP;
   return o;
@@ -3025,6 +3089,8 @@ function warpToParams(snap) {
     writes.crackExitY = CRACK.defaultExit[1];
   }
   DEV.setLeva(writes);
+  // Authoritative, because the bulk write above cannot be trusted to emit.
+  setCrackOn(snap.crackOn !== false);
   if (typeof snap.p === "number") jumpToP(snap.p);
   WIRE.suspended = false;
 }
@@ -3290,6 +3356,7 @@ function serialiseParams(params) {
       SHINE.range[0],
       SHINE.range[1],
       SHINE.speed,
+      SHINE.envLeft,
     ]
       .map((v) => Number(v).toFixed(4))
       .join(",")
@@ -3413,7 +3480,7 @@ function saveCard() {
     `light amb ${LIGHT.amb.toFixed(2)}  key ${LIGHT.key.toFixed(2)}  fill ${LIGHT.fill.toFixed(2)}  env ${LIGHT.env.toFixed(2)}  exp ${LIGHT.exp.toFixed(2)}`,
     `bezel env ${BEZEL.env.toFixed(2)}  rough ${BEZEL.rough.toFixed(2)}  offset ${BEZEL.offset.toFixed(2)}    oled cut ${OLED.faceCut.toFixed(2)}  rim ${OLED.showRim ? "on" : "off"}`,
     `glass rough ${GLASS.rough.toFixed(3)}  env ${GLASS.env.toFixed(2)}  opac ${GLASS.opacity.toFixed(2)}  clearcoat ${GLASS.clearcoat.toFixed(2)} / ${GLASS.ccRough.toFixed(3)}`,
-    `ibl ${LIGHT.preset}  blur ${LIGHT.blur.toFixed(2)}    crack ${CRACK.on ? "ON" : "OFF"}  reg ${CRACK.exit.map((v) => v.toFixed(2)).join(", ")}`,
+    `ibl ${LIGHT.preset}  blur ${LIGHT.blur.toFixed(2)}  envLeft ${SHINE.envLeft.toFixed(2)}    crack ${CRACK.on ? "ON" : "OFF"}  reg ${CRACK.exit.map((v) => v.toFixed(2)).join(", ")}`,
   ];
   const url = buildTuningURL();
 
@@ -4006,6 +4073,17 @@ function DevControls({ initialP }) {
                 if (DEV.refreshEnvironment) DEV.refreshEnvironment();
               },
             },
+            shineEnvLeft: {
+              value: SHINE.envLeft,
+              min: 0,
+              max: 4,
+              step: 0.05,
+              label: "LEFT card bank (0 = old rig)",
+              onChange: (v) => {
+                SHINE.envLeft = v;
+                if (DEV.refreshEnvironment) DEV.refreshEnvironment();
+              },
+            },
           },
           { collapsed: true }
         ),
@@ -4021,9 +4099,7 @@ function DevControls({ initialP }) {
           value: CRACK.on,
           label: "CRACK  (saved in the pose slot)",
           onChange: (v) => {
-            CRACK.on = !!v;
-            CRACK.mix = CRACK.on ? 1 : 0;
-            syncCrackAppearance();
+            setCrackOn(v);
           },
         },
         crackDefaultX: {
@@ -4672,7 +4748,7 @@ function DevControls({ initialP }) {
         return;
       }
       if (k === "c") {
-        set({ crackOn: !CRACK.on });
+        setCrackOn(!CRACK.on);
         return;
       }
       if (k === "[" || k === "]") {
@@ -4799,7 +4875,7 @@ function DevDashboard() {
   const [selectedPathNode, setSelectedPathNode] = useState(-1);
   const [pathProgress, setPathProgress] = useState(0);
   const [pathPlaying, setPathPlaying] = useState(false);
-  const [status, setStatus] = useState("v7.5.13 — pose-animated illumination");
+  const [status, setStatus] = useState("v7.5.20 — crack authority · path overwrite · left light bank");
   const [library, setLibrary] = useState(loadMotionLibrary);
   const [libraryId, setLibraryId] = useState("");
   const [importText, setImportText] = useState("");
@@ -5345,6 +5421,59 @@ function DevDashboard() {
     setStatus(`${existing ? "saved new path version" : "saved new named path"} · ${embeddedPath.nodes.length} node poses verified${glassAudit}`);
   };
 
+  // v7.5.20 — OVERWRITE. Replaces one existing version of a saved path
+  // with the path currently loaded, instead of appending yet another
+  // version or creating yet another path entry.
+  const overwritePathVersion = (targetId = libraryId, versionIndex = null) => {
+    const sourceSlots = slotsRef.current;
+    const currentLibrary = libraryRef.current;
+    const entry = currentLibrary.find((item) => item.id === targetId);
+    if (!entry) {
+      setStatus("no loaded path to update — use “+ save as new path”");
+      return;
+    }
+    const embeddedPath = embedMotionPath(motionPath, sourceSlots);
+    if (!embeddedPath.nodes.length) {
+      setStatus("PATH UPDATE BLOCKED — the loaded path has no nodes");
+      return;
+    }
+    const errors = validateMotionPathSnapshot(embeddedPath, sourceSlots);
+    if (errors.length) {
+      setStatus(`PATH UPDATE BLOCKED — ${errors[0]}`);
+      return;
+    }
+    const slotThumbnails = {};
+    embeddedPath.nodes.forEach((node) => {
+      if (slotThumbs[node.slot]) slotThumbnails[node.slot] = slotThumbs[node.slot];
+    });
+    const target =
+      versionIndex === null
+        ? Math.max(0, entry.versions.length - 1)
+        : versionIndex;
+    const replacement = {
+      savedAt: new Date().toISOString(),
+      appVersion: IGLASS_APP_VERSION,
+      snapshotSource: "authoritative-slots",
+      slotRevision: slotRevisionRef.current,
+      slotThumbnails,
+      path: embeddedPath,
+    };
+    const next = currentLibrary.map((item) =>
+      item.id === targetId
+        ? {
+            ...item,
+            name: motionPath.name || item.name,
+            versions: item.versions.length
+              ? item.versions.map((v, i) => (i === target ? replacement : v))
+              : [replacement],
+          }
+        : item
+    );
+    persistLibrary(next);
+    setLibraryId(targetId);
+    setStatus(`updated “${motionPath.name}” in place · v${target + 1} overwritten · ${embeddedPath.nodes.length} node poses verified`);
+  };
+
   const restoreSavedPathSnapshot = (path) => {
     const restored = slotsWithSavedPathSnapshot(path, slotsRef.current);
     commitSlots(restored.slots);
@@ -5378,6 +5507,22 @@ function DevDashboard() {
   ) => {
     const version = entry.versions[versionIndex];
     if (!version) return;
+
+    // v7.5.20 — PLAY on the path that is ALREADY loaded runs the LIVE
+    // slots. Restoring the saved snapshot here overwrote every slot edit
+    // made since the load, so a crack switched off on a node reappeared
+    // the moment PLAY was pressed. Use "load" to deliberately revert.
+    if (libraryId === entry.id && versionIndex === entry.versions.length - 1) {
+      if (compiledPath.nodes.length < 2) {
+        setStatus(`${entry.name} needs at least two valid nodes`);
+        return;
+      }
+      pauseMotionPath(false);
+      setStatus(`playing ${entry.name} · LIVE edits (saved snapshot untouched)`);
+      playMotionPath(compiledPath, motionPath, true);
+      return;
+    }
+
     const path = normaliseMotionPath(version.path);
     const restored = slotsWithSavedPathSnapshot(path, slotsRef.current);
     const playable = compileMotionPath(path, restored.slots);
@@ -5679,7 +5824,7 @@ function DevDashboard() {
           style={chipStyle(CRACK.on, true)}
           title="Explicit crack state; saved into pose slots. Shortcut: C"
           onClick={() => {
-            if (DEV.setLeva) DEV.setLeva({ crackOn: !CRACK.on });
+            setCrackOn(!CRACK.on);
             force((n) => n + 1);
           }}
         >
@@ -6061,9 +6206,25 @@ function DevDashboard() {
 
       <details open>
         <summary style={UI.head}>🧪 path comparison / saved paths ({library.length})</summary>
-        <div style={UI.hint}>Save any number of complete paths. Each path keeps unlimited versions; PLAY runs its latest version from the start.</div>
+        <div style={UI.hint}>UPDATE overwrites the loaded path in place. + version appends without discarding. PLAY on the loaded path runs your live edits; LOAD deliberately reverts to the saved snapshot.</div>
         <div style={UI.row}>
-          <span style={chipStyle(false, true)} onClick={() => savePathVersion(true)}>save current as new path</span>
+          <span
+            title={libraryId ? "overwrite the loaded path's latest version with what is on screen now" : "load a saved path first"}
+            style={{
+              ...chipStyle(!!libraryId, true),
+              opacity: libraryId ? 1 : 0.4,
+              cursor: libraryId ? "pointer" : "default",
+            }}
+            onClick={() => {
+              if (libraryId) overwritePathVersion(libraryId);
+            }}
+          >⤓ update loaded path</span>
+          <span style={chipStyle(false, true)} onClick={() => savePathVersion(true)}>+ save as new path</span>
+        </div>
+        <div style={UI.hint}>
+          loaded: {libraryId
+            ? (library.find((entry) => entry.id === libraryId)?.name || "—")
+            : "nothing loaded (unsaved working path)"}
         </div>
         {!library.length && <div style={UI.hint}>No saved paths yet.</div>}
         {library.map((entry, entryIndex) => {
@@ -6087,6 +6248,7 @@ function DevDashboard() {
                   {entry.name} · {latestCompiled.nodes.length} nodes · {duration.toFixed(2)}s · {entry.versions.length}v
                 </span>
                 <span style={chipStyle(false)} onClick={() => loadLibraryVersion(entry)}>load</span>
+                <span style={chipStyle(false)} title="overwrite this path's latest version with the loaded path" onClick={() => overwritePathVersion(entry.id)}>update</span>
                 <span style={chipStyle(false)} onClick={() => savePathVersion(false, entry.id)}>+ version</span>
                 <span style={chipStyle(false)} onClick={() => { if (window.confirm("Delete this saved path and all versions?")) { persistLibrary(library.filter((item) => item.id !== entry.id)); if (libraryId === entry.id) setLibraryId(""); } }}>×</span>
                 <span style={chipStyle(true, true)} onClick={() => playLibraryVersion(entry)}>▶ PLAY</span>
@@ -6901,7 +7063,7 @@ function resolveRuntimeConfig() {
   const glassFxParam = params.get("glassfx");
   if (glassFxParam) {
     const q = glassFxParam.split(",").map((v) => parseFloat(v));
-    if (q.length === 20 && q.every((v) => !isNaN(v))) {
+    if ((q.length === 21 || q.length === 20) && q.every((v) => !isNaN(v))) {
       SHINE.progress = q[0];
       SHINE.sweepStrength = q[1];
       SHINE.broadWidth = q[2];
@@ -6924,6 +7086,8 @@ function resolveRuntimeConfig() {
         Math.max(0, Math.min(1, q[18])),
       ];
       SHINE.speed = Math.max(0.05, q[19]);
+      // v7.5.20 field. Absent on pre-v7.5.20 links -> authored default.
+      if (q.length === 21) SHINE.envLeft = Math.max(0, Math.min(4, q[20]));
     } else if (q.length === 17 && q.every((v) => !isNaN(v))) {
       SHINE.progress = q[0];
       SHINE.sweepStrength = q[1];
@@ -8545,6 +8709,39 @@ function PremiumReflectionEnvironment({ preset, blur, revision }) {
         color="#c8ddff"
         position={[-6, 4.5, 2.5]}
         scale={[5, 1.1, 1]}
+        onUpdate={(self) => self.lookAt(0, 0, 0)}
+      />
+
+      {/* v7.5.20 — LEFT-HAND CARD BANK. Every bright card in the rig above
+          sits at +X or behind, which is why the specular band lives in the
+          top right and the left chassis flank and left-facing crack facets
+          have nothing to reflect and read black. These three mirror the
+          camera-side cards onto -X. They are STATIC in world space like the
+          rest, so they still cost one environment capture, not a per-frame
+          render. One dial scales the whole bank: envLeft 0 restores the
+          v7.5.19 rig byte-for-byte. */}
+      <Lightformer
+        form="rect"
+        intensity={SHINE.envStrip * 0.55 * SHINE.envLeft}
+        color="#fff6e8"
+        position={[-6.5, 0.4, 3.5]}
+        scale={[7, 0.22, 1]}
+        onUpdate={(self) => self.lookAt(0, 0, 0)}
+      />
+      <Lightformer
+        form="rect"
+        intensity={SHINE.envBroad * 0.5 * SHINE.envLeft}
+        color="#eef4ff"
+        position={[-7.5, 1.2, 4.5]}
+        scale={[5.5, 6, 1]}
+        onUpdate={(self) => self.lookAt(0, 0, 0)}
+      />
+      <Lightformer
+        form="rect"
+        intensity={SHINE.envRim * 0.8 * SHINE.envLeft}
+        color="#dbe9ff"
+        position={[-5, -3.5, 1.5]}
+        scale={[6, 1.4, 1]}
         onUpdate={(self) => self.lookAt(0, 0, 0)}
       />
     </Environment>
