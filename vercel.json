@@ -8,6 +8,24 @@
           "value": "frame-ancestors 'self' https://framer.com https://*.framer.com https://framer.app https://*.framer.app https://framer.website https://*.framer.website https://framercanvas.com https://*.framercanvas.com https://iglassmobilephonerepairs.co.uk https://www.iglassmobilephonerepairs.co.uk"
         }
       ]
+    },
+    {
+      "source": "/static/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        }
+      ]
+    },
+    {
+      "source": "/(.*)\\.glb",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=604800, stale-while-revalidate=2592000"
+        }
+      ]
     }
   ]
 }
