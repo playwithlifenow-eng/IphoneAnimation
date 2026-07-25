@@ -18,7 +18,31 @@ import { Leva, useControls, button, folder } from "leva";
 
 gsap.registerPlugin(ScrollTrigger);
 
-const IGLASS_APP_VERSION = "7.5.17";
+const IGLASS_APP_VERSION = "7.5.18";
+
+// ============================================
+// v7.5.18 — RENDER LIFECYCLE GOVERNANCE
+//
+//   IDLE ON FINISH   The render loop parks after the authored path
+//                    completes instead of running at 60fps forever.
+//                    45 settle frames run first, at the EXISTING damping,
+//                    so the held pose is pixel-identical to today's.
+//   TAB / OFFSCREEN  Rendering stops while the document is hidden, and
+//                    on an optional iglass-visibility message from Framer.
+//   CONTEXT LOSS     webglcontextlost is preventDefault-ed (without it a
+//                    restore is impossible) and both events are reported
+//                    to the parent so the poster can be re-shown.
+//   CAPABILITY GATE  A throwaway-canvas probe with
+//                    failIfMajorPerformanceCaveat runs BEFORE mount, so a
+//                    failure never throws inside R3F. Skipped for ?snap=1
+//                    and ?dev=1 — headless SwiftShader is itself a major
+//                    performance caveat and gating it would kill capture.
+//   REDUCED MOTION   prefers-reduced-motion jumps autoplay straight to the
+//                    finished composition and reports completion.
+//   SCOPED CHANGE    No geometry, material, lighting, texture, pose, path,
+//                    easing, damping or interpolation value is altered.
+//
+// ============================================
 
 // ============================================
 // v7.5.17 — CRACK UV-EDGE CLIP
@@ -538,6 +562,146 @@ const IGLASS_APP_VERSION = "7.5.17";
 // ============================================
 let CAPTURE_SNAP = false;
 let SNAP_FRAMES = 0;
+
+// ============================================
+// RENDER LIFECYCLE (v7.5.18)
+//
+// This section governs WHEN the renderer runs, never WHAT it draws.
+// ============================================
+
+// Parent origin, resolved once by the scene component and cached here so
+// low-level canvas handlers can report without prop-drilling.
+const IFRAME = { parentOrigin: "*" };
+
+function postToParent(payload) {
+  if (typeof window === "undefined" || window.self === window.top) return;
+  try {
+    window.parent.postMessage(
+      { version: IGLASS_APP_VERSION, ...payload },
+      IFRAME.parentOrigin
+    );
+  } catch (e) {
+    /* parent gone or origin mismatch -> silent */
+  }
+}
+
+// After the authored path completes, keep rendering for this many frames so
+// the existing damped lerps settle exactly as they do today, then stop. No
+// damping value is changed, so the final held image is unaltered.
+const IDLE_AFTER_COMPLETE_FRAMES = 45;
+
+const RENDER_GOV = {
+  idleCountdown: -1,    // frames left before idling; -1 = inactive
+  suspended: false,     // document hidden, or parent reports off-screen
+  finished: false,      // authored path has completed
+  invalidate: null,     // R3F invalidate handle
+  setFrameloop: null,   // Canvas frameloop setter
+  contextLost: false,
+  probeFailure: null,
+};
+
+// The studio needs a live loop for Leva/gizmo work, and deterministic
+// capture needs frames on demand. Neither may ever be parked.
+function renderGovernorLocked() {
+  return DEV.enabled || CAPTURE_SNAP;
+}
+
+function renderGovernorActivate() {
+  RENDER_GOV.idleCountdown = -1;
+  if (RENDER_GOV.setFrameloop) RENDER_GOV.setFrameloop("always");
+  if (RENDER_GOV.invalidate) RENDER_GOV.invalidate();
+}
+
+function renderGovernorIdle() {
+  RENDER_GOV.idleCountdown = -1;
+  if (renderGovernorLocked()) return;
+  if (RENDER_GOV.setFrameloop) RENDER_GOV.setFrameloop("demand");
+}
+
+function renderGovernorFinish() {
+  RENDER_GOV.finished = true;
+  if (renderGovernorLocked()) return;
+  RENDER_GOV.idleCountdown = IDLE_AFTER_COMPLETE_FRAMES;
+}
+
+function prefersReducedMotion() {
+  if (typeof window === "undefined" || !window.matchMedia) return false;
+  try {
+    return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  } catch (e) {
+    return false;
+  }
+}
+
+// Pre-flight capability probe on a THROWAWAY canvas. Running the check here
+// rather than passing failIfMajorPerformanceCaveat to the live renderer means
+// a failure never throws inside R3F: we simply do not mount, and the parent
+// keeps its poster.
+function webglCapabilityProbe() {
+  if (typeof document === "undefined") {
+    return { ok: false, reason: "no-document" };
+  }
+  let canvas = null;
+  try {
+    canvas = document.createElement("canvas");
+    canvas.width = 1;
+    canvas.height = 1;
+    const attrs = {
+      alpha: true,
+      antialias: false,
+      depth: true,
+      failIfMajorPerformanceCaveat: true,
+    };
+    const ctx =
+      canvas.getContext("webgl2", attrs) || canvas.getContext("webgl", attrs);
+    if (!ctx) {
+      return { ok: false, reason: "major-performance-caveat-or-unsupported" };
+    }
+    const lose = ctx.getExtension("WEBGL_lose_context");
+    if (lose) lose.loseContext();
+    return { ok: true, reason: null };
+  } catch (e) {
+    return { ok: false, reason: "probe-threw" };
+  } finally {
+    if (canvas) {
+      canvas.width = 0;
+      canvas.height = 0;
+    }
+  }
+}
+
+// WebKit drops the GL context under memory pressure. preventDefault() on the
+// lost event is what makes a later restore possible at all; without it the
+// canvas is dead permanently and the hero silently disappears.
+function attachContextGuards(gl) {
+  const el = gl && gl.domElement;
+  if (!el || el.__iglassContextGuards) return;
+  el.__iglassContextGuards = true;
+
+  el.addEventListener(
+    "webglcontextlost",
+    (event) => {
+      event.preventDefault();
+      RENDER_GOV.contextLost = true;
+      postToParent({ type: "iglass-context-lost" });
+    },
+    false
+  );
+
+  el.addEventListener(
+    "webglcontextrestored",
+    () => {
+      RENDER_GOV.contextLost = false;
+      postToParent({ type: "iglass-context-restored" });
+      if (!RENDER_GOV.suspended && !RENDER_GOV.finished) {
+        renderGovernorActivate();
+      } else if (RENDER_GOV.invalidate) {
+        RENDER_GOV.invalidate();
+      }
+    },
+    false
+  );
+}
 
 // ============================================
 // Utility
@@ -6781,6 +6945,14 @@ function resolveRuntimeConfig() {
   let freezeP = !isNaN(pParam) ? Math.max(0, Math.min(1, pParam)) : null;
   if (dev && freezeP === null) freezeP = 0.5;
 
+  // The capability gate is skipped for deterministic capture and for the
+  // studio. ?webglgate=0 forces it off for diagnosis.
+  const webglGate = !dev && !CAPTURE_SNAP && params.get("webglgate") !== "0";
+  // ?reducedmotion=1 forces the reduced state on; =0 forces it off.
+  const reducedMotion =
+    params.get("reducedmotion") === "1" ||
+    (params.get("reducedmotion") !== "0" && prefersReducedMotion());
+
   return {
     mode,
     bg,
@@ -6788,6 +6960,8 @@ function resolveRuntimeConfig() {
     dev,
     motionPath,
     motionFreezeP,
+    webglGate,
+    reducedMotion,
   };
 }
 
@@ -8266,6 +8440,30 @@ function SceneReadyReporter({ onReady }) {
   return null;
 }
 
+// Counts down the post-completion settle frames, then parks the render loop.
+// Mounted inside the Canvas so it shares R3F's clock.
+function RenderGovernor() {
+  const { invalidate } = useThree();
+
+  useEffect(() => {
+    RENDER_GOV.invalidate = invalidate;
+    return () => {
+      if (RENDER_GOV.invalidate === invalidate) RENDER_GOV.invalidate = null;
+    };
+  }, [invalidate]);
+
+  useFrame(() => {
+    if (RENDER_GOV.idleCountdown < 0) return;
+    if (RENDER_GOV.idleCountdown > 0) {
+      RENDER_GOV.idleCountdown -= 1;
+      return;
+    }
+    renderGovernorIdle();
+  });
+
+  return null;
+}
+
 function Scene({
   modelPath,
   screenTexture,
@@ -8375,6 +8573,8 @@ function Scene({
       {glassEdgeFeed && <GlassEdgeReporter />}
 
       <SceneReadyReporter onReady={onReady} />
+
+      <RenderGovernor />
 
       {dev && <DevGizmo />}
     </>
@@ -8492,6 +8692,8 @@ function CrossSection3DScrollGLBScene(props) {
     dev,
     motionPath: runtimeMotionPath,
     motionFreezeP,
+    webglGate,
+    reducedMotion,
   } = useMemo(resolveRuntimeConfig, []);
 
   const introEnd = useMemo(() => {
@@ -8507,6 +8709,14 @@ function CrossSection3DScrollGLBScene(props) {
   const containerRef = useRef(null);
   const stickyRef = useRef(null);
   const [sceneReady, setSceneReady] = useState(false);
+  const [frameloop, setFrameloop] = useState("always");
+  // Probe once, during the first render, before the Canvas is constructed.
+  const [webglAvailable] = useState(() => {
+    if (!webglGate) return true;
+    const probe = webglCapabilityProbe();
+    RENDER_GOV.probeFailure = probe.ok ? null : probe.reason;
+    return probe.ok;
+  });
   const parentTargetOrigin = useMemo(() => {
     if (typeof document === "undefined") return "*";
     try {
@@ -8515,6 +8725,73 @@ function CrossSection3DScrollGLBScene(props) {
       /* malformed referrer -> guarded wildcard fallback */
     }
     return "*";
+  }, []);
+
+  // Cache the resolved origin for the low-level canvas handlers.
+  useEffect(() => {
+    IFRAME.parentOrigin = parentTargetOrigin;
+  }, [parentTargetOrigin]);
+
+  useEffect(() => {
+    RENDER_GOV.setFrameloop = setFrameloop;
+    return () => {
+      if (RENDER_GOV.setFrameloop === setFrameloop) {
+        RENDER_GOV.setFrameloop = null;
+      }
+    };
+  }, []);
+
+  // A blocked capability gate must not leave the parent waiting for a
+  // scene-ready that will never arrive.
+  useEffect(() => {
+    if (webglAvailable) return;
+    postToParent({
+      type: "iglass-webgl-unavailable",
+      reason: RENDER_GOV.probeFailure,
+    });
+  }, [webglAvailable]);
+
+  // Stop rendering while the document is hidden. The parent may also send
+  // { type: 'iglass-visibility', visible: boolean } when the hero scrolls
+  // out of the page viewport; the iframe cannot observe that itself.
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+
+    const resume = () => {
+      RENDER_GOV.suspended = false;
+      if (RENDER_GOV.finished) {
+        if (RENDER_GOV.invalidate) RENDER_GOV.invalidate();
+      } else {
+        renderGovernorActivate();
+      }
+    };
+
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") {
+        if (RENDER_GOV.suspended) resume();
+      } else {
+        RENDER_GOV.suspended = true;
+        renderGovernorIdle();
+      }
+    };
+
+    const onParentVisibility = (event) => {
+      const data = event.data;
+      if (!data || data.type !== "iglass-visibility") return;
+      if (data.visible === false) {
+        RENDER_GOV.suspended = true;
+        renderGovernorIdle();
+      } else if (RENDER_GOV.suspended) {
+        resume();
+      }
+    };
+
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("message", onParentVisibility);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("message", onParentVisibility);
+    };
   }, []);
 
   useEffect(() => {
@@ -8650,6 +8927,15 @@ function CrossSection3DScrollGLBScene(props) {
       };
       applyRuntimeProgress(0);
 
+      // Reduced motion is served the finished composition immediately. It is
+      // the assembled final state, not a frozen first frame.
+      if (reducedMotion) {
+        applyRuntimeProgress(1);
+        postAutoplay("iglass-autoplay-complete", 1);
+        renderGovernorFinish();
+        return;
+      }
+
       tween = gsap.to(proxy, {
         p: 1,
         duration: runtimeDuration,
@@ -8661,6 +8947,8 @@ function CrossSection3DScrollGLBScene(props) {
         onComplete: () => {
           applyRuntimeProgress(1);
           postAutoplay("iglass-autoplay-complete", 1);
+          // Settle at the existing damping, then park the loop.
+          renderGovernorFinish();
         },
       });
       return () => {
@@ -8689,6 +8977,7 @@ function CrossSection3DScrollGLBScene(props) {
     motionFreezeP,
     sceneReady,
     parentTargetOrigin,
+    reducedMotion,
     scrollDistance,
     glassStagger,
     oledStagger,
@@ -8806,16 +9095,20 @@ function CrossSection3DScrollGLBScene(props) {
         onPointerDown={dev ? onWrapPointerDown : undefined}
         onWheel={dev ? onWrapWheel : undefined}
       >
+        {webglAvailable && (
         <Canvas
           camera={{ position: [0, 0, 2.8], fov: 35, near: 0.01 }}
           dpr={[1, 2]}
+          frameloop={frameloop}
           gl={{
             antialias: true,
             powerPreference: "high-performance",
             alpha: true,
             preserveDrawingBuffer: dev,
           }}
-          onCreated={({ gl, scene }) => {
+          onCreated={({ gl, scene, invalidate }) => {
+            RENDER_GOV.invalidate = invalidate;
+            attachContextGuards(gl);
             // v3.8: ACES Filmic, NOT NoToneMapping. Without a tone curve,
             // every value over 1.0 clips flat to white — which is exactly
             // what the metal chassis and the studio IBL were doing.
@@ -8849,6 +9142,7 @@ function CrossSection3DScrollGLBScene(props) {
             onReady={() => setSceneReady(true)}
           />
         </Canvas>
+        )}
       </div>
     </div>
   );
