@@ -1,6 +1,6 @@
-import screenImg from "./Screen.png";
+import screenImg from "./Screen.webp";
 import internalsImg from "./internals.jpg";
-import crackImg from "./Crack.png";
+import crackImg from "./Crack.webp";
 import { useRef, useMemo, useEffect, useLayoutEffect, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import {
@@ -18,7 +18,35 @@ import { Leva, useControls, button, folder } from "leva";
 
 gsap.registerPlugin(ScrollTrigger);
 
-const IGLASS_APP_VERSION = "7.5.18";
+const IGLASS_APP_VERSION = "7.5.19";
+
+// ============================================
+// v7.5.19 — WEBP TEXTURES + POSTER-FIRST LOAD
+//
+//   WEBP SWAP        Screen.png -> Screen.webp (5,032,736 -> 1,391,306 B)
+//                    Crack.png  -> Crack.webp  (  737,714 ->   476,830 B)
+//                    Both lossless, pixel-diff verified NONE. CRA 5.0.1
+//                    routes .webp through its catch-all asset/resource
+//                    rule, so both are content-hashed into static/media/
+//                    and inherit the immutable cache header.
+//   POSTER-FIRST     A still of the p=0 composition lives in index.html
+//                    ABOVE #root and paints during HTML parse — before
+//                    the bundle finishes, long before 6.5 MB of GLB and
+//                    textures resolve. It is dismissed on the SAME
+//                    scene-ready signal the autoplay gate already uses,
+//                    so poster and first live frame are one composition.
+//   FALLBACK FREE    If scene-ready never arrives (WebGL blocked, context
+//                    lost at boot, decode failure) the poster is never
+//                    dismissed and becomes the permanent still fallback.
+//   TIMING           boot / assets / ready / complete marks posted to the
+//                    parent and mirrored on window.__iglassTiming. The
+//                    assets->ready gap brackets exactly one rendered
+//                    frame, which is where first-draw shader compile is.
+//   SCOPED CHANGE    No geometry, material, lighting, pose, path, easing,
+//                    damping or interpolation value is altered. The two
+//                    textures are byte-for-byte the same pixels.
+//
+// ============================================
 
 // ============================================
 // v7.5.18 — RENDER LIFECYCLE GOVERNANCE
@@ -370,7 +398,7 @@ const IGLASS_APP_VERSION = "7.5.18";
 // v7.4.1 — REPLACEMENT CRACK + APPEARANCE CONTROL
 //
 //   CRACK ASSET      Bottom-right impact pattern with long sparse fractures
-//                    radiating upward and left, supplied as Crack.png.
+//                    radiating upward and left, supplied as Crack.webp.
 //   SEVERITY         Controls fracture visibility without changing CRACK ON.
 //   SHARPNESS        Controls the alpha-edge profile of the crack texture.
 //                    Both values save in pose slots and interpolate in paths.
@@ -583,6 +611,107 @@ function postToParent(payload) {
   } catch (e) {
     /* parent gone or origin mismatch -> silent */
   }
+}
+
+// ============================================
+// POSTER-FIRST LOAD (v7.5.19)
+//
+// The poster element is authored in public/index.html, above #root, so it
+// paints at HTML parse time. Nothing here creates it; this module only
+// dismisses it. Dismissal rides the existing scene-ready signal, which
+// already means GLB decoded + textures uploaded + one full frame drawn —
+// so the pixels behind the poster are the identical p=0 composition and
+// the cross-fade has nothing to reveal but itself.
+//
+// A/B arms, both set on the iframe src by the Framer embed:
+//   ?poster=1  (or omitted)  poster shown  — arm A
+//   ?poster=0                poster removed at parse — arm B (control)
+// Tuning:
+//   ?posterhold=<ms>   minimum ms from navigation start before the poster
+//                      may leave, so a warm cache cannot produce a flash
+//   ?posterfade=<ms>   cross-fade duration (default 420)
+// ============================================
+
+const POSTER = {
+  el: null,
+  resolved: false,
+  dismissed: false,
+  fadeMs: 420,
+  minHoldMs: 0,
+};
+
+function posterResolve() {
+  if (POSTER.resolved || typeof document === "undefined") return;
+  POSTER.resolved = true;
+  POSTER.el = document.getElementById("iglass-poster");
+  try {
+    const q = new URLSearchParams(window.location.search);
+    const hold = parseInt(q.get("posterhold"), 10);
+    if (!isNaN(hold)) POSTER.minHoldMs = Math.max(0, Math.min(4000, hold));
+    const fade = parseInt(q.get("posterfade"), 10);
+    if (!isNaN(fade)) POSTER.fadeMs = Math.max(0, Math.min(2000, fade));
+  } catch (e) {
+    /* no search params -> defaults */
+  }
+}
+
+// Never called on the webgl-unavailable path, so a blocked scene keeps the
+// poster as its still fallback rather than fading to nothing.
+function posterDismiss() {
+  posterResolve();
+  const el = POSTER.el;
+  if (!el || POSTER.dismissed) return;
+  POSTER.dismissed = true;
+
+  const run = () => {
+    el.style.transition = `opacity ${POSTER.fadeMs}ms ease-out`;
+    el.style.opacity = "0";
+    window.setTimeout(() => {
+      if (el.parentNode) el.parentNode.removeChild(el);
+    }, POSTER.fadeMs + 80);
+  };
+
+  // performance.now() is ms since navigation start, so it IS the elapsed
+  // visible time — no separate shownAt bookkeeping to drift.
+  const elapsed = typeof performance !== "undefined" ? performance.now() : 0;
+  const remaining = Math.max(0, POSTER.minHoldMs - elapsed);
+  if (remaining > 0) window.setTimeout(run, remaining);
+  else run();
+}
+
+// ============================================
+// LOAD TIMING (v7.5.19)
+//
+//   boot      this bundle finished executing
+//   assets    GLB decoded, textures uploaded, phone mesh exists — measured
+//             at the top of the FIRST frame that draws it
+//   ready     top of the second frame; the boot->assets gap is transfer
+//             and decode, the assets->ready gap is first-draw shader
+//             compile, which is where old GPUs actually hurt
+//   complete  authored path finished
+//
+// Read on-device with window.__iglassTiming, or listen for iglass-timing
+// in the parent. Each mark fires once; re-marks are ignored.
+// ============================================
+
+const TIMING = {
+  boot: null,
+  assets: null,
+  ready: null,
+  complete: null,
+};
+
+function markTiming(key) {
+  if (!(key in TIMING) || TIMING[key] !== null) return;
+  TIMING[key] =
+    typeof performance !== "undefined" ? Math.round(performance.now()) : 0;
+  if (typeof window !== "undefined") window.__iglassTiming = TIMING;
+  postToParent({
+    type: "iglass-timing",
+    mark: key,
+    t: TIMING[key],
+    marks: { ...TIMING },
+  });
 }
 
 // After the authored path completes, keep rendering for this many frames so
@@ -8432,6 +8561,9 @@ function SceneReadyReporter({ onReady }) {
   useFrame(() => {
     if (sentRef.current || !DEV.glassPaneMesh) return;
     renderedFramesRef.current += 1;
+    // Top of the first frame that will draw the phone: everything is
+    // decoded and uploaded, nothing has been rasterised yet.
+    if (renderedFramesRef.current === 1) markTiming("assets");
     if (renderedFramesRef.current < 2) return;
     sentRef.current = true;
     onReady();
@@ -8931,6 +9063,7 @@ function CrossSection3DScrollGLBScene(props) {
       // the assembled final state, not a frozen first frame.
       if (reducedMotion) {
         applyRuntimeProgress(1);
+        markTiming("complete");
         postAutoplay("iglass-autoplay-complete", 1);
         renderGovernorFinish();
         return;
@@ -8946,6 +9079,7 @@ function CrossSection3DScrollGLBScene(props) {
         onUpdate: () => applyRuntimeProgress(proxy.p),
         onComplete: () => {
           applyRuntimeProgress(1);
+          markTiming("complete");
           postAutoplay("iglass-autoplay-complete", 1);
           // Settle at the existing damping, then park the loop.
           renderGovernorFinish();
@@ -9139,7 +9273,13 @@ function CrossSection3DScrollGLBScene(props) {
             explodeDistance={explodeDistance}
             dev={dev}
             glassEdgeFeed={mode === "scroll" || mode === "autoplay"}
-            onReady={() => setSceneReady(true)}
+            onReady={() => {
+              markTiming("ready");
+              // Dismissed BEFORE the gate releases, so the fade overlaps
+              // the opening beat rather than delaying it.
+              posterDismiss();
+              setSceneReady(true);
+            }}
           />
         </Canvas>
         )}
@@ -9161,3 +9301,9 @@ export default function CrossSection3DScrollGLB(props) {
 useGLTF.preload(defaultProps.modelPath);
 useTexture.preload(defaultProps.screenTexture);
 useTexture.preload(defaultProps.internalsTexture);
+// Crack.webp participates in the same suspense as the other two; preloading
+// it here starts its fetch at module eval instead of at first component
+// render, which is a free head start on the critical path.
+useTexture.preload(defaultProps.crackTexture);
+
+markTiming("boot");
