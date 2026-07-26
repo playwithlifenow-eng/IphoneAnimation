@@ -18,7 +18,33 @@ import { Leva, useControls, button, folder } from "leva";
 
 gsap.registerPlugin(ScrollTrigger);
 
-const IGLASS_APP_VERSION = "7.5.23";
+const IGLASS_APP_VERSION = "7.5.24";
+
+// ============================================
+// v7.5.24 — 200 POSE SLOTS
+//
+//   200 TOTAL        The pose library grows from 150 to 200 named slots.
+//   ALL USABLE       PRIMARY_SLOT_COUNT rises with it. The browser only
+//                    ever rendered the primary block plus any FILLED slot
+//                    above it, and a slot that is never rendered can never
+//                    be Shift-clicked into existence — so raising
+//                    SLOT_COUNT alone would have added fifty slots that
+//                    could not be reached. Both counts move together.
+//   NOTHING MIGRATES Existing saved slots load by index into the first
+//                    150 of 200. Saved paths, node references, thumbnails,
+//                    metadata and studio backups are untouched; every slot
+//                    number a path already points at still means the same
+//                    pose. Old 150-slot backups import unchanged.
+//   STORAGE          Slots, metadata and thumbnails all live in
+//                    localStorage. 200 filled slots plus a large saved-path
+//                    library approaches the ~5 MB origin quota; the writes
+//                    already fail silently and stay session-only rather
+//                    than throwing, but a full studio backup is the only
+//                    durable copy.
+//   SCOPED CHANGE    No pose, path, easing, damping, lighting, crack,
+//                    glass, bezel or material value is altered.
+//
+// ============================================
 
 // ============================================
 // v7.5.23 — POSE SLOT USAGE MARKING
@@ -1731,8 +1757,11 @@ const SNAPSHOTS = { origin: null };
 const SLOT_KEY = "iglass_pose_slots_v1";
 const SLOT_META_KEY = "iglass_pose_slot_meta_v1";
 const SLOT_THUMB_KEY = "iglass_pose_slot_thumbs_v1";
-const SLOT_COUNT = 150;
-const PRIMARY_SLOT_COUNT = 100;
+const SLOT_COUNT = 200;
+// Must track SLOT_COUNT. The browser renders this block unconditionally and
+// anything above it only when already filled — so a slot outside the primary
+// block is unreachable for saving, not merely hidden.
+const PRIMARY_SLOT_COUNT = 200;
 const MOTION_PATH_KEY = "iglass_motion_path_v1";
 const MOTION_LIBRARY_KEY = "iglass_motion_path_library_v1";
 // v7.5.21 — which saved path the working path is currently linked to.
@@ -4951,7 +4980,7 @@ function DevDashboard() {
   const [selectedPathNode, setSelectedPathNode] = useState(-1);
   const [pathProgress, setPathProgress] = useState(0);
   const [pathPlaying, setPathPlaying] = useState(false);
-  const [status, setStatus] = useState("v7.5.23 — orange = pose slot in use by a path");
+  const [status, setStatus] = useState("v7.5.24 — 200 pose slots · orange = in use by a path");
   const [library, setLibrary] = useState(loadMotionLibrary);
   const [libraryId, setLibraryId] = useState(loadMotionPathLink);
   const [importText, setImportText] = useState("");
@@ -6049,7 +6078,7 @@ function DevDashboard() {
           <span style={{ color: "#e07b1f", fontWeight: 700 }}>orange</span> = used by the loaded path or a saved path (hover for which) ·{" "}
           <span style={{ color: "#2e7d52", fontWeight: 700 }}>green</span> = filled, unreferenced, safe to overwrite
         </div>
-        <div style={{ ...UI.hint, marginTop: 2 }}>Shift-click saves · Ctrl-click appends · click previews. Filled legacy slots above 100 remain visible.</div>
+        <div style={{ ...UI.hint, marginTop: 2 }}>Shift-click saves · Ctrl-click appends · click previews. Use the filter box to reach a slot by name or number.</div>
       </details>
 
       <details open>
