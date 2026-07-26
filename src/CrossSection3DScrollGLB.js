@@ -18,7 +18,26 @@ import { Leva, useControls, button, folder } from "leva";
 
 gsap.registerPlugin(ScrollTrigger);
 
-const IGLASS_APP_VERSION = "7.5.22";
+const IGLASS_APP_VERSION = "7.5.23";
+
+// ============================================
+// v7.5.23 — POSE SLOT USAGE MARKING
+//
+//   ORANGE = SPOKEN FOR  A filled pose slot outlines ORANGE when it is
+//                        referenced by the working path or by any saved
+//                        path. Green means filled but referenced by
+//                        nothing, so it is safe to overwrite or delete.
+//   LIVE                 Ctrl-clicking a slot onto the loaded path turns
+//                        it orange immediately; removing that node turns
+//                        it back green — unless a saved path still holds
+//                        it. Derived from state, never cached.
+//   ALL VERSIONS         Every version of every saved path counts, not
+//                        just the latest. A slot only an older version
+//                        references still breaks that version if deleted.
+//   SCOPED CHANGE        Read-only presentation. No pose, path, slot or
+//                        save behaviour is altered.
+//
+// ============================================
 
 // ============================================
 // v7.5.22 — DASHBOARD DENSITY + SLIDER ORDER
@@ -4932,7 +4951,7 @@ function DevDashboard() {
   const [selectedPathNode, setSelectedPathNode] = useState(-1);
   const [pathProgress, setPathProgress] = useState(0);
   const [pathPlaying, setPathPlaying] = useState(false);
-  const [status, setStatus] = useState("v7.5.22 — condensed dashboard · reordered sliders");
+  const [status, setStatus] = useState("v7.5.23 — orange = pose slot in use by a path");
   const [library, setLibrary] = useState(loadMotionLibrary);
   const [libraryId, setLibraryId] = useState(loadMotionPathLink);
   const [importText, setImportText] = useState("");
@@ -4971,6 +4990,27 @@ function DevDashboard() {
     () => compileMotionPath(motionPath, slots),
     [motionPath, slots]
   );
+
+  // v7.5.23 — which pose slots are spoken for, and by what. Recomputed from
+  // the working path and the library on every change to either, so a slot
+  // marks the instant it is appended to the loaded path and unmarks the
+  // instant its last reference goes away.
+  const slotUsage = useMemo(() => {
+    const map = new Map();
+    const add = (slot, label) => {
+      if (!Number.isInteger(slot) || slot < 0 || slot >= SLOT_COUNT) return;
+      if (!map.has(slot)) map.set(slot, new Set());
+      map.get(slot).add(label);
+    };
+    const currentLabel = `${motionPath.name || "Untitled path"} (loaded)`;
+    for (const node of motionPath.nodes || []) add(node.slot, currentLabel);
+    for (const entry of library) {
+      for (const version of entry.versions || []) {
+        for (const node of version.path?.nodes || []) add(node.slot, entry.name);
+      }
+    }
+    return map;
+  }, [motionPath, library]);
   const activePathNode = useMemo(
     () => nearestMotionNode(compiledPath, pathProgress),
     [compiledPath, pathProgress]
@@ -5957,6 +5997,8 @@ function DevDashboard() {
             const name = slotMeta[i]?.name || `Pose ${i + 1}`;
             const match = !slotSearch || name.toLowerCase().includes(slotSearch.toLowerCase()) || String(i + 1).includes(slotSearch);
             const selected = selectedSlot === i;
+            const usedBy = pose ? slotUsage.get(i) : null;
+            const inUse = !!(usedBy && usedBy.size);
             return (
               <div
                 key={i}
@@ -5965,14 +6007,18 @@ function DevDashboard() {
                   aspectRatio: "30 / 17",
                   overflow: "hidden",
                   borderRadius: 6,
-                  border: `2px solid ${selected ? "#173d2a" : pose ? "#2e7d52" : "#d5e2d9"}`,
+                  // Orange = referenced by a path. Selection is carried by
+                  // the ring instead of the border so it cannot mask usage.
+                  border: `2px solid ${pose ? (inUse ? "#e07b1f" : "#2e7d52") : "#d5e2d9"}`,
                   background: pose ? "#e8f0eb" : "#fbfdfb",
-                  boxShadow: selected ? "0 0 0 2px rgba(23,61,42,.2)" : "none",
+                  boxShadow: selected ? "0 0 0 3px rgba(23,61,42,.45)" : "none",
                   cursor: "pointer",
                   opacity: match ? 1 : 0.18,
                   boxSizing: "border-box",
                 }}
-                title={pose ? `S${i + 1}: ${name}\nclick warp · Ctrl-click add to path` : `S${i + 1}: Shift-click to save`}
+                title={pose
+                  ? `S${i + 1}: ${name}\n${inUse ? `IN USE by ${usedBy.size} path${usedBy.size === 1 ? "" : "s"}: ${[...usedBy].join(", ")}` : "not referenced by any path — safe to overwrite"}\nclick warp · Ctrl-click add to path`
+                  : `S${i + 1}: Shift-click to save`}
                 onClick={(e) => slotClick(i, e)}
               >
                 {pose && slotThumbs[i] ? (
@@ -5999,7 +6045,11 @@ function DevDashboard() {
             );
           })}
         </div>
-        <div style={{ ...UI.hint, marginTop: 4 }}>Shift-click saves · Ctrl-click appends · click previews. Filled legacy slots above 100 remain visible.</div>
+        <div style={{ ...UI.hint, marginTop: 4 }}>
+          <span style={{ color: "#e07b1f", fontWeight: 700 }}>orange</span> = used by the loaded path or a saved path (hover for which) ·{" "}
+          <span style={{ color: "#2e7d52", fontWeight: 700 }}>green</span> = filled, unreferenced, safe to overwrite
+        </div>
+        <div style={{ ...UI.hint, marginTop: 2 }}>Shift-click saves · Ctrl-click appends · click previews. Filled legacy slots above 100 remain visible.</div>
       </details>
 
       <details open>
