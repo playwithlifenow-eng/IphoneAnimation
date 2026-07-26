@@ -18,7 +18,21 @@ import { Leva, useControls, button, folder } from "leva";
 
 gsap.registerPlugin(ScrollTrigger);
 
-const IGLASS_APP_VERSION = "7.5.21";
+const IGLASS_APP_VERSION = "7.5.22";
+
+// ============================================
+// v7.5.22 — DASHBOARD DENSITY + SLIDER ORDER
+//
+//   ONE ACTION ROW   undo / redo / clear / preview / manifest share a row.
+//   NODE MOTION      Departure easing sits on the hold row; depart amount
+//                    and a short "reset" share the row below it.
+//   LESS NOISE       The saved-paths explainer paragraph is removed.
+//   SLIDER ORDER     Leva order is now glass registration -> stage ->
+//                    cracked pane, then everything else unchanged.
+//   SCOPED CHANGE    Layout and ordering only. No control, value, range,
+//                    default, handler or pose channel is altered.
+//
+// ============================================
 
 // ============================================
 // v7.5.21 — UPDATE IS ALWAYS AVAILABLE
@@ -3692,6 +3706,286 @@ function DevControls({ initialP }) {
   const [, set] = useControls(() => ({
     drive: { value: driveLabel(), editable: false },
 
+    "🔲 glass registration (±25 — drives the pane OUT of shot)": folder(
+      {
+        glassRegX: {
+          value: GLASS_REG.x,
+          min: -GLASS_REG_RANGE,
+          max: GLASS_REG_RANGE,
+          step: 0.05,
+          label: "glass ← → (X)",
+          onChange: (v) => {
+            GLASS_REG.x = v;
+            wireTap("glassRegX", v);
+          },
+        },
+        glassRegY: {
+          value: GLASS_REG.y,
+          min: -GLASS_REG_RANGE,
+          max: GLASS_REG_RANGE,
+          step: 0.05,
+          label: "glass ↑ ↓ (Y)",
+          onChange: (v) => {
+            GLASS_REG.y = v;
+            wireTap("glassRegY", v);
+          },
+        },
+        glassRegZ: {
+          value: GLASS_REG.z,
+          min: -GLASS_REG_RANGE,
+          max: GLASS_REG_RANGE,
+          step: 0.05,
+          label: "glass depth (Z)",
+          onChange: (v) => {
+            GLASS_REG.z = v;
+            wireTap("glassRegZ", v);
+          },
+        },
+        "bond glass to OLED at current P": button(bondGlassToOLED),
+      },
+      { collapsed: false }
+    ),
+    "🎬 stage (whole scene, works at any time)": folder(
+      {
+        sposX: {
+          value: STAGE.position[0],
+          min: -3,
+          max: 3,
+          step: 0.01,
+          label: "stage ← → (X)",
+          onChange: (v) => {
+            STAGE.position[0] = v;
+            DEV.dirtyStage = true;
+            wireTap("sposX", v);
+          },
+        },
+        sposY: {
+          value: STAGE.position[1],
+          min: -3,
+          max: 3,
+          step: 0.01,
+          label: "stage ↑ ↓ (Y)",
+          onChange: (v) => {
+            STAGE.position[1] = v;
+            DEV.dirtyStage = true;
+            wireTap("sposY", v);
+          },
+        },
+        sposZ: {
+          value: STAGE.position[2],
+          min: -3,
+          max: 3,
+          step: 0.01,
+          label: "stage depth (Z)",
+          onChange: (v) => {
+            STAGE.position[2] = v;
+            DEV.dirtyStage = true;
+            wireTap("sposZ", v);
+          },
+        },
+        srotX: {
+          value: stageDeg[0],
+          min: -180,
+          max: 180,
+          step: 1,
+          label: "stage pitch °",
+          onChange: (v) => {
+            STAGE.rotationEuler[0] = (v * Math.PI) / 180;
+            DEV.dirtyStage = true;
+            wireTap("srotX", v);
+          },
+        },
+        srotY: {
+          value: stageDeg[1],
+          min: -180,
+          max: 180,
+          step: 1,
+          label: "stage yaw °",
+          onChange: (v) => {
+            STAGE.rotationEuler[1] = (v * Math.PI) / 180;
+            DEV.dirtyStage = true;
+            wireTap("srotY", v);
+          },
+        },
+        srotZ: {
+          value: stageDeg[2],
+          min: -180,
+          max: 180,
+          step: 1,
+          label: "stage roll °",
+          onChange: (v) => {
+            STAGE.rotationEuler[2] = (v * Math.PI) / 180;
+            DEV.dirtyStage = true;
+            wireTap("srotZ", v);
+          },
+        },
+        sscale: {
+          value: STAGE.scale,
+          min: 0.2,
+          max: 3,
+          step: 0.01,
+          label: "stage zoom",
+          onChange: (v) => {
+            STAGE.scale = v;
+            DEV.dirtyStage = true;
+            wireTap("sscale", v);
+          },
+        },
+      },
+      { collapsed: false }
+    ),
+    "💥 cracked pane": folder(
+      {
+        crackOn: {
+          value: CRACK.on,
+          label: "CRACK  (saved in the pose slot)",
+          onChange: (v) => {
+            setCrackOn(v);
+          },
+        },
+        crackDefaultX: {
+          value: CRACK.defaultExit[0],
+          min: -4,
+          max: 4,
+          step: 0.01,
+          label: "default crack X",
+          onChange: (v) => {
+            CRACK.defaultExit[0] = v;
+            persistCrackDefaultPosition(CRACK.defaultExit);
+            if (CRACK.useDefault) CRACK.exit[0] = v;
+          },
+        },
+        crackDefaultY: {
+          value: CRACK.defaultExit[1],
+          min: -4,
+          max: 4,
+          step: 0.01,
+          label: "default crack Y",
+          onChange: (v) => {
+            CRACK.defaultExit[1] = v;
+            persistCrackDefaultPosition(CRACK.defaultExit);
+            if (CRACK.useDefault) CRACK.exit[1] = v;
+          },
+        },
+        crackUseDefault: {
+          value: CRACK.useDefault,
+          label: "use default position  (saved in pose)",
+          onChange: (v) => {
+            CRACK.useDefault = v;
+            if (v) CRACK.exit = [...CRACK.defaultExit];
+          },
+        },
+        crackExitX: {
+          value: CRACK.exit[0],
+          min: -4,
+          max: 4,
+          step: 0.01,
+          label: "manual crack ← → (X)",
+          onChange: (v) => {
+            if (!CRACK.useDefault) {
+              CRACK.exit[0] = v;
+              wireTap("crackExitX", v);
+            }
+          },
+        },
+        crackExitY: {
+          value: CRACK.exit[1],
+          min: -4,
+          max: 4,
+          step: 0.01,
+          label: "manual crack ↑ ↓ (Y)",
+          onChange: (v) => {
+            if (!CRACK.useDefault) {
+              CRACK.exit[1] = v;
+              wireTap("crackExitY", v);
+            }
+          },
+        },
+        crackSeverity: {
+          value: CRACK.severity,
+          min: 0,
+          max: 1,
+          step: 0.01,
+          label: "crack severity",
+          onChange: (v) => {
+            CRACK.severity = v;
+            syncCrackAppearance();
+            wireTap("crackSeverity", v);
+          },
+        },
+        crackSharpness: {
+          value: CRACK.sharpness,
+          min: 0.35,
+          max: 3,
+          step: 0.05,
+          label: "crack sharpness",
+          onChange: (v) => {
+            CRACK.sharpness = v;
+            syncCrackAppearance();
+            wireTap("crackSharpness", v);
+          },
+        },
+        "underside view": folder(
+          {
+            crackUndersideEnabled: {
+              value: CRACK_UNDERSIDE.enabled,
+              label: "show crack from underneath",
+              onChange: (v) => {
+                CRACK_UNDERSIDE.enabled = !!v;
+                syncCrackUndersideMaterial();
+              },
+            },
+            crackUndersideShade: {
+              value: CRACK_UNDERSIDE.shade,
+              min: 0,
+              max: 1,
+              step: 0.01,
+              label: "underside shade  dark → light",
+              onChange: (v) => {
+                CRACK_UNDERSIDE.shade = v;
+                syncCrackUndersideMaterial();
+              },
+            },
+            crackUndersideOpacity: {
+              value: CRACK_UNDERSIDE.opacity,
+              min: 0,
+              max: 1,
+              step: 0.01,
+              label: "underside opacity",
+              onChange: (v) => {
+                CRACK_UNDERSIDE.opacity = v;
+                syncCrackUndersideMaterial();
+              },
+            },
+            crackUndersideReflection: {
+              value: CRACK_UNDERSIDE.reflection,
+              min: 0,
+              max: 3,
+              step: 0.05,
+              label: "underside reflection",
+              onChange: (v) => {
+                CRACK_UNDERSIDE.reflection = v;
+                syncCrackUndersideMaterial();
+              },
+            },
+            crackUndersideRoughness: {
+              value: CRACK_UNDERSIDE.roughness,
+              min: 0,
+              max: 1,
+              step: 0.01,
+              label: "underside roughness",
+              onChange: (v) => {
+                CRACK_UNDERSIDE.roughness = v;
+                syncCrackUndersideMaterial();
+              },
+            },
+          },
+          { collapsed: false }
+        ),
+      },
+      { collapsed: false }
+    ),
+
     // ---- v7.5.3 PREMIUM LIGHTING. Direct, environment and landing-shadow
     // values are exposed independently so exposure is only the final trim. ----
     "💡 lighting": folder(
@@ -4135,202 +4429,12 @@ function DevControls({ initialP }) {
 
     // ---- CRACKED PANE. Presence, pane registration, and the requested
     // severity/sharpness controls. Values save into pose slots. Shortcut: C. ----
-    "💥 cracked pane": folder(
-      {
-        crackOn: {
-          value: CRACK.on,
-          label: "CRACK  (saved in the pose slot)",
-          onChange: (v) => {
-            setCrackOn(v);
-          },
-        },
-        crackDefaultX: {
-          value: CRACK.defaultExit[0],
-          min: -4,
-          max: 4,
-          step: 0.01,
-          label: "default crack X",
-          onChange: (v) => {
-            CRACK.defaultExit[0] = v;
-            persistCrackDefaultPosition(CRACK.defaultExit);
-            if (CRACK.useDefault) CRACK.exit[0] = v;
-          },
-        },
-        crackDefaultY: {
-          value: CRACK.defaultExit[1],
-          min: -4,
-          max: 4,
-          step: 0.01,
-          label: "default crack Y",
-          onChange: (v) => {
-            CRACK.defaultExit[1] = v;
-            persistCrackDefaultPosition(CRACK.defaultExit);
-            if (CRACK.useDefault) CRACK.exit[1] = v;
-          },
-        },
-        crackUseDefault: {
-          value: CRACK.useDefault,
-          label: "use default position  (saved in pose)",
-          onChange: (v) => {
-            CRACK.useDefault = v;
-            if (v) CRACK.exit = [...CRACK.defaultExit];
-          },
-        },
-        crackExitX: {
-          value: CRACK.exit[0],
-          min: -4,
-          max: 4,
-          step: 0.01,
-          label: "manual crack ← → (X)",
-          onChange: (v) => {
-            if (!CRACK.useDefault) {
-              CRACK.exit[0] = v;
-              wireTap("crackExitX", v);
-            }
-          },
-        },
-        crackExitY: {
-          value: CRACK.exit[1],
-          min: -4,
-          max: 4,
-          step: 0.01,
-          label: "manual crack ↑ ↓ (Y)",
-          onChange: (v) => {
-            if (!CRACK.useDefault) {
-              CRACK.exit[1] = v;
-              wireTap("crackExitY", v);
-            }
-          },
-        },
-        crackSeverity: {
-          value: CRACK.severity,
-          min: 0,
-          max: 1,
-          step: 0.01,
-          label: "crack severity",
-          onChange: (v) => {
-            CRACK.severity = v;
-            syncCrackAppearance();
-            wireTap("crackSeverity", v);
-          },
-        },
-        crackSharpness: {
-          value: CRACK.sharpness,
-          min: 0.35,
-          max: 3,
-          step: 0.05,
-          label: "crack sharpness",
-          onChange: (v) => {
-            CRACK.sharpness = v;
-            syncCrackAppearance();
-            wireTap("crackSharpness", v);
-          },
-        },
-        "underside view": folder(
-          {
-            crackUndersideEnabled: {
-              value: CRACK_UNDERSIDE.enabled,
-              label: "show crack from underneath",
-              onChange: (v) => {
-                CRACK_UNDERSIDE.enabled = !!v;
-                syncCrackUndersideMaterial();
-              },
-            },
-            crackUndersideShade: {
-              value: CRACK_UNDERSIDE.shade,
-              min: 0,
-              max: 1,
-              step: 0.01,
-              label: "underside shade  dark → light",
-              onChange: (v) => {
-                CRACK_UNDERSIDE.shade = v;
-                syncCrackUndersideMaterial();
-              },
-            },
-            crackUndersideOpacity: {
-              value: CRACK_UNDERSIDE.opacity,
-              min: 0,
-              max: 1,
-              step: 0.01,
-              label: "underside opacity",
-              onChange: (v) => {
-                CRACK_UNDERSIDE.opacity = v;
-                syncCrackUndersideMaterial();
-              },
-            },
-            crackUndersideReflection: {
-              value: CRACK_UNDERSIDE.reflection,
-              min: 0,
-              max: 3,
-              step: 0.05,
-              label: "underside reflection",
-              onChange: (v) => {
-                CRACK_UNDERSIDE.reflection = v;
-                syncCrackUndersideMaterial();
-              },
-            },
-            crackUndersideRoughness: {
-              value: CRACK_UNDERSIDE.roughness,
-              min: 0,
-              max: 1,
-              step: 0.01,
-              label: "underside roughness",
-              onChange: (v) => {
-                CRACK_UNDERSIDE.roughness = v;
-                syncCrackUndersideMaterial();
-              },
-            },
-          },
-          { collapsed: false }
-        ),
-      },
-      { collapsed: true }
-    ),
 
     // ---- GLASS REGISTRATION (±25, v3.11 restored). 1 unit ≈ 0.1 world
     // units; the frame is ~3.1 world units across, so ±25 carries the whole
     // glass unit (pane + bezel + crack) clean out of shot and back — that is
     // the swap move. Saved in pose slots, interpolated by motion paths, and
     // wireable in compound motion for fine work on a range this wide. ----
-    "🔲 glass registration (±25 — drives the pane OUT of shot)": folder(
-      {
-        glassRegX: {
-          value: GLASS_REG.x,
-          min: -GLASS_REG_RANGE,
-          max: GLASS_REG_RANGE,
-          step: 0.05,
-          label: "glass ← → (X)",
-          onChange: (v) => {
-            GLASS_REG.x = v;
-            wireTap("glassRegX", v);
-          },
-        },
-        glassRegY: {
-          value: GLASS_REG.y,
-          min: -GLASS_REG_RANGE,
-          max: GLASS_REG_RANGE,
-          step: 0.05,
-          label: "glass ↑ ↓ (Y)",
-          onChange: (v) => {
-            GLASS_REG.y = v;
-            wireTap("glassRegY", v);
-          },
-        },
-        glassRegZ: {
-          value: GLASS_REG.z,
-          min: -GLASS_REG_RANGE,
-          max: GLASS_REG_RANGE,
-          step: 0.05,
-          label: "glass depth (Z)",
-          onChange: (v) => {
-            GLASS_REG.z = v;
-            wireTap("glassRegZ", v);
-          },
-        },
-        "bond glass to OLED at current P": button(bondGlassToOLED),
-      },
-      { collapsed: false }
-    ),
 
     // ---- v3.8.1 BEZEL — the black-rim cause is UNRESOLVED, so this is a
     // dial set, not a guess. depth push -> 0 tests one hypothesis;
@@ -4622,95 +4726,6 @@ function DevControls({ initialP }) {
       },
       { collapsed: false }
     ),
-    "🎬 stage (whole scene, works at any time)": folder(
-      {
-        sposX: {
-          value: STAGE.position[0],
-          min: -3,
-          max: 3,
-          step: 0.01,
-          label: "stage ← → (X)",
-          onChange: (v) => {
-            STAGE.position[0] = v;
-            DEV.dirtyStage = true;
-            wireTap("sposX", v);
-          },
-        },
-        sposY: {
-          value: STAGE.position[1],
-          min: -3,
-          max: 3,
-          step: 0.01,
-          label: "stage ↑ ↓ (Y)",
-          onChange: (v) => {
-            STAGE.position[1] = v;
-            DEV.dirtyStage = true;
-            wireTap("sposY", v);
-          },
-        },
-        sposZ: {
-          value: STAGE.position[2],
-          min: -3,
-          max: 3,
-          step: 0.01,
-          label: "stage depth (Z)",
-          onChange: (v) => {
-            STAGE.position[2] = v;
-            DEV.dirtyStage = true;
-            wireTap("sposZ", v);
-          },
-        },
-        srotX: {
-          value: stageDeg[0],
-          min: -180,
-          max: 180,
-          step: 1,
-          label: "stage pitch °",
-          onChange: (v) => {
-            STAGE.rotationEuler[0] = (v * Math.PI) / 180;
-            DEV.dirtyStage = true;
-            wireTap("srotX", v);
-          },
-        },
-        srotY: {
-          value: stageDeg[1],
-          min: -180,
-          max: 180,
-          step: 1,
-          label: "stage yaw °",
-          onChange: (v) => {
-            STAGE.rotationEuler[1] = (v * Math.PI) / 180;
-            DEV.dirtyStage = true;
-            wireTap("srotY", v);
-          },
-        },
-        srotZ: {
-          value: stageDeg[2],
-          min: -180,
-          max: 180,
-          step: 1,
-          label: "stage roll °",
-          onChange: (v) => {
-            STAGE.rotationEuler[2] = (v * Math.PI) / 180;
-            DEV.dirtyStage = true;
-            wireTap("srotZ", v);
-          },
-        },
-        sscale: {
-          value: STAGE.scale,
-          min: 0.2,
-          max: 3,
-          step: 0.01,
-          label: "stage zoom",
-          onChange: (v) => {
-            STAGE.scale = v;
-            DEV.dirtyStage = true;
-            wireTap("sscale", v);
-          },
-        },
-      },
-      { collapsed: true }
-    ),
     "📦 model": folder(
       {
         size: {
@@ -4917,7 +4932,7 @@ function DevDashboard() {
   const [selectedPathNode, setSelectedPathNode] = useState(-1);
   const [pathProgress, setPathProgress] = useState(0);
   const [pathPlaying, setPathPlaying] = useState(false);
-  const [status, setStatus] = useState("v7.5.21 — update always available · link survives reload");
+  const [status, setStatus] = useState("v7.5.22 — condensed dashboard · reordered sliders");
   const [library, setLibrary] = useState(loadMotionLibrary);
   const [libraryId, setLibraryId] = useState(loadMotionPathLink);
   const [importText, setImportText] = useState("");
@@ -6092,33 +6107,44 @@ function DevDashboard() {
                     });
                   }} />s
                 </label>
+                {selectedPathNode < motionPath.nodes.length - 1 && (
+                  <>
+                    <span style={{ fontSize: 9, marginLeft: 4 }}>departure</span>
+                    <select style={{ ...SEL_STYLE, maxWidth: 86 }} value={selectedNode.departureEase} onChange={(e) => updateSelectedPathDeparture({ departureEase: e.target.value })}>{Object.entries(MOTION_EASE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
+                  </>
+                )}
               </div>
 
               {selectedPathNode < motionPath.nodes.length - 1 && (
-                <>
-                  <div style={{ ...UI.row, marginTop: 3 }}>
-                    <span style={{ fontSize: 9, width: 83 }}>departure</span>
-                    <select style={SEL_STYLE} value={selectedNode.departureEase} onChange={(e) => updateSelectedPathDeparture({ departureEase: e.target.value })}>{Object.entries(MOTION_EASE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
-                  </div>
-                  <div style={{ ...UI.row, marginTop: 2 }}>
-                    <span style={{ fontSize: 9, width: 83 }}>depart amount</span>
-                    <input type="range" min={0} max={1} step={0.01} value={selectedNode.departureEaseStrength} style={{ width: 132, accentColor: "#2e7d52" }} onChange={(e) => updateSelectedPathDeparture({ departureEaseStrength: Number(e.target.value) })} />
-                    <span style={{ fontSize: 9 }}>{Math.round(selectedNode.departureEaseStrength * 100)}%</span>
-                  </div>
-                </>
+                <div style={{ ...UI.row, marginTop: 3, flexWrap: "nowrap" }}>
+                  <span style={{ fontSize: 9, width: 72 }}>depart amount</span>
+                  <input type="range" min={0} max={1} step={0.01} value={selectedNode.departureEaseStrength} style={{ width: 108, accentColor: "#2e7d52" }} onChange={(e) => updateSelectedPathDeparture({ departureEaseStrength: Number(e.target.value) })} />
+                  <span style={{ fontSize: 9, width: 30 }}>{Math.round(selectedNode.departureEaseStrength * 100)}%</span>
+                  <span style={chipStyle(false)} title="reset this node's motion (leg mode, travel, hold, arrival and departure)" onClick={() => updateSelectedPathNode({
+                    motionMode: "inherit",
+                    duration: selectedPathNode === 0 ? 0 : 1.25,
+                    hold: 0,
+                    ease: "cinematic",
+                    easeStrength: 1,
+                    departureEase: "accelerate",
+                    departureEaseStrength: 1,
+                  })}>reset</span>
+                </div>
               )}
 
-              <div style={{ ...UI.row, marginTop: 4 }}>
-                <span style={chipStyle(false)} onClick={() => updateSelectedPathNode({
-                  motionMode: "inherit",
-                  duration: selectedPathNode === 0 ? 0 : 1.25,
-                  hold: 0,
-                  ease: "cinematic",
-                  easeStrength: 1,
-                  departureEase: "accelerate",
-                  departureEaseStrength: 1,
-                })}>reset node motion</span>
-              </div>
+              {selectedPathNode >= motionPath.nodes.length - 1 && (
+                <div style={{ ...UI.row, marginTop: 3 }}>
+                  <span style={chipStyle(false)} title="reset this node's motion" onClick={() => updateSelectedPathNode({
+                    motionMode: "inherit",
+                    duration: selectedPathNode === 0 ? 0 : 1.25,
+                    hold: 0,
+                    ease: "cinematic",
+                    easeStrength: 1,
+                    departureEase: "accelerate",
+                    departureEaseStrength: 1,
+                  })}>reset</span>
+                </div>
+              )}
             </div>
 
             <details style={{ marginTop: 4 }}>
@@ -6260,16 +6286,13 @@ function DevDashboard() {
           <span style={chipStyle(false)} onClick={undoPath}>undo</span>
           <span style={chipStyle(false)} onClick={redoPath}>redo</span>
           <span style={chipStyle(false)} onClick={() => { commitMotionPath(defaultMotionPath()); setSelectedPathNode(-1); }}>clear</span>
-        </div>
-        <div style={UI.row}>
-          <span style={chipStyle(false, true)} onClick={async () => setStatus(await copyMotionPreviewURL(motionPath, slots) ? "self-contained preview URL copied" : "preview URL needs at least two valid nodes and clipboard permission")}>🔗 preview URL</span>
-          <span style={chipStyle(false, true)} onClick={async () => setStatus(await copyMotionManifest(motionPath, slots) ? "deterministic mp manifest copied" : "manifest needs at least two valid nodes and clipboard permission")}>🎞 mp manifest</span>
+          <span style={chipStyle(false)} title="self-contained preview URL" onClick={async () => setStatus(await copyMotionPreviewURL(motionPath, slots) ? "self-contained preview URL copied" : "preview URL needs at least two valid nodes and clipboard permission")}>🔗 preview</span>
+          <span style={chipStyle(false)} title="deterministic mp capture manifest" onClick={async () => setStatus(await copyMotionManifest(motionPath, slots) ? "deterministic mp manifest copied" : "manifest needs at least two valid nodes and clipboard permission")}>🎞 manifest</span>
         </div>
       </details>
 
       <details open>
         <summary style={UI.head}>🧪 path comparison / saved paths ({library.length})</summary>
-        <div style={UI.hint}>UPDATE always works: it overwrites the linked path in place — name included — or creates and links one if nothing is linked. + version appends without discarding. PLAY on the linked path runs your live edits; LOAD deliberately reverts to the saved snapshot.</div>
         <div style={UI.row}>
           <span
             title="Overwrite the linked saved path with what is on screen now, including the name in the box above. Nothing linked? It saves a new path and links it."
