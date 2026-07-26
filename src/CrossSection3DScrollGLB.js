@@ -18,7 +18,24 @@ import { Leva, useControls, button, folder } from "leva";
 
 gsap.registerPlugin(ScrollTrigger);
 
-const IGLASS_APP_VERSION = "7.5.20";
+const IGLASS_APP_VERSION = "7.5.21";
+
+// ============================================
+// v7.5.21 — UPDATE IS ALWAYS AVAILABLE
+//
+//   LINK SURVIVES    Which library entry the working path came from is now
+//                    persisted. It used to live only in React state, so a
+//                    page refresh dropped it and UPDATE greyed out even
+//                    though the restored working path WAS that saved path.
+//   NEVER A DEAD END UPDATE is always pressable. Linked -> overwrite in
+//                    place. Not linked -> save as a new path and link it,
+//                    so the very next press overwrites.
+//   RENAME STICKS    The path name box is authoritative. UPDATE and
+//                    + version both carry the current name onto the
+//                    library entry instead of preserving the old one.
+//   STALE LINK       A link pointing at a deleted entry clears itself.
+//
+// ============================================
 
 // ============================================
 // v7.5.20 — CRACK STATE AUTHORITY + PATH OVERWRITE + LEFT LIGHT BANK
@@ -1685,6 +1702,8 @@ const SLOT_COUNT = 150;
 const PRIMARY_SLOT_COUNT = 100;
 const MOTION_PATH_KEY = "iglass_motion_path_v1";
 const MOTION_LIBRARY_KEY = "iglass_motion_path_library_v1";
+// v7.5.21 — which saved path the working path is currently linked to.
+const MOTION_PATH_LINK_KEY = "iglass_motion_path_link_v1";
 const LEGACY_MOTION_COMPARE_KEY = "iglass_motion_compare_v1";
 
 const MOTION_EASES = {
@@ -3026,6 +3045,29 @@ function loadMotionLibrary() {
     .filter(Boolean)
     .filter((entry) => !library.some((savedEntry) => savedEntry.id === entry.id));
   return [...library, ...migrated];
+}
+
+// The working path in MOTION_PATH_KEY survives a refresh; this is what it
+// came FROM. Persisting the pair together is what lets UPDATE keep working
+// across sessions instead of only until the next reload.
+function loadMotionPathLink() {
+  if (typeof window === "undefined") return "";
+  try {
+    const raw = window.localStorage.getItem(MOTION_PATH_LINK_KEY);
+    const parsed = raw ? JSON.parse(raw) : "";
+    return typeof parsed === "string" ? parsed : "";
+  } catch (e) {
+    return "";
+  }
+}
+
+function persistMotionPathLink(id) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(MOTION_PATH_LINK_KEY, JSON.stringify(id || ""));
+  } catch (e) {
+    /* storage blocked -> the link stays session-only */
+  }
 }
 
 function capturePoseThumbnail() {
@@ -4875,9 +4917,9 @@ function DevDashboard() {
   const [selectedPathNode, setSelectedPathNode] = useState(-1);
   const [pathProgress, setPathProgress] = useState(0);
   const [pathPlaying, setPathPlaying] = useState(false);
-  const [status, setStatus] = useState("v7.5.20 — crack authority · path overwrite · left light bank");
+  const [status, setStatus] = useState("v7.5.21 — update always available · link survives reload");
   const [library, setLibrary] = useState(loadMotionLibrary);
-  const [libraryId, setLibraryId] = useState("");
+  const [libraryId, setLibraryId] = useState(loadMotionPathLink);
   const [importText, setImportText] = useState("");
   const [showImport, setShowImport] = useState(false);
   const [bulkDuration, setBulkDuration] = useState(1.25);
@@ -4943,6 +4985,16 @@ function DevDashboard() {
   }, []);
 
   useEffect(() => persistMotionPath(motionPath), [motionPath]);
+
+  // v7.5.21 — persist the link, and drop it if it points at an entry that
+  // no longer exists (deleted path, cleared library, imported backup).
+  useEffect(() => {
+    if (libraryId && !libraryRef.current.some((entry) => entry.id === libraryId)) {
+      setLibraryId("");
+      return;
+    }
+    persistMotionPathLink(libraryId);
+  }, [libraryId, library]);
 
   useEffect(() => {
     MOTION_DEV.path = compiledPath;
@@ -5382,7 +5434,10 @@ function DevDashboard() {
     const existing = currentLibrary.find((entry) => entry.id === id);
     const embeddedPath = {
       ...embedMotionPath(motionPath, sourceSlots),
-      name: existing?.name || motionPath.name,
+      // v7.5.21 — the name box is authoritative. Previously an existing
+      // entry's old name won, so renaming a loaded path then saving it
+      // silently discarded the rename.
+      name: motionPath.name || existing?.name || "Untitled path",
     };
     const errors = validateMotionPathSnapshot(embeddedPath, sourceSlots);
     if (errors.length) {
@@ -5406,7 +5461,11 @@ function DevDashboard() {
     if (existing) {
       next = currentLibrary.map((entry) =>
         entry.id === id
-          ? { ...entry, versions: [...entry.versions, version] }
+          ? {
+              ...entry,
+              name: motionPath.name || entry.name,
+              versions: [...entry.versions, version],
+            }
           : entry
       );
     } else {
@@ -5428,8 +5487,11 @@ function DevDashboard() {
     const sourceSlots = slotsRef.current;
     const currentLibrary = libraryRef.current;
     const entry = currentLibrary.find((item) => item.id === targetId);
+    // v7.5.21 — nothing linked (fresh session, cleared path, deleted entry)
+    // is not an error. Save the working path as a new library entry and
+    // link it, so the very next press overwrites in place.
     if (!entry) {
-      setStatus("no loaded path to update — use “+ save as new path”");
+      savePathVersion(true);
       return;
     }
     const embeddedPath = embedMotionPath(motionPath, sourceSlots);
@@ -5715,6 +5777,7 @@ function DevDashboard() {
         ? [selectedPose.sposX, selectedPose.sposY, selectedPose.sposZ]
         : [0, 0, 0])
     : null;
+  const linkedEntry = library.find((entry) => entry.id === libraryId) || null;
   const pathReady = compiledPath.nodes.length >= 2;
   const pathDuration = motionPlaybackTiming(
     compiledPath,
@@ -6206,25 +6269,21 @@ function DevDashboard() {
 
       <details open>
         <summary style={UI.head}>🧪 path comparison / saved paths ({library.length})</summary>
-        <div style={UI.hint}>UPDATE overwrites the loaded path in place. + version appends without discarding. PLAY on the loaded path runs your live edits; LOAD deliberately reverts to the saved snapshot.</div>
+        <div style={UI.hint}>UPDATE always works: it overwrites the linked path in place — name included — or creates and links one if nothing is linked. + version appends without discarding. PLAY on the linked path runs your live edits; LOAD deliberately reverts to the saved snapshot.</div>
         <div style={UI.row}>
           <span
-            title={libraryId ? "overwrite the loaded path's latest version with what is on screen now" : "load a saved path first"}
-            style={{
-              ...chipStyle(!!libraryId, true),
-              opacity: libraryId ? 1 : 0.4,
-              cursor: libraryId ? "pointer" : "default",
-            }}
-            onClick={() => {
-              if (libraryId) overwritePathVersion(libraryId);
-            }}
-          >⤓ update loaded path</span>
+            title="Overwrite the linked saved path with what is on screen now, including the name in the box above. Nothing linked? It saves a new path and links it."
+            style={chipStyle(true, true)}
+            onClick={() => overwritePathVersion(libraryId)}
+          >
+            ⤓ update path{linkedEntry ? ` — ${linkedEntry.name}` : " (creates + links)"}
+          </span>
           <span style={chipStyle(false, true)} onClick={() => savePathVersion(true)}>+ save as new path</span>
         </div>
         <div style={UI.hint}>
-          loaded: {libraryId
-            ? (library.find((entry) => entry.id === libraryId)?.name || "—")
-            : "nothing loaded (unsaved working path)"}
+          linked: {linkedEntry
+            ? `${linkedEntry.name} · ${linkedEntry.versions.length}v · UPDATE overwrites v${linkedEntry.versions.length}`
+            : "nothing linked — UPDATE will create and link a new path"}
         </div>
         {!library.length && <div style={UI.hint}>No saved paths yet.</div>}
         {library.map((entry, entryIndex) => {
