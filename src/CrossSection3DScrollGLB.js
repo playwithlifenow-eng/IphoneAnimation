@@ -18,7 +18,25 @@ import { Leva, useControls, button, folder } from "leva";
 
 gsap.registerPlugin(ScrollTrigger);
 
-const IGLASS_APP_VERSION = "7.5.24";
+const IGLASS_APP_VERSION = "7.5.25";
+
+// ============================================
+// v7.5.25 — HIDE FROM THE PLAYBACK ROW
+//
+//   SECOND HIDE      A "hide" chip joins preview and start inside MOTION
+//                    PATH PREVIEW. Press preview, press hide: both are
+//                    under the same finger, so the panel is gone before
+//                    the first leg has travelled. The chip at the top of
+//                    the dashboard is unchanged and still works.
+//   PLAYBACK SAFE    Collapsing swaps the panel's markup only; it does
+//                    not unmount the dashboard, so the requestAnimationFrame
+//                    playback chain, the pose writes and the progress
+//                    state all continue untouched. Nothing is dropped and
+//                    no node is skipped.
+//   SCOPED CHANGE    One chip. No pose, path, slot, timing, easing or
+//                    render behaviour is altered.
+//
+// ============================================
 
 // ============================================
 // v7.5.24 — 200 POSE SLOTS
@@ -4980,7 +4998,7 @@ function DevDashboard() {
   const [selectedPathNode, setSelectedPathNode] = useState(-1);
   const [pathProgress, setPathProgress] = useState(0);
   const [pathPlaying, setPathPlaying] = useState(false);
-  const [status, setStatus] = useState("v7.5.24 — 200 pose slots · orange = in use by a path");
+  const [status, setStatus] = useState("v7.5.25 — hide chip sits with preview · 200 pose slots");
   const [library, setLibrary] = useState(loadMotionLibrary);
   const [libraryId, setLibraryId] = useState(loadMotionPathLink);
   const [importText, setImportText] = useState("");
@@ -6298,6 +6316,16 @@ function DevDashboard() {
               {pathPlaying ? "❚❚ pause" : "▶ preview"}
             </span>
             <span style={chipStyle(false)} onClick={() => { pauseMotionPath(false); applyPathAt(0, true); }}>↺ start</span>
+            {/* v7.5.25 — collapsing only swaps this panel's markup. The
+                dashboard stays mounted, so playback continues from here
+                without dropping a frame or a node. */}
+            <span
+              style={chipStyle(false)}
+              title="collapse the dashboard — playback keeps running"
+              onClick={() => setCollapsed(true)}
+            >
+              ▾ hide
+            </span>
           </div>
         </div>
 
