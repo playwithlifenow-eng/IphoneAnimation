@@ -18,7 +18,22 @@ import { Leva, useControls, button, folder } from "leva";
 
 gsap.registerPlugin(ScrollTrigger);
 
-const IGLASS_APP_VERSION = "7.5.25";
+const IGLASS_APP_VERSION = "7.5.26";
+
+// ============================================
+// v7.5.26 — OVERHEAD GLASS REFLECTIONS + ±35 GLASS REGISTRATION
+//
+//   OVERHEAD CARDS   A broad ceiling softbox and a narrow overhead kicker
+//                    add readable moving reflections to the clean and cracked
+//                    glass without lifting the ambient fill.
+//   CRACK RESPONSE   The cracked surface receives a restrained reflection
+//                    boost so its fracture detail catches the overhead cards
+//                    while it travels across the OLED.
+//   GLASS REG ±35    X, Y and Z registration now share a ±35 range so removal
+//                    poses can carry the complete glass unit beyond the mobile
+//                    viewport.
+//
+// ============================================
 
 // ============================================
 // v7.5.25 — HIDE FROM THE PLAYBACK ROW
@@ -1049,12 +1064,12 @@ const GLASS_REG_HOME = Object.freeze({ x: -0.03, y: 0.09, z: 0.07 });
 const GLASS_REG = { ...GLASS_REG_HOME };
 const GLASS_REG_TRIGGER_EPSILON = 0.0001;
 
-// ±25 (v3.11, restored). The model measures ~15.7 local units tall fitted
+// ±35 (v7.5.26). The model measures ~15.7 local units tall fitted
 // to 1.6 world units, so 1 slider unit ≈ 0.1 world units and the visible
 // frame is ~3.1 world units across. Clearing the frame needs ≈19 units;
-// ±25 carries the whole glass unit (pane + bezel + crack) clean out of
-// shot and back. That is the swap move.
-const GLASS_REG_RANGE = 25;
+// ±35 gives mobile removal poses extra clearance and carries the whole glass
+// unit (pane + bezel + crack) clean out of shot and back.
+const GLASS_REG_RANGE = 35;
 
 // ============================================
 // LIGHT (v3.8) — the whole lighting rig as one tunable config.
@@ -1238,6 +1253,14 @@ const GLASS = {
   ccRough: 0.06,
 };
 
+// The crack carrier is mostly transparent, so it needs a little more IBL
+// response than the clean pane for reflected cards to remain legible.
+const CRACK_REFLECTION_BOOST = 1.35;
+
+function crackReflectionIntensity() {
+  return Math.max(0, Math.min(4, GLASS.env * CRACK_REFLECTION_BOOST));
+}
+
 // ---------------------------------------------------------
 // SHINE (v6) — the creative clean-glass layer.
 //
@@ -1271,6 +1294,8 @@ const SHINE = {
   envBroad: 2.0,
   envStrip: 8.0,
   envRim: 1.4,
+  // v7.5.26 — master intensity for the two ceiling reflection cards.
+  envTop: 4.5,
   // v7.5.20 — one master for the whole left-hand card bank. 0 = the
   // v7.5.19 rig unchanged; 1 = the mirrored bank at its authored level.
   envLeft: 1.0,
@@ -1328,7 +1353,7 @@ const CRACK_UNDERSIDE = {
   enabled: true,
   shade: 0.35,
   opacity: 0.7,
-  reflection: 1.2,
+  reflection: 1.55,
   roughness: 0.2,
 };
 
@@ -1461,13 +1486,17 @@ function syncOledLuminance() {
 
 function applyPremiumGlassMaterial() {
   const mat = DEV.glassMat;
-  if (!mat) return;
-  mat.color.setHex(GLASS.color);
-  mat.roughness = GLASS.rough;
-  mat.envMapIntensity = GLASS.env;
-  mat.clearcoat = GLASS.clearcoat;
-  mat.clearcoatRoughness = GLASS.ccRough;
-  mat.opacity = GLASS.opacity;
+  if (mat) {
+    mat.color.setHex(GLASS.color);
+    mat.roughness = GLASS.rough;
+    mat.envMapIntensity = GLASS.env;
+    mat.clearcoat = GLASS.clearcoat;
+    mat.clearcoatRoughness = GLASS.ccRough;
+    mat.opacity = GLASS.opacity;
+  }
+  if (DEV.crackMat) {
+    DEV.crackMat.envMapIntensity = crackReflectionIntensity();
+  }
 }
 
 // The dashboard and R3F scene deliberately meet through one tiny live bridge.
@@ -3772,7 +3801,7 @@ function DevControls({ initialP }) {
   const [, set] = useControls(() => ({
     drive: { value: driveLabel(), editable: false },
 
-    "🔲 glass registration (±25 — drives the pane OUT of shot)": folder(
+    "🔲 glass registration (±35 — drives the pane OUT of shot)": folder(
       {
         glassRegX: {
           value: GLASS_REG.x,
@@ -4226,7 +4255,9 @@ function DevControls({ initialP }) {
           onChange: (v) => {
             GLASS.env = v;
             if (DEV.glassMat) DEV.glassMat.envMapIntensity = v;
-            if (DEV.crackMat) DEV.crackMat.envMapIntensity = v;
+            if (DEV.crackMat) {
+              DEV.crackMat.envMapIntensity = crackReflectionIntensity();
+            }
           },
         },
         glassOpacity: {
@@ -4475,6 +4506,17 @@ function DevControls({ initialP }) {
                 if (DEV.refreshEnvironment) DEV.refreshEnvironment();
               },
             },
+            shineEnvTop: {
+              value: SHINE.envTop,
+              min: 0,
+              max: 12,
+              step: 0.05,
+              label: "OVERHEAD reflection bank",
+              onChange: (v) => {
+                SHINE.envTop = v;
+                if (DEV.refreshEnvironment) DEV.refreshEnvironment();
+              },
+            },
             shineEnvLeft: {
               value: SHINE.envLeft,
               min: 0,
@@ -4496,8 +4538,8 @@ function DevControls({ initialP }) {
     // ---- CRACKED PANE. Presence, pane registration, and the requested
     // severity/sharpness controls. Values save into pose slots. Shortcut: C. ----
 
-    // ---- GLASS REGISTRATION (±25, v3.11 restored). 1 unit ≈ 0.1 world
-    // units; the frame is ~3.1 world units across, so ±25 carries the whole
+    // ---- GLASS REGISTRATION (±35, v7.5.26). 1 unit ≈ 0.1 world
+    // units; the frame is ~3.1 world units across, so ±35 carries the whole
     // glass unit (pane + bezel + crack) clean out of shot and back — that is
     // the swap move. Saved in pose slots, interpolated by motion paths, and
     // wireable in compound motion for fine work on a range this wide. ----
@@ -4998,7 +5040,7 @@ function DevDashboard() {
   const [selectedPathNode, setSelectedPathNode] = useState(-1);
   const [pathProgress, setPathProgress] = useState(0);
   const [pathPlaying, setPathPlaying] = useState(false);
-  const [status, setStatus] = useState("v7.5.25 — hide chip sits with preview · 200 pose slots");
+  const [status, setStatus] = useState("v7.5.26 — overhead reflections · glass registration ±35");
   const [library, setLibrary] = useState(loadMotionLibrary);
   const [libraryId, setLibraryId] = useState(loadMotionPathLink);
   const [importText, setImportText] = useState("");
@@ -7122,7 +7164,7 @@ function DevGizmo() {
 //   ?size=1.6                  MODEL.targetSize
 //   ?pscale=0.8                SETTLE.scale
 //   ?spos / ?srot / ?sscale    STAGE transform
-//   ?glassreg=x,y,z            glass-unit registration (clamped to ±25)
+//   ?glassreg=x,y,z            glass-unit registration (clamped to ±35)
 //   ?light=amb,key,fill,env,exp,keyX,keyY,keyZ,keyK,fillX,fillY,fillZ,fillK
 //   ?bezel=env,rough,offset       v3.8.1 bezel dials
 //   ?oled=-0.5,0,1                OLED face-split, rim, luminance
@@ -8065,7 +8107,7 @@ function IPhoneExploded({
       // tiny local-normal surface bias. Real depth occlusion can therefore
       // be restored: crack pixels must never draw through the rim/chassis.
       depthTest: true,
-      envMapIntensity: GLASS.env,
+      envMapIntensity: crackReflectionIntensity(),
       clearcoat: 1.0,
       clearcoatRoughness: 0.04,
       // FrontSide + the back-face strip above. The pane geometry shipped
@@ -8464,7 +8506,7 @@ function IPhoneExploded({
     }
 
     if (glassGroupRef.current) {
-      // THE GLASS UNIT: pane + bezel + crack, one assembly. ±25 on the
+      // THE GLASS UNIT: pane + bezel + crack, one assembly. ±35 on the
       // registration is enough to carry it clean out of frame and back —
       // that is the swap move. X/Y are written directly (a swap is a move
       // you are DRIVING, not a spring); Z keeps its lerp so the explode
@@ -8872,6 +8914,26 @@ function PremiumReflectionEnvironment({ preset, blur, revision }) {
         position={[0, -4, -6]}
         rotation-x={-Math.PI / 2}
         scale={[3, 3, 1]}
+      />
+      {/* v7.5.26 — CEILING REFLECTION BANK. The broad card gives the pane
+          a continuous overhead gradient; the thin kicker creates a second
+          moving streak that catches the crack facets as the glass crosses
+          the OLED. Both remain part of the one static environment capture. */}
+      <Lightformer
+        form="rect"
+        intensity={SHINE.envTop}
+        color="#f7fbff"
+        position={[0, 8, -1.5]}
+        scale={[9, 4.5, 1]}
+        onUpdate={(self) => self.lookAt(0, 0, 0)}
+      />
+      <Lightformer
+        form="rect"
+        intensity={SHINE.envTop * 1.25}
+        color="#fff4e6"
+        position={[2.5, 7, 2]}
+        scale={[6, 0.3, 1]}
+        onUpdate={(self) => self.lookAt(0, 0, 0)}
       />
       {/* v7.5.14 — restrained positive-Z coverage. These cards use the
           existing broad/strip/rim families, remain static, and are captured
