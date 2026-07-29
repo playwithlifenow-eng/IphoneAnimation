@@ -18,7 +18,23 @@ import { Leva, useControls, button, folder } from "leva";
 
 gsap.registerPlugin(ScrollTrigger);
 
-const IGLASS_APP_VERSION = "7.5.27-dom-demo";
+const IGLASS_APP_VERSION = "7.5.28-dom-demo-fix";
+
+// ============================================
+// v7.5.28 DOM DEMO FIX — RESTORED OLED + RELIABLE DOM STACKING
+//
+//   ROOT CAUSE       v7.5.27 placed the DOM beneath the WebGL canvas and
+//                    simultaneously disabled OLED colour writes. The live
+//                    canvas remained opaque in the deployed composition,
+//                    so neither source supplied visible screen pixels.
+//   OLED RESTORED    The original Screen.webp OLED material is untouched.
+//                    It remains the visual fallback at every frame.
+//   DOM ABOVE        The proof-of-concept DOM now receives an explicit
+//                    z-index above the WebGL canvas. This is intentionally
+//                    the reliable inspection mode; optical under-glass
+//                    compositing can follow after alignment is approved.
+//
+// ============================================
 
 // ============================================
 // v7.5.27 DOM DEMO — STANDALONE OLED-ANCHORED REACT OVERLAY
@@ -28,10 +44,8 @@ const IGLASS_APP_VERSION = "7.5.27-dom-demo";
 //                    is true and remains mounted through the entire path.
 //   OLED ANCHOR      The DOM is a child of the independently moving OLED
 //                    group, so it follows every phone and OLED transform.
-//   TRUE COMPOSITE   The DOM sits beneath the transparent WebGL canvas.
-//                    The OLED front writes depth but not colour, allowing
-//                    the DOM to show while the real glass, bezel, pill and
-//                    reflections continue to render above it.
+//   FIRST ATTEMPT    The original under-canvas composite was superseded by
+//                    v7.5.28 after deployment proved the canvas opaque.
 //   VIDEO READY      Set domOverlayVideo to an MP4/WebM URL to replace the
 //                    built-in animated scenic test card with looping video.
 //
@@ -7727,13 +7741,12 @@ function OledDomDemo({ videoUrl = "" }) {
   return (
     <Html
       transform
-      prepend
       center
       position={OLED_DOM_DEMO.position}
       rotation={OLED_DOM_DEMO.rotation}
       scale={OLED_DOM_DEMO.scale}
       distanceFactor={OLED_DOM_DEMO.distanceFactor}
-      zIndexRange={[0, 0]}
+      zIndexRange={[100, 100]}
       pointerEvents="none"
       style={{
         width: OLED_DOM_DEMO.width,
@@ -8253,10 +8266,6 @@ function IPhoneExploded({
           map: oledTexture,
           color: new THREE.Color().setScalar(OLED.luminance),
           toneMapped: false,
-          // Keep the real front cap as a depth-writing mask while the DOM
-          // supplies its colour underneath the transparent WebGL canvas.
-          // Disabling the demo restores the original textured OLED exactly.
-          colorWrite: !domOverlay,
         });
         DEV.oledScreenMats.push(oledScreenMat);
 
@@ -8370,7 +8379,7 @@ function IPhoneExploded({
       crackTransform,
       crackUvScale,
     };
-  }, [clonedScene, oledTexture, maxAniso, domOverlay]);
+  }, [clonedScene, oledTexture, maxAniso]);
 
   // ---------------------------------------------------------
   // CRACKED-PANE MATERIAL (v3.9 / v3.11)
