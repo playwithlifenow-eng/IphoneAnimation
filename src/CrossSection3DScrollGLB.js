@@ -18,7 +18,24 @@ import { Leva, useControls, button, folder } from "leva";
 
 gsap.registerPlugin(ScrollTrigger);
 
-const IGLASS_APP_VERSION = "7.5.26";
+const IGLASS_APP_VERSION = "7.5.27-dom-demo";
+
+// ============================================
+// v7.5.27 DOM DEMO — STANDALONE OLED-ANCHORED REACT OVERLAY
+//
+//   ALWAYS VISIBLE   The demo is not connected to p, path nodes, slots,
+//                    holds or JSON timing. It mounts whenever domOverlay
+//                    is true and remains mounted through the entire path.
+//   OLED ANCHOR      The DOM is a child of the independently moving OLED
+//                    group, so it follows every phone and OLED transform.
+//   TRUE COMPOSITE   The DOM sits beneath the transparent WebGL canvas.
+//                    The OLED front writes depth but not colour, allowing
+//                    the DOM to show while the real glass, bezel, pill and
+//                    reflections continue to render above it.
+//   VIDEO READY      Set domOverlayVideo to an MP4/WebM URL to replace the
+//                    built-in animated scenic test card with looping video.
+//
+// ============================================
 
 // ============================================
 // v7.5.26 — OVERHEAD GLASS REFLECTIONS + ±35 GLASS REGISTRATION
@@ -7527,6 +7544,10 @@ const defaultProps = {
   // White/grey crack lines on a TRANSPARENT background, same aspect as
   // the screen. A caller can still override this prop with another asset.
   crackTexture: crackImg,
+  // Standalone proof-of-concept. This is deliberately independent of the
+  // motion-path JSON and remains visible at every progress value.
+  domOverlay: true,
+  domOverlayVideo: "",
 };
 
 // ============================================
@@ -7665,6 +7686,267 @@ function splitOledGeometry(geometry) {
 }
 
 // ============================================
+// STANDALONE OLED DOM DEMO
+//
+// These measurements come from the supplied Display_OLED.001 geometry
+// after the production hierarchy rebase:
+//   visible width  0.0754511
+//   visible height 0.1593120
+//   centre        -0.0006041, 0.0800502
+//   front z       -0.0041810
+//
+// A 393 × 830 logical DOM surface therefore matches the authored OLED
+// aspect. The Html scale below converts those CSS pixels into the measured
+// local-space width with Drei's transform-mode 10/400 distance factor.
+// ============================================
+const OLED_DOM_DEMO = {
+  width: 393,
+  height: 830,
+  borderRadius: 48,
+  position: [-0.0006041, 0.0800502, -0.004255],
+  rotation: [0, Math.PI, 0],
+  scale: 0.0076795,
+  distanceFactor: 10,
+};
+
+function OledDomDemo({ videoUrl = "" }) {
+  const videoRef = useRef(null);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    const attempt = video.play();
+    if (attempt && typeof attempt.catch === "function") {
+      attempt.catch(() => {
+        // Muted inline playback is normally allowed. If a browser still
+        // blocks it, the video's first decoded frame remains the poster.
+      });
+    }
+  }, [videoUrl]);
+
+  return (
+    <Html
+      transform
+      prepend
+      center
+      position={OLED_DOM_DEMO.position}
+      rotation={OLED_DOM_DEMO.rotation}
+      scale={OLED_DOM_DEMO.scale}
+      distanceFactor={OLED_DOM_DEMO.distanceFactor}
+      zIndexRange={[0, 0]}
+      pointerEvents="none"
+      style={{
+        width: OLED_DOM_DEMO.width,
+        height: OLED_DOM_DEMO.height,
+        overflow: "hidden",
+        borderRadius: OLED_DOM_DEMO.borderRadius,
+        background: "#08111f",
+        color: "#ffffff",
+        pointerEvents: "none",
+        userSelect: "none",
+      }}
+    >
+      <style>{`
+        @keyframes iglassDomDrift {
+          0%   { transform: scale(1.12) translate3d(-3%, -2%, 0); }
+          50%  { transform: scale(1.18) translate3d(4%, 3%, 0); }
+          100% { transform: scale(1.12) translate3d(-3%, -2%, 0); }
+        }
+        @keyframes iglassDomSweep {
+          0%   { transform: translate3d(-130%, 0, 0) rotate(18deg); }
+          100% { transform: translate3d(220%, 0, 0) rotate(18deg); }
+        }
+        @keyframes iglassDomPulse {
+          0%, 100% { opacity: 0.45; }
+          50%      { opacity: 0.95; }
+        }
+      `}</style>
+
+      <div
+        aria-label="iGlass OLED DOM overlay test"
+        style={{
+          position: "relative",
+          width: "100%",
+          height: "100%",
+          overflow: "hidden",
+          borderRadius: OLED_DOM_DEMO.borderRadius,
+          isolation: "isolate",
+          fontFamily:
+            '-apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", Arial, sans-serif',
+        }}
+      >
+        {videoUrl ? (
+          <video
+            ref={videoRef}
+            key={videoUrl}
+            src={videoUrl}
+            autoPlay
+            muted
+            loop
+            playsInline
+            preload="auto"
+            style={{
+              position: "absolute",
+              inset: 0,
+              width: "100%",
+              height: "100%",
+              objectFit: "cover",
+            }}
+          />
+        ) : (
+          <div
+            style={{
+              position: "absolute",
+              inset: "-12%",
+              background:
+                "radial-gradient(circle at 24% 18%, rgba(119,213,255,.95), transparent 30%), radial-gradient(circle at 75% 30%, rgba(116,90,255,.9), transparent 34%), radial-gradient(circle at 48% 82%, rgba(0,226,181,.75), transparent 38%), linear-gradient(155deg, #0b2548 0%, #11143d 48%, #05111d 100%)",
+              animation: "iglassDomDrift 10s ease-in-out infinite",
+              willChange: "transform",
+            }}
+          />
+        )}
+
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            background:
+              "linear-gradient(180deg, rgba(1,8,18,.08) 0%, rgba(1,8,18,.02) 46%, rgba(1,8,18,.68) 100%)",
+          }}
+        />
+
+        <div
+          style={{
+            position: "absolute",
+            top: -120,
+            left: -85,
+            width: 90,
+            height: 1080,
+            background:
+              "linear-gradient(90deg, transparent, rgba(255,255,255,.22), transparent)",
+            filter: "blur(12px)",
+            animation: "iglassDomSweep 5.8s ease-in-out infinite",
+            willChange: "transform",
+          }}
+        />
+
+        <div
+          style={{
+            position: "absolute",
+            top: 20,
+            left: "50%",
+            width: 116,
+            height: 34,
+            transform: "translateX(-50%)",
+            borderRadius: 20,
+            background: "#020204",
+            boxShadow: "0 0 0 1px rgba(255,255,255,.04)",
+          }}
+        />
+
+        <div
+          style={{
+            position: "absolute",
+            top: 82,
+            left: 28,
+            right: 28,
+          }}
+        >
+          <div
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 8,
+              padding: "8px 12px",
+              border: "1px solid rgba(255,255,255,.26)",
+              borderRadius: 999,
+              background: "rgba(3,12,28,.28)",
+              backdropFilter: "blur(12px)",
+              WebkitBackdropFilter: "blur(12px)",
+              fontSize: 12,
+              fontWeight: 700,
+              letterSpacing: "0.14em",
+              textTransform: "uppercase",
+            }}
+          >
+            <span
+              style={{
+                width: 7,
+                height: 7,
+                borderRadius: "50%",
+                background: "#6fffd8",
+                boxShadow: "0 0 12px rgba(111,255,216,.85)",
+                animation: "iglassDomPulse 1.8s ease-in-out infinite",
+              }}
+            />
+            Live DOM
+          </div>
+        </div>
+
+        <div
+          style={{
+            position: "absolute",
+            left: 28,
+            right: 28,
+            bottom: 86,
+          }}
+        >
+          <div
+            style={{
+              marginBottom: 12,
+              fontSize: 15,
+              fontWeight: 600,
+              letterSpacing: "0.08em",
+              textTransform: "uppercase",
+              opacity: 0.72,
+            }}
+          >
+            OLED overlay test
+          </div>
+          <div
+            style={{
+              fontSize: 58,
+              lineHeight: 0.92,
+              fontWeight: 680,
+              letterSpacing: "-0.055em",
+              textWrap: "balance",
+              textShadow: "0 3px 24px rgba(0,0,0,.28)",
+            }}
+          >
+            Imagine.
+          </div>
+          <div
+            style={{
+              marginTop: 18,
+              maxWidth: 285,
+              fontSize: 17,
+              lineHeight: 1.35,
+              fontWeight: 500,
+              color: "rgba(255,255,255,.84)",
+            }}
+          >
+            This React DOM is attached directly to the moving OLED.
+          </div>
+        </div>
+
+        <div
+          style={{
+            position: "absolute",
+            left: "50%",
+            bottom: 19,
+            width: 120,
+            height: 5,
+            transform: "translateX(-50%)",
+            borderRadius: 999,
+            background: "rgba(255,255,255,.88)",
+          }}
+        />
+      </div>
+    </Html>
+  );
+}
+
+// ============================================
 // iPhone Exploded Model
 // ============================================
 function IPhoneExploded({
@@ -7673,6 +7955,8 @@ function IPhoneExploded({
   internalsTexture,
   crackTexture,
   explodeDistance,
+  domOverlay,
+  domOverlayVideo,
 }) {
   const hasCrack = !!crackTexture;
   const { scene } = useGLTF(modelPath);
@@ -7969,6 +8253,10 @@ function IPhoneExploded({
           map: oledTexture,
           color: new THREE.Color().setScalar(OLED.luminance),
           toneMapped: false,
+          // Keep the real front cap as a depth-writing mask while the DOM
+          // supplies its colour underneath the transparent WebGL canvas.
+          // Disabling the demo restores the original textured OLED exactly.
+          colorWrite: !domOverlay,
         });
         DEV.oledScreenMats.push(oledScreenMat);
 
@@ -8082,7 +8370,7 @@ function IPhoneExploded({
       crackTransform,
       crackUvScale,
     };
-  }, [clonedScene, oledTexture, maxAniso]);
+  }, [clonedScene, oledTexture, maxAniso, domOverlay]);
 
   // ---------------------------------------------------------
   // CRACKED-PANE MATERIAL (v3.9 / v3.11)
@@ -8655,6 +8943,7 @@ function IPhoneExploded({
             {oledMeshes.map((m, i) => (
               <primitive key={`oled-${i}`} object={m} />
             ))}
+            {domOverlay && <OledDomDemo videoUrl={domOverlayVideo} />}
           </group>
 
           {/* BODY — includes the Dynamic Island pill and camera prims */}
@@ -9050,6 +9339,8 @@ function Scene({
   internalsTexture,
   crackTexture,
   explodeDistance,
+  domOverlay,
+  domOverlayVideo,
   dev,
   glassEdgeFeed,
   onReady,
@@ -9144,6 +9435,8 @@ function Scene({
         internalsTexture={internalsTexture}
         crackTexture={crackTexture}
         explodeDistance={explodeDistance}
+        domOverlay={domOverlay}
+        domOverlayVideo={domOverlayVideo}
       />
 
       {/* v7.5.11 — mounted in embedded scroll and autoplay modes. Mounted AFTER
@@ -9263,6 +9556,8 @@ function CrossSection3DScrollGLBScene(props) {
     screenTexture,
     internalsTexture,
     crackTexture,
+    domOverlay,
+    domOverlayVideo,
   } = merged;
 
   const {
@@ -9670,6 +9965,7 @@ function CrossSection3DScrollGLBScene(props) {
       <div
         ref={stickyRef}
         style={{
+          position: "relative",
           height: "100vh",
           width: "100vw",
           overflow: "hidden",
@@ -9711,7 +10007,12 @@ function CrossSection3DScrollGLBScene(props) {
               return;
             changeGizmoContext("stage");
           }}
-          style={{ width: "100%", height: "100%" }}
+          style={{
+            position: "relative",
+            zIndex: 1,
+            width: "100%",
+            height: "100%",
+          }}
         >
           <Scene
             modelPath={modelPath}
@@ -9719,6 +10020,8 @@ function CrossSection3DScrollGLBScene(props) {
             internalsTexture={internalsTexture}
             crackTexture={crackTexture}
             explodeDistance={explodeDistance}
+            domOverlay={domOverlay}
+            domOverlayVideo={domOverlayVideo}
             dev={dev}
             glassEdgeFeed={mode === "scroll" || mode === "autoplay"}
             onReady={() => {
