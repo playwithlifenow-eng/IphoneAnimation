@@ -19,7 +19,23 @@ import { Leva, useControls, button, folder } from "leva";
 
 gsap.registerPlugin(ScrollTrigger);
 
-const IGLASS_APP_VERSION = "7.5.29-oled-video";
+const IGLASS_APP_VERSION = "7.5.30-oled-video-texture-fix";
+
+// ============================================
+// v7.5.30 OLED VIDEO TEXTURE FIX
+//
+//   ROOT CAUSE       The MP4 deployed and played correctly, but Drei's CSS
+//                    transform-mode Html layer did not become visible over
+//                    this rebased/animated model hierarchy.
+//   RELIABLE SCREEN  A real DOM <video> now feeds a THREE.VideoTexture on the
+//                    existing OLED screen material. It therefore inherits the
+//                    exact authored UVs, geometry, motion and occlusion.
+//   CONTINUOUS       requestVideoFrameCallback invalidates demand-mode R3F
+//                    frames after the motion path parks.
+//   HARDWARE TRUE    The GLB's real Dynamic Island and glass remain above the
+//                    OLED; no duplicate CSS hardware mask is required.
+//
+// ============================================
 
 // ============================================
 // v7.5.29 OLED VIDEO — VIDEO-ONLY DOM SCREEN
@@ -7718,31 +7734,94 @@ function splitOledGeometry(geometry) {
 }
 
 // ============================================
-// OLED-ANCHORED DOM VIDEO
-//
-// These measurements come from the supplied Display_OLED.001 geometry
-// after the production hierarchy rebase:
-//   visible width  0.0754511
-//   visible height 0.1593120
-//   centre        -0.0006041, 0.0800502
-//   front z       -0.0041810
-//
-// A 393 × 830 logical DOM surface therefore matches the authored OLED
-// aspect. The Html scale below converts those CSS pixels into the measured
-// local-space width with Drei's transform-mode 10/400 distance factor.
+// DOM VIDEO SOURCE -> OLED VIDEO TEXTURE
 // ============================================
-const OLED_DOM_DEMO = {
-  width: 393,
-  height: 830,
-  borderRadius: 48,
-  position: [-0.0006041, 0.0800502, -0.004255],
-  rotation: [0, Math.PI, 0],
-  scale: 0.0076795,
-  distanceFactor: 10,
-};
-
-function OledDomVideo({ videoUrl, playbackRate = 1 }) {
+function useOledVideoTexture(videoUrl, playbackRate = 1) {
+  const { invalidate } = useThree();
+  const [videoTexture, setVideoTexture] = useState(null);
   const videoRef = useRef(null);
+
+  useEffect(() => {
+    if (!videoUrl || typeof document === "undefined") {
+      setVideoTexture(null);
+      return undefined;
+    }
+
+    const video = document.createElement("video");
+    videoRef.current = video;
+    video.src = videoUrl;
+    video.crossOrigin = "anonymous";
+    video.preload = "auto";
+    video.loop = true;
+    video.muted = true;
+    video.defaultMuted = true;
+    video.playsInline = true;
+    video.disablePictureInPicture = true;
+    video.setAttribute("muted", "");
+    video.setAttribute("playsinline", "");
+    video.setAttribute("webkit-playsinline", "");
+    video.setAttribute("aria-hidden", "true");
+    video.tabIndex = -1;
+    Object.assign(video.style, {
+      position: "fixed",
+      left: "-2px",
+      top: "-2px",
+      width: "1px",
+      height: "1px",
+      opacity: "0",
+      pointerEvents: "none",
+    });
+    document.body.appendChild(video);
+
+    const texture = new THREE.VideoTexture(video);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.flipY = false;
+    texture.generateMipmaps = false;
+    texture.minFilter = THREE.LinearFilter;
+    texture.magFilter = THREE.LinearFilter;
+    texture.wrapS = THREE.ClampToEdgeWrapping;
+    texture.wrapT = THREE.ClampToEdgeWrapping;
+    setVideoTexture(texture);
+
+    let frameHandle = null;
+    let cancelled = false;
+    const requestFrame = () => {
+      if (cancelled) return;
+      texture.needsUpdate = true;
+      invalidate();
+      if (typeof video.requestVideoFrameCallback === "function") {
+        frameHandle = video.requestVideoFrameCallback(requestFrame);
+      }
+    };
+    if (typeof video.requestVideoFrameCallback === "function") {
+      frameHandle = video.requestVideoFrameCallback(requestFrame);
+    }
+
+    video.playbackRate = Math.min(
+      2,
+      Math.max(0.25, Number(playbackRate) || 1)
+    );
+    const attempt = video.play();
+    if (attempt && typeof attempt.catch === "function") {
+      attempt.catch(() => {});
+    }
+
+    return () => {
+      cancelled = true;
+      if (
+        frameHandle !== null &&
+        typeof video.cancelVideoFrameCallback === "function"
+      ) {
+        video.cancelVideoFrameCallback(frameHandle);
+      }
+      video.pause();
+      video.removeAttribute("src");
+      video.load();
+      video.remove();
+      texture.dispose();
+      if (videoRef.current === video) videoRef.current = null;
+    };
+  }, [videoUrl, invalidate]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -7751,89 +7830,9 @@ function OledDomVideo({ videoUrl, playbackRate = 1 }) {
       2,
       Math.max(0.25, Number(playbackRate) || 1)
     );
-    const attempt = video.play();
-    if (attempt && typeof attempt.catch === "function") {
-      attempt.catch(() => {
-        // Muted inline playback is normally allowed. If a browser still
-        // blocks it, Screen.webp remains visible beneath this transparent DOM.
-      });
-    }
-  }, [videoUrl, playbackRate]);
+  }, [playbackRate]);
 
-  if (!videoUrl) return null;
-
-  return (
-    <Html
-      transform
-      center
-      position={OLED_DOM_DEMO.position}
-      rotation={OLED_DOM_DEMO.rotation}
-      scale={OLED_DOM_DEMO.scale}
-      distanceFactor={OLED_DOM_DEMO.distanceFactor}
-      zIndexRange={[100, 100]}
-      pointerEvents="none"
-      style={{
-        width: OLED_DOM_DEMO.width,
-        height: OLED_DOM_DEMO.height,
-        overflow: "hidden",
-        borderRadius: OLED_DOM_DEMO.borderRadius,
-        background: "transparent",
-        pointerEvents: "none",
-        userSelect: "none",
-      }}
-    >
-      <div
-        aria-label="Ambient seawater video on the phone display"
-        style={{
-          position: "relative",
-          width: "100%",
-          height: "100%",
-          overflow: "hidden",
-          borderRadius: OLED_DOM_DEMO.borderRadius,
-          isolation: "isolate",
-        }}
-      >
-        <video
-          ref={videoRef}
-          key={videoUrl}
-          src={videoUrl}
-          autoPlay
-          muted
-          loop
-          playsInline
-          preload="auto"
-          disablePictureInPicture
-          controlsList="nodownload noplaybackrate nofullscreen"
-          tabIndex={-1}
-          aria-hidden="true"
-          style={{
-            position: "absolute",
-            inset: 0,
-            display: "block",
-            width: "100%",
-            height: "100%",
-            objectFit: "cover",
-            objectPosition: "50% 50%",
-            pointerEvents: "none",
-          }}
-        />
-        <div
-          aria-hidden="true"
-          style={{
-            position: "absolute",
-            top: 20,
-            left: "50%",
-            width: 116,
-            height: 34,
-            transform: "translateX(-50%)",
-            borderRadius: 20,
-            background: "#020204",
-            pointerEvents: "none",
-          }}
-        />
-      </div>
-    </Html>
-  );
+  return videoTexture;
 }
 
 // ============================================
@@ -7853,8 +7852,12 @@ function IPhoneExploded({
   const { scene } = useGLTF(modelPath);
   const clonedScene = useMemo(() => scene.clone(true), [scene]);
 
-  const { gl, scene: rootScene } = useThree();
+  const { gl, scene: rootScene, invalidate } = useThree();
   const maxAniso = gl.capabilities.getMaxAnisotropy();
+  const oledVideoTexture = useOledVideoTexture(
+    domOverlay ? domOverlayVideo : "",
+    domOverlayPlaybackRate
+  );
 
   const oledTexture = useTexture(screenTexture);
   oledTexture.flipY = false;
@@ -8258,6 +8261,16 @@ function IPhoneExploded({
       crackUvScale,
     };
   }, [clonedScene, oledTexture, maxAniso]);
+
+  useEffect(() => {
+    const displayTexture =
+      domOverlay && oledVideoTexture ? oledVideoTexture : oledTexture;
+    for (const mat of DEV.oledScreenMats) {
+      mat.map = displayTexture;
+      mat.needsUpdate = true;
+    }
+    invalidate();
+  }, [domOverlay, oledTexture, oledVideoTexture, invalidate]);
 
   // ---------------------------------------------------------
   // CRACKED-PANE MATERIAL (v3.9 / v3.11)
@@ -8830,12 +8843,6 @@ function IPhoneExploded({
             {oledMeshes.map((m, i) => (
               <primitive key={`oled-${i}`} object={m} />
             ))}
-            {domOverlay && (
-              <OledDomVideo
-                videoUrl={domOverlayVideo}
-                playbackRate={domOverlayPlaybackRate}
-              />
-            )}
           </group>
 
           {/* BODY — includes the Dynamic Island pill and camera prims */}
