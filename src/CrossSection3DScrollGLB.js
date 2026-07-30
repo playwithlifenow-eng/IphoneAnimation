@@ -1,6 +1,7 @@
 import screenImg from "./Screen.webp";
 import internalsImg from "./internals.jpg";
 import crackImg from "./Crack.webp";
+import oledVideo from "./Seawater-OLED.mp4";
 import { useRef, useMemo, useEffect, useLayoutEffect, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import {
@@ -18,23 +19,21 @@ import { Leva, useControls, button, folder } from "leva";
 
 gsap.registerPlugin(ScrollTrigger);
 
-const IGLASS_APP_VERSION = "7.5.29-glass-optics-fix";
+const IGLASS_APP_VERSION = "7.5.29-oled-video";
 
 // ============================================
-// v7.5.29 — GLASS OPTICS + OCCLUSION FIX
+// v7.5.29 OLED VIDEO — VIDEO-ONLY DOM SCREEN
 //
-//   BLUE ARTIFACT    The shine overlay now receives the front pane's rebased
-//                    local transform and participates in depth testing. Its
-//                    former untransformed, depthTest:false mesh could project
-//                    the cool-white sweep through the chassis, placing a blue
-//                    glint inside the charging port or over a pentalobe screw
-//                    depending on viewport framing.
-//   CLEAN LAUNCH     Sweep output is gated to zero at shine progress 0. The
-//                    rotated strip can no longer touch the pane at node 1.
-//   DOCKING BOOST    While shine progresses from 0 to the authored node-7
-//                    value, the returning clean pane receives a temporary
-//                    sweep and physical environment-reflection boost. Both
-//                    boosts fade before the pane finishes docking.
+//   VIDEO ONLY       Removes every headline, badge, test label, gradient,
+//                    sweep and home indicator from the OLED DOM layer. The
+//                    black Dynamic Island mask remains as phone hardware.
+//   SEA LOOP         The supplied portrait MP4 is the default display asset.
+//   INDEPENDENT      The display remains independent of p, pose slots, saved
+//                    paths and JSON timing. It plays whenever it is mounted.
+//   SAFE FALLBACK    Screen.webp remains active beneath the DOM. If the video
+//                    cannot load or autoplay, the original OLED is visible.
+//   SPEED CONTROL    domOverlayPlaybackRate can alter playback speed without
+//                    re-encoding the video. The default is natural speed (1).
 //
 // ============================================
 
@@ -1328,9 +1327,6 @@ const SHINE = {
   range: [0, 1],
   speed: 0.7,
   sweepStrength: 0.23,
-  // Temporary clean-glass boost during the node 6 -> 7 docking sweep.
-  dockSweepBoost: 1.4,
-  dockEnvBoost: 0.65,
   broadWidth: 0.23,
   stripWidth: 0.04,
   angleDeg: -41,
@@ -7582,7 +7578,8 @@ const defaultProps = {
   // Standalone proof-of-concept. This is deliberately independent of the
   // motion-path JSON and remains visible at every progress value.
   domOverlay: true,
-  domOverlayVideo: "",
+  domOverlayVideo: oledVideo,
+  domOverlayPlaybackRate: 1,
 };
 
 // ============================================
@@ -7721,7 +7718,7 @@ function splitOledGeometry(geometry) {
 }
 
 // ============================================
-// STANDALONE OLED DOM DEMO
+// OLED-ANCHORED DOM VIDEO
 //
 // These measurements come from the supplied Display_OLED.001 geometry
 // after the production hierarchy rebase:
@@ -7744,20 +7741,26 @@ const OLED_DOM_DEMO = {
   distanceFactor: 10,
 };
 
-function OledDomDemo({ videoUrl = "" }) {
+function OledDomVideo({ videoUrl, playbackRate = 1 }) {
   const videoRef = useRef(null);
 
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
+    video.playbackRate = Math.min(
+      2,
+      Math.max(0.25, Number(playbackRate) || 1)
+    );
     const attempt = video.play();
     if (attempt && typeof attempt.catch === "function") {
       attempt.catch(() => {
         // Muted inline playback is normally allowed. If a browser still
-        // blocks it, the video's first decoded frame remains the poster.
+        // blocks it, Screen.webp remains visible beneath this transparent DOM.
       });
     }
-  }, [videoUrl]);
+  }, [videoUrl, playbackRate]);
+
+  if (!videoUrl) return null;
 
   return (
     <Html
@@ -7774,30 +7777,13 @@ function OledDomDemo({ videoUrl = "" }) {
         height: OLED_DOM_DEMO.height,
         overflow: "hidden",
         borderRadius: OLED_DOM_DEMO.borderRadius,
-        background: "#08111f",
-        color: "#ffffff",
+        background: "transparent",
         pointerEvents: "none",
         userSelect: "none",
       }}
     >
-      <style>{`
-        @keyframes iglassDomDrift {
-          0%   { transform: scale(1.12) translate3d(-3%, -2%, 0); }
-          50%  { transform: scale(1.18) translate3d(4%, 3%, 0); }
-          100% { transform: scale(1.12) translate3d(-3%, -2%, 0); }
-        }
-        @keyframes iglassDomSweep {
-          0%   { transform: translate3d(-130%, 0, 0) rotate(18deg); }
-          100% { transform: translate3d(220%, 0, 0) rotate(18deg); }
-        }
-        @keyframes iglassDomPulse {
-          0%, 100% { opacity: 0.45; }
-          50%      { opacity: 0.95; }
-        }
-      `}</style>
-
       <div
-        aria-label="iGlass OLED DOM overlay test"
+        aria-label="Ambient seawater video on the phone display"
         style={{
           position: "relative",
           width: "100%",
@@ -7805,66 +7791,34 @@ function OledDomDemo({ videoUrl = "" }) {
           overflow: "hidden",
           borderRadius: OLED_DOM_DEMO.borderRadius,
           isolation: "isolate",
-          fontFamily:
-            '-apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", Arial, sans-serif',
         }}
       >
-        {videoUrl ? (
-          <video
-            ref={videoRef}
-            key={videoUrl}
-            src={videoUrl}
-            autoPlay
-            muted
-            loop
-            playsInline
-            preload="auto"
-            style={{
-              position: "absolute",
-              inset: 0,
-              width: "100%",
-              height: "100%",
-              objectFit: "cover",
-            }}
-          />
-        ) : (
-          <div
-            style={{
-              position: "absolute",
-              inset: "-12%",
-              background:
-                "radial-gradient(circle at 24% 18%, rgba(119,213,255,.95), transparent 30%), radial-gradient(circle at 75% 30%, rgba(116,90,255,.9), transparent 34%), radial-gradient(circle at 48% 82%, rgba(0,226,181,.75), transparent 38%), linear-gradient(155deg, #0b2548 0%, #11143d 48%, #05111d 100%)",
-              animation: "iglassDomDrift 10s ease-in-out infinite",
-              willChange: "transform",
-            }}
-          />
-        )}
-
-        <div
+        <video
+          ref={videoRef}
+          key={videoUrl}
+          src={videoUrl}
+          autoPlay
+          muted
+          loop
+          playsInline
+          preload="auto"
+          disablePictureInPicture
+          controlsList="nodownload noplaybackrate nofullscreen"
+          tabIndex={-1}
+          aria-hidden="true"
           style={{
             position: "absolute",
             inset: 0,
-            background:
-              "linear-gradient(180deg, rgba(1,8,18,.08) 0%, rgba(1,8,18,.02) 46%, rgba(1,8,18,.68) 100%)",
+            display: "block",
+            width: "100%",
+            height: "100%",
+            objectFit: "cover",
+            objectPosition: "50% 50%",
+            pointerEvents: "none",
           }}
         />
-
         <div
-          style={{
-            position: "absolute",
-            top: -120,
-            left: -85,
-            width: 90,
-            height: 1080,
-            background:
-              "linear-gradient(90deg, transparent, rgba(255,255,255,.22), transparent)",
-            filter: "blur(12px)",
-            animation: "iglassDomSweep 5.8s ease-in-out infinite",
-            willChange: "transform",
-          }}
-        />
-
-        <div
+          aria-hidden="true"
           style={{
             position: "absolute",
             top: 20,
@@ -7874,105 +7828,7 @@ function OledDomDemo({ videoUrl = "" }) {
             transform: "translateX(-50%)",
             borderRadius: 20,
             background: "#020204",
-            boxShadow: "0 0 0 1px rgba(255,255,255,.04)",
-          }}
-        />
-
-        <div
-          style={{
-            position: "absolute",
-            top: 82,
-            left: 28,
-            right: 28,
-          }}
-        >
-          <div
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 8,
-              padding: "8px 12px",
-              border: "1px solid rgba(255,255,255,.26)",
-              borderRadius: 999,
-              background: "rgba(3,12,28,.28)",
-              backdropFilter: "blur(12px)",
-              WebkitBackdropFilter: "blur(12px)",
-              fontSize: 12,
-              fontWeight: 700,
-              letterSpacing: "0.14em",
-              textTransform: "uppercase",
-            }}
-          >
-            <span
-              style={{
-                width: 7,
-                height: 7,
-                borderRadius: "50%",
-                background: "#6fffd8",
-                boxShadow: "0 0 12px rgba(111,255,216,.85)",
-                animation: "iglassDomPulse 1.8s ease-in-out infinite",
-              }}
-            />
-            Live DOM
-          </div>
-        </div>
-
-        <div
-          style={{
-            position: "absolute",
-            left: 28,
-            right: 28,
-            bottom: 86,
-          }}
-        >
-          <div
-            style={{
-              marginBottom: 12,
-              fontSize: 15,
-              fontWeight: 600,
-              letterSpacing: "0.08em",
-              textTransform: "uppercase",
-              opacity: 0.72,
-            }}
-          >
-            OLED overlay test
-          </div>
-          <div
-            style={{
-              fontSize: 58,
-              lineHeight: 0.92,
-              fontWeight: 680,
-              letterSpacing: "-0.055em",
-              textWrap: "balance",
-              textShadow: "0 3px 24px rgba(0,0,0,.28)",
-            }}
-          >
-            Imagine.
-          </div>
-          <div
-            style={{
-              marginTop: 18,
-              maxWidth: 285,
-              fontSize: 17,
-              lineHeight: 1.35,
-              fontWeight: 500,
-              color: "rgba(255,255,255,.84)",
-            }}
-          >
-            This React DOM is attached directly to the moving OLED.
-          </div>
-        </div>
-
-        <div
-          style={{
-            position: "absolute",
-            left: "50%",
-            bottom: 19,
-            width: 120,
-            height: 5,
-            transform: "translateX(-50%)",
-            borderRadius: 999,
-            background: "rgba(255,255,255,.88)",
+            pointerEvents: "none",
           }}
         />
       </div>
@@ -7991,6 +7847,7 @@ function IPhoneExploded({
   explodeDistance,
   domOverlay,
   domOverlayVideo,
+  domOverlayPlaybackRate,
 }) {
   const hasCrack = !!crackTexture;
   const { scene } = useGLTF(modelPath);
@@ -8564,7 +8421,6 @@ function IPhoneExploded({
         uCleanMix: { value: 1 },
         uProgress: { value: SHINE.progress },
         uSweepStrength: { value: SHINE.sweepStrength },
-        uDockSweepBoost: { value: SHINE.dockSweepBoost },
         uBroadWidth: { value: SHINE.broadWidth },
         uStripWidth: { value: SHINE.stripWidth },
         uAngle: { value: THREE.MathUtils.degToRad(SHINE.angleDeg) },
@@ -8591,7 +8447,6 @@ function IPhoneExploded({
         uniform float uCleanMix;
         uniform float uProgress;
         uniform float uSweepStrength;
-        uniform float uDockSweepBoost;
         uniform float uBroadWidth;
         uniform float uStripWidth;
         uniform float uAngle;
@@ -8615,20 +8470,13 @@ function IPhoneExploded({
           float s = sin(uAngle);
           vec2 rp = mat2(c, -s, s, c) * p;
 
-          // Travel beyond both pane edges. The explicit launch gate below is
-          // required because a rotated strip at centre -0.62 can still overlap
-          // the pane even when progress is exactly zero.
+          // Travel beyond both pane edges so progress 0/1 have clean holds.
+          // At progress 0 the strip already touches the pane's left edge.
+          // Set the effect-strength sliders to zero when a blank frame is wanted.
           float centre = mix(-0.62, 0.62, clamp(uProgress, 0.0, 1.0));
           float broad = gaussian(rp.x - centre, uBroadWidth);
           float strip = gaussian(rp.x - centre, uStripWidth);
-          float launchGate = smoothstep(0.0, 0.03, uProgress);
-          float dockingEnvelope =
-            smoothstep(0.02, 0.12, uProgress) *
-            (1.0 - smoothstep(0.48, 0.56, uProgress));
-          float sweepGain =
-            launchGate * (1.0 + uDockSweepBoost * dockingEnvelope);
-          float sweep =
-            (0.32 * broad + strip) * uSweepStrength * sweepGain;
+          float sweep = (0.32 * broad + strip) * uSweepStrength;
 
           // A quiet stationary panel reflection remains after the sweep.
           float settled = smoothstep(0.04, 0.22, uProgress);
@@ -8652,8 +8500,7 @@ function IPhoneExploded({
           vec3 warmWhite = vec3(1.0, 0.975, 0.92);
           vec3 coolWhite = vec3(0.76, 0.90, 1.0);
           vec3 rgb = warmWhite * (sweep + panel + glint)
-                   + coolWhite *
-                     (0.18 * broad * uSweepStrength * sweepGain);
+                   + coolWhite * (0.18 * broad * uSweepStrength);
           float gate = clamp(uCleanMix, 0.0, 1.0);
           float intensity = max(max(rgb.r, rgb.g), rgb.b) * gate;
 
@@ -8666,15 +8513,14 @@ function IPhoneExploded({
       `,
       transparent: true,
       depthWrite: false,
-      // The overlay is biased fractionally toward the viewer in JSX. Keeping
-      // depth testing enabled prevents it drawing through the chassis, port
-      // cavity or pentalobe screws at device-dependent screen positions.
-      depthTest: true,
+      // Same source-mesh defect as the crack/front pane: at P=0 the pane is
+      // fractionally behind the OLED. The sweep must remain visible at any P.
+      depthTest: false,
       blending: THREE.NormalBlending,
       toneMapped: false,
       polygonOffset: true,
-      polygonOffsetFactor: -6,
-      polygonOffsetUnits: -6,
+      polygonOffsetFactor: -4,
+      polygonOffsetUnits: -4,
     });
     DEV.shineMat = m;
     return m;
@@ -8821,7 +8667,6 @@ function IPhoneExploded({
       u.uCleanMix.value = cleanMix;
       u.uProgress.value = SHINE.progress;
       u.uSweepStrength.value = SHINE.sweepStrength;
-      u.uDockSweepBoost.value = SHINE.dockSweepBoost;
       u.uBroadWidth.value = SHINE.broadWidth;
       u.uStripWidth.value = SHINE.stripWidth;
       u.uAngle.value = THREE.MathUtils.degToRad(SHINE.angleDeg);
@@ -8833,28 +8678,6 @@ function IPhoneExploded({
       u.uGlintSpread.value = SHINE.glintSpread;
       u.uGlintPoint.value.set(SHINE.glintX, SHINE.glintY);
       shineMat.visible = cleanMix > 0.001;
-
-      // SHINE.progress is 0 through node 6 and rises only on the authored
-      // clean-glass docking leg. This produces real environment reflections
-      // in addition to the art-directed shader sweep, then returns exactly to
-      // the user's base GLASS.env before node 7 completes.
-      const dockIn = THREE.MathUtils.smoothstep(
-        SHINE.progress,
-        0.02,
-        0.12
-      );
-      const dockOut =
-        1 -
-        THREE.MathUtils.smoothstep(
-          SHINE.progress,
-          0.48,
-          0.56
-        );
-      const dockEnvelope = dockIn * dockOut;
-      if (DEV.glassMat) {
-        DEV.glassMat.envMapIntensity =
-          GLASS.env * (1 + SHINE.dockEnvBoost * dockEnvelope);
-      }
     }
 
     if (glassGroupRef.current) {
@@ -8971,19 +8794,12 @@ function IPhoneExploded({
             {bezelMeshes.map((m, i) => (
               <primitive key={`bezel-${i}`} object={m} />
             ))}
-            {crackGeo && crackTransform && (
-              <group
-                position={crackTransform.position}
-                quaternion={crackTransform.quaternion}
-                scale={crackTransform.scale}
-              >
-                <mesh
-                  geometry={crackGeo}
-                  material={shineMat}
-                  position={[0, 0, -CRACK_SURFACE_EPSILON]}
-                  renderOrder={6}
-                />
-              </group>
+            {crackGeo && (
+              <mesh
+                geometry={crackGeo}
+                material={shineMat}
+                renderOrder={6}
+              />
             )}
 
             {/* CRACKED PANE — child of the actual moving front glass. */}
@@ -9014,7 +8830,12 @@ function IPhoneExploded({
             {oledMeshes.map((m, i) => (
               <primitive key={`oled-${i}`} object={m} />
             ))}
-            {domOverlay && <OledDomDemo videoUrl={domOverlayVideo} />}
+            {domOverlay && (
+              <OledDomVideo
+                videoUrl={domOverlayVideo}
+                playbackRate={domOverlayPlaybackRate}
+              />
+            )}
           </group>
 
           {/* BODY — includes the Dynamic Island pill and camera prims */}
@@ -9412,6 +9233,7 @@ function Scene({
   explodeDistance,
   domOverlay,
   domOverlayVideo,
+  domOverlayPlaybackRate,
   dev,
   glassEdgeFeed,
   onReady,
@@ -9508,6 +9330,7 @@ function Scene({
         explodeDistance={explodeDistance}
         domOverlay={domOverlay}
         domOverlayVideo={domOverlayVideo}
+        domOverlayPlaybackRate={domOverlayPlaybackRate}
       />
 
       {/* v7.5.11 — mounted in embedded scroll and autoplay modes. Mounted AFTER
@@ -9629,6 +9452,7 @@ function CrossSection3DScrollGLBScene(props) {
     crackTexture,
     domOverlay,
     domOverlayVideo,
+    domOverlayPlaybackRate,
   } = merged;
 
   const {
@@ -10093,6 +9917,7 @@ function CrossSection3DScrollGLBScene(props) {
             explodeDistance={explodeDistance}
             domOverlay={domOverlay}
             domOverlayVideo={domOverlayVideo}
+            domOverlayPlaybackRate={domOverlayPlaybackRate}
             dev={dev}
             glassEdgeFeed={mode === "scroll" || mode === "autoplay"}
             onReady={() => {
