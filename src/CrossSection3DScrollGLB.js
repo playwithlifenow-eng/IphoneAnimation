@@ -18,7 +18,25 @@ import { Leva, useControls, button, folder } from "leva";
 
 gsap.registerPlugin(ScrollTrigger);
 
-const IGLASS_APP_VERSION = "7.5.28-dom-demo-fix";
+const IGLASS_APP_VERSION = "7.5.29-glass-optics-fix";
+
+// ============================================
+// v7.5.29 — GLASS OPTICS + OCCLUSION FIX
+//
+//   BLUE ARTIFACT    The shine overlay now receives the front pane's rebased
+//                    local transform and participates in depth testing. Its
+//                    former untransformed, depthTest:false mesh could project
+//                    the cool-white sweep through the chassis, placing a blue
+//                    glint inside the charging port or over a pentalobe screw
+//                    depending on viewport framing.
+//   CLEAN LAUNCH     Sweep output is gated to zero at shine progress 0. The
+//                    rotated strip can no longer touch the pane at node 1.
+//   DOCKING BOOST    While shine progresses from 0 to the authored node-7
+//                    value, the returning clean pane receives a temporary
+//                    sweep and physical environment-reflection boost. Both
+//                    boosts fade before the pane finishes docking.
+//
+// ============================================
 
 // ============================================
 // v7.5.28 DOM DEMO FIX — RESTORED OLED + RELIABLE DOM STACKING
@@ -1310,6 +1328,9 @@ const SHINE = {
   range: [0, 1],
   speed: 0.7,
   sweepStrength: 0.23,
+  // Temporary clean-glass boost during the node 6 -> 7 docking sweep.
+  dockSweepBoost: 1.4,
+  dockEnvBoost: 0.65,
   broadWidth: 0.23,
   stripWidth: 0.04,
   angleDeg: -41,
@@ -8543,6 +8564,7 @@ function IPhoneExploded({
         uCleanMix: { value: 1 },
         uProgress: { value: SHINE.progress },
         uSweepStrength: { value: SHINE.sweepStrength },
+        uDockSweepBoost: { value: SHINE.dockSweepBoost },
         uBroadWidth: { value: SHINE.broadWidth },
         uStripWidth: { value: SHINE.stripWidth },
         uAngle: { value: THREE.MathUtils.degToRad(SHINE.angleDeg) },
@@ -8569,6 +8591,7 @@ function IPhoneExploded({
         uniform float uCleanMix;
         uniform float uProgress;
         uniform float uSweepStrength;
+        uniform float uDockSweepBoost;
         uniform float uBroadWidth;
         uniform float uStripWidth;
         uniform float uAngle;
@@ -8592,13 +8615,20 @@ function IPhoneExploded({
           float s = sin(uAngle);
           vec2 rp = mat2(c, -s, s, c) * p;
 
-          // Travel beyond both pane edges so progress 0/1 have clean holds.
-          // At progress 0 the strip already touches the pane's left edge.
-          // Set the effect-strength sliders to zero when a blank frame is wanted.
+          // Travel beyond both pane edges. The explicit launch gate below is
+          // required because a rotated strip at centre -0.62 can still overlap
+          // the pane even when progress is exactly zero.
           float centre = mix(-0.62, 0.62, clamp(uProgress, 0.0, 1.0));
           float broad = gaussian(rp.x - centre, uBroadWidth);
           float strip = gaussian(rp.x - centre, uStripWidth);
-          float sweep = (0.32 * broad + strip) * uSweepStrength;
+          float launchGate = smoothstep(0.0, 0.03, uProgress);
+          float dockingEnvelope =
+            smoothstep(0.02, 0.12, uProgress) *
+            (1.0 - smoothstep(0.48, 0.56, uProgress));
+          float sweepGain =
+            launchGate * (1.0 + uDockSweepBoost * dockingEnvelope);
+          float sweep =
+            (0.32 * broad + strip) * uSweepStrength * sweepGain;
 
           // A quiet stationary panel reflection remains after the sweep.
           float settled = smoothstep(0.04, 0.22, uProgress);
@@ -8622,7 +8652,8 @@ function IPhoneExploded({
           vec3 warmWhite = vec3(1.0, 0.975, 0.92);
           vec3 coolWhite = vec3(0.76, 0.90, 1.0);
           vec3 rgb = warmWhite * (sweep + panel + glint)
-                   + coolWhite * (0.18 * broad * uSweepStrength);
+                   + coolWhite *
+                     (0.18 * broad * uSweepStrength * sweepGain);
           float gate = clamp(uCleanMix, 0.0, 1.0);
           float intensity = max(max(rgb.r, rgb.g), rgb.b) * gate;
 
@@ -8635,14 +8666,15 @@ function IPhoneExploded({
       `,
       transparent: true,
       depthWrite: false,
-      // Same source-mesh defect as the crack/front pane: at P=0 the pane is
-      // fractionally behind the OLED. The sweep must remain visible at any P.
-      depthTest: false,
+      // The overlay is biased fractionally toward the viewer in JSX. Keeping
+      // depth testing enabled prevents it drawing through the chassis, port
+      // cavity or pentalobe screws at device-dependent screen positions.
+      depthTest: true,
       blending: THREE.NormalBlending,
       toneMapped: false,
       polygonOffset: true,
-      polygonOffsetFactor: -4,
-      polygonOffsetUnits: -4,
+      polygonOffsetFactor: -6,
+      polygonOffsetUnits: -6,
     });
     DEV.shineMat = m;
     return m;
@@ -8789,6 +8821,7 @@ function IPhoneExploded({
       u.uCleanMix.value = cleanMix;
       u.uProgress.value = SHINE.progress;
       u.uSweepStrength.value = SHINE.sweepStrength;
+      u.uDockSweepBoost.value = SHINE.dockSweepBoost;
       u.uBroadWidth.value = SHINE.broadWidth;
       u.uStripWidth.value = SHINE.stripWidth;
       u.uAngle.value = THREE.MathUtils.degToRad(SHINE.angleDeg);
@@ -8800,6 +8833,28 @@ function IPhoneExploded({
       u.uGlintSpread.value = SHINE.glintSpread;
       u.uGlintPoint.value.set(SHINE.glintX, SHINE.glintY);
       shineMat.visible = cleanMix > 0.001;
+
+      // SHINE.progress is 0 through node 6 and rises only on the authored
+      // clean-glass docking leg. This produces real environment reflections
+      // in addition to the art-directed shader sweep, then returns exactly to
+      // the user's base GLASS.env before node 7 completes.
+      const dockIn = THREE.MathUtils.smoothstep(
+        SHINE.progress,
+        0.02,
+        0.12
+      );
+      const dockOut =
+        1 -
+        THREE.MathUtils.smoothstep(
+          SHINE.progress,
+          0.48,
+          0.56
+        );
+      const dockEnvelope = dockIn * dockOut;
+      if (DEV.glassMat) {
+        DEV.glassMat.envMapIntensity =
+          GLASS.env * (1 + SHINE.dockEnvBoost * dockEnvelope);
+      }
     }
 
     if (glassGroupRef.current) {
@@ -8916,12 +8971,19 @@ function IPhoneExploded({
             {bezelMeshes.map((m, i) => (
               <primitive key={`bezel-${i}`} object={m} />
             ))}
-            {crackGeo && (
-              <mesh
-                geometry={crackGeo}
-                material={shineMat}
-                renderOrder={6}
-              />
+            {crackGeo && crackTransform && (
+              <group
+                position={crackTransform.position}
+                quaternion={crackTransform.quaternion}
+                scale={crackTransform.scale}
+              >
+                <mesh
+                  geometry={crackGeo}
+                  material={shineMat}
+                  position={[0, 0, -CRACK_SURFACE_EPSILON]}
+                  renderOrder={6}
+                />
+              </group>
             )}
 
             {/* CRACKED PANE — child of the actual moving front glass. */}
