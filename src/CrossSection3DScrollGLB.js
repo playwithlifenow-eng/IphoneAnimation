@@ -1,7 +1,7 @@
 import screenImg from "./Screen.webp";
 import internalsImg from "./internals.jpg";
 import crackImg from "./Crack.webp";
-import oledVideo from "./Seawater_advancing_on_beach_1080p_202607301819.mp4";
+import oledVideo from "./Seawater_advancing_on_beach_1792x3184.mp4";
 import { useRef, useMemo, useEffect, useLayoutEffect, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import {
@@ -19,7 +19,18 @@ import { Leva, useControls, button, folder } from "leva";
 
 gsap.registerPlugin(ScrollTrigger);
 
-const IGLASS_APP_VERSION = "7.5.30-oled-video-texture-fix";
+const IGLASS_APP_VERSION = "7.5.31-high-resolution-oled-video";
+
+// ============================================
+// v7.5.31 HIGH-RESOLUTION OLED VIDEO
+//
+//   SOURCE UPGRADE   Replaces the previous 1080p sea video with the supplied
+//                    1792 x 3184 H.264 master for sharper close-up rendering.
+//   MOTION SAFE      OLED UVs, playback speed, looping, texture filtering,
+//                    material behaviour and the complete motion path are
+//                    unchanged.
+//
+// ============================================
 
 // ============================================
 // v7.5.30 OLED VIDEO TEXTURE FIX
