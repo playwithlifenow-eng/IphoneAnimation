@@ -1,7 +1,7 @@
 import screenImg from "./Screen.webp";
 import internalsImg from "./internals.jpg";
 import crackImg from "./Crack.webp";
-import oledVideo from "./Seawater_advancing_on_beach_1792x3184.mp4";
+import oledVideo from "./sea_upscaled_no_watermark_v2.mp4";
 import { useRef, useMemo, useEffect, useLayoutEffect, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import {
