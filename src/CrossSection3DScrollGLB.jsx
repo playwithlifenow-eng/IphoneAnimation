@@ -1,4 +1,4 @@
-import screenImg from "./Screen.png";
+import screenImg from "./Screen 2.webp";
 import internalsImg from "./internals.jpg";
 import crackImg from "./Crack.webp";
 import { useRef, useMemo, useEffect, useLayoutEffect, useState } from "react";
