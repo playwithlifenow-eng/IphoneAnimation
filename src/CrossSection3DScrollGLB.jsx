@@ -18,7 +18,45 @@ import { Leva, useControls, button, folder } from "leva";
 
 gsap.registerPlugin(ScrollTrigger);
 
-const IGLASS_APP_VERSION = "7.5.32-webp-oled-image";
+const IGLASS_APP_VERSION = "7.5.33-terminal-light-sweep";
+
+// ============================================
+// v7.5.33 TERMINAL LIGHT SWEEP
+//
+//   ONE SEQUENCE    The automatic terminal glass sweep is extended into a
+//                   deterministic terminal EFFECTS sequence. After the
+//                   sweep completes: a short gap, the KEY light travels
+//                   +20 -> -20 across the body, then the FILL light
+//                   travels -20 -> +20 across the bezel. Strictly
+//                   sequential; the two never overlap.
+//   SAME CLOCK      Every phase is appended by motionPlaybackTiming() and
+//                   read back by sampleMotionPlayback(), exactly as the
+//                   glass sweep already is. No setTimeout, no GSAP tween,
+//                   no component state, no wall clock — the same playback
+//                   progress always produces the same lighting.
+//   SAME GATE       It runs on precisely the paths the terminal sweep
+//                   already qualifies for: the last node must return
+//                   glass registration to its home XYZ. A non-qualifying
+//                   path is timed and played exactly as before.
+//   SPATIAL ONLY    Only lightKeyX, then only lightFillX, are overridden.
+//                   Y, Z, intensity, temperature, ambient, environment
+//                   and exposure continue to come from the final
+//                   authored pose. The effect is the light MOVING, never
+//                   the light changing brightness or colour.
+//   NO POP          Both production paths end with the key light far from
+//                   +20, so each phase opens with a short eased entry
+//                   from the authored X to its start X. That entry is a
+//                   declared span inside the terminal timeline, not a
+//                   hidden state mutation.
+//   GOVERNOR SAFE   The added spans are inside totalDuration, so autoplay
+//                   completion, the Framer completion message and the
+//                   render-loop park all happen after the FILL sweep, not
+//                   after the glass sweep.
+//   ZERO PATH DATA  No node, pose, slot, schema, export format or saved
+//                   path changes. Both supplied production JSONs import
+//                   and run unmodified.
+//
+// ============================================
 
 // ============================================
 // v7.5.32 WEBP OLED IMAGE
@@ -1314,6 +1352,119 @@ const SHINE = {
 };
 
 // ---------------------------------------------------------
+// TERMINAL LIGHT SWEEP (v7.5.33) — the travelling lights that follow the
+// automatic glass sweep.
+//
+// This is the same KIND of object as SHINE's range/speed pair: it is not
+// pose data, it is not authored into any motion path, and it adds no JSON
+// field. It describes extra terminal phases that motionPlaybackTiming()
+// appends after the glass sweep, on exactly the paths that sweep already
+// qualifies for — the final node must return glass registration home.
+//
+// The effect is SPATIAL, never photometric. During the key phase only
+// lightKeyX is overridden; during the fill phase only lightFillX. Y, Z,
+// intensity, temperature, ambient, environment and exposure keep coming
+// from the final authored pose, so the premium look is the light MOVING,
+// not the light changing.
+//
+//   afterShineGap  seconds of stillness between the glass sweep finishing
+//                  and the key light beginning. 0–0.10 is the useful band.
+//   setup          MINIMUM seconds spent easing from the AUTHORED final X
+//                  to that phase's fromX. Both production paths end with
+//                  the key light a long way from +20 (-12.8 mobile, +5.0
+//                  desktop), so assigning fromX instantly would be a
+//                  visible lighting pop. This is that reposition, spread
+//                  over a short eased entry and declared inside the
+//                  terminal timeline. Set it to 0 (with matchSweepSpeed
+//                  off) to accept the instant jump.
+//   matchSweepSpeed  the entry is never allowed to travel FASTER than the
+//                  sweep it introduces. Its distance is path-dependent —
+//                  32.8 units on mobile against 15.0 on desktop — so a
+//                  fixed entry would whip on one path and glide on the
+//                  other. With this on, the entry span is the longer of
+//                  `setup` and the distance-matched span, which keeps it
+//                  visually subordinate on any path. Same easing, so
+//                  matching mean speed matches peak speed.
+//   duration       seconds for the sweep itself, fromX -> toX.
+//
+// Every value here is tunable without touching the playback engine: the
+// timing model reads them, the sampler reads the timing model.
+// ---------------------------------------------------------
+const TERMINAL_LIGHT_FX = {
+  enabled: true,
+  afterShineGap: 0.05,
+  key: {
+    setup: 0.3,
+    matchSweepSpeed: true,
+    fromX: 20,
+    toX: -20,
+    duration: 0.75,
+  },
+  fill: {
+    setup: 0.3,
+    matchSweepSpeed: true,
+    fromX: -20,
+    toX: 20,
+    duration: 0.75,
+  },
+};
+
+// Sine in / sine out. Zero velocity at both ends, so there is no abrupt
+// launch and no abrupt stop, and it cannot overshoot or bounce. A pure
+// function of phase progress — nothing else.
+function terminalLightEase(t) {
+  const safe = Math.max(0, Math.min(1, Number(t) || 0));
+  return 0.5 - 0.5 * Math.cos(Math.PI * safe);
+}
+
+// Every span in the terminal timeline goes through this, so a NaN, a
+// negative or an absurd value in the config can never produce a
+// non-finite duration or an out-of-order timeline.
+function terminalLightSeconds(value, max = 10) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(max, n));
+}
+
+function terminalPhaseT(elapsed, start, duration) {
+  if (!(duration > 0)) return 1;
+  return Math.max(0, Math.min(1, (elapsed - start) / duration));
+}
+
+// The last authored pose, used ONLY to size the entry glide. The rendered
+// anchor is the sampled pose, which is that same node (the terminal window
+// begins after the path has finished); the two can differ by a final-lerp
+// ulp, which is far below anything a duration is sensitive to.
+function finalAuthoredPose(path) {
+  const nodes = path?.nodes;
+  if (!Array.isArray(nodes) || !nodes.length) return null;
+  return nodes[nodes.length - 1]?.pose || null;
+}
+
+// How long the eased entry from the authored X to fromX should take. With
+// matchSweepSpeed the entry covers its distance at no more than the sweep's
+// own speed, so it can never out-run the move it is introducing.
+function terminalEntryDuration(config, anchorX) {
+  const base = terminalLightSeconds(config?.setup);
+  if (config?.matchSweepSpeed !== true) return base;
+  const from = clampLightPosition(config.fromX);
+  const to = clampLightPosition(config.toX);
+  const sweepDuration = terminalLightSeconds(config.duration);
+  const sweepDistance = Math.abs(to - from);
+  if (!(sweepDistance > 0) || !(sweepDuration > 0)) return base;
+  const entryDistance = Math.abs(
+    from - (Number.isFinite(anchorX) ? clampLightPosition(anchorX) : from)
+  );
+  return terminalLightSeconds(
+    Math.max(base, (entryDistance / sweepDistance) * sweepDuration)
+  );
+}
+
+function terminalLightTravel(from, to, t) {
+  return THREE.MathUtils.lerp(from, to, terminalLightEase(t));
+}
+
+// ---------------------------------------------------------
 // CRACK — presence, pane registration, and user-requested appearance controls.
 //
 // ON/OFF is saved into the pose slot with everything else — THAT is the
@@ -2315,6 +2466,20 @@ function finalNodeGlassIsRegistered(path) {
   );
 }
 
+// THE authoritative timing calculation for one playback. Everything that
+// happens after the authored path — the glass sweep, and from v7.5.33 the
+// travelling key and fill lights — is a span declared here and read back
+// by sampleMotionPlayback(). No other function computes terminal timing.
+//
+//   pathArrival   the phone reaches its final authored node (= the start
+//                 of the final hold, which is where the sweep begins)
+//   pathDuration  the authored path including that final hold
+//   shineStart/Duration/End      phase 1, unchanged from v7.5.1
+//   keySetupStart -> keyStart    eased entry to key fromX
+//   keyStart -> keyEnd           phase 2, key fromX -> toX
+//   fillSetupStart -> fillStart  eased entry to fill fromX
+//   fillStart -> fillEnd         phase 3, fill fromX -> toX
+//   totalDuration                what the render governor waits for
 function motionPlaybackTiming(path, speedOverride) {
   const authoredDuration = motionPathDuration(path);
   const pathSpeed = Math.max(
@@ -2329,18 +2494,137 @@ function motionPlaybackTiming(path, speedOverride) {
   const rangeStart = Math.max(0, Math.min(1, Number(SHINE.range[0]) || 0));
   const rangeEnd = Math.max(0, Math.min(1, Number(SHINE.range[1]) || 0));
   const shineDistance = Math.abs(rangeEnd - rangeStart);
-  const shineDuration =
-    finalNodeGlassIsRegistered(path) && shineDistance > 0.000001
-      ? shineDistance / Math.max(0.01, Number(SHINE.speed) || 0.5)
-      : 0;
+  // ONE qualifying test for the whole terminal sequence. The sweep's
+  // existing condition is unchanged; the travelling lights simply inherit
+  // it, so a path that never sweeps never lights either.
+  const terminalQualifies =
+    finalNodeGlassIsRegistered(path) && shineDistance > 0.000001;
+  const shineDuration = terminalQualifies
+    ? shineDistance / Math.max(0.01, Number(SHINE.speed) || 0.5)
+    : 0;
+  const shineEnd = shineStart + shineDuration;
+
+  // ---- v7.5.33 travelling lights ----
+  const lightsRun = terminalQualifies && TERMINAL_LIGHT_FX.enabled === true;
+  const afterShineGap = lightsRun
+    ? terminalLightSeconds(TERMINAL_LIGHT_FX.afterShineGap, 1)
+    : 0;
+  const terminalPose = lightsRun ? finalAuthoredPose(path) : null;
+  const keySetupDuration = lightsRun
+    ? terminalEntryDuration(TERMINAL_LIGHT_FX.key, terminalPose?.lightKeyX)
+    : 0;
+  const keyDuration = lightsRun
+    ? terminalLightSeconds(TERMINAL_LIGHT_FX.key.duration)
+    : 0;
+  const fillSetupDuration = lightsRun
+    ? terminalEntryDuration(TERMINAL_LIGHT_FX.fill, terminalPose?.lightFillX)
+    : 0;
+  const fillDuration = lightsRun
+    ? terminalLightSeconds(TERMINAL_LIGHT_FX.fill.duration)
+    : 0;
+  // The lights begin only once BOTH the authored path and the sweep have
+  // finished. On both production paths the sweep already outlasts the
+  // path, so this changes nothing there; it guarantees in general that
+  // every non-X channel the lights leave alone is the settled final pose
+  // rather than a value still being interpolated.
+  const keySetupStart = lightsRun
+    ? Math.max(pathDuration, shineEnd) + afterShineGap
+    : shineEnd;
+  const keyStart = keySetupStart + keySetupDuration;
+  const keyEnd = keyStart + keyDuration;
+  // No intentional gap between the key finishing and the fill beginning.
+  const fillSetupStart = keyEnd;
+  const fillStart = fillSetupStart + fillSetupDuration;
+  const fillEnd = fillStart + fillDuration;
+
   return {
+    pathArrival: shineStart,
     pathDuration,
     shineStart,
     shineDuration,
-    totalDuration: Math.max(pathDuration, shineStart + shineDuration),
+    shineEnd,
+    lightsRun,
+    afterShineGap,
+    keySetupStart,
+    keySetupDuration,
+    keyStart,
+    keyDuration,
+    keyEnd,
+    fillSetupStart,
+    fillSetupDuration,
+    fillStart,
+    fillDuration,
+    fillEnd,
+    terminalLightDuration: lightsRun ? fillEnd - keySetupStart : 0,
+    totalDuration: Math.max(
+      pathDuration,
+      shineEnd,
+      lightsRun ? fillEnd : 0
+    ),
     rangeStart,
     rangeEnd,
   };
+}
+
+// Derives the key/fill X overrides for one instant of terminal playback.
+// Returns null outside the terminal window, so a non-qualifying path and
+// every pre-terminal sample are byte-identical to v7.5.32.
+//
+// `pose` supplies the AUTHORED anchor for each eased entry. During the
+// terminal window the sampled pose is the settled final node, so that
+// anchor is constant and the result depends on nothing but elapsed time.
+function terminalLightOverrides(pose, timing, elapsed) {
+  if (!pose || !timing?.lightsRun) return null;
+  if (elapsed < timing.keySetupStart) return null;
+
+  const keyFrom = clampLightPosition(TERMINAL_LIGHT_FX.key.fromX);
+  const keyTo = clampLightPosition(TERMINAL_LIGHT_FX.key.toX);
+  const fillFrom = clampLightPosition(TERMINAL_LIGHT_FX.fill.fromX);
+  const fillTo = clampLightPosition(TERMINAL_LIGHT_FX.fill.toX);
+  const out = {};
+
+  // ---- PHASE 2 — key travels across the body ----
+  if (elapsed < timing.keyStart) {
+    const anchor = Number.isFinite(pose.lightKeyX) ? pose.lightKeyX : keyFrom;
+    out.lightKeyX = terminalLightTravel(
+      anchor,
+      keyFrom,
+      terminalPhaseT(elapsed, timing.keySetupStart, timing.keySetupDuration)
+    );
+  } else if (elapsed < timing.keyEnd) {
+    out.lightKeyX = terminalLightTravel(
+      keyFrom,
+      keyTo,
+      terminalPhaseT(elapsed, timing.keyStart, timing.keyDuration)
+    );
+  } else {
+    // Held for the remainder of playback, including progress = 1.
+    out.lightKeyX = keyTo;
+  }
+
+  // ---- PHASE 3 — fill travels back across the bezel ----
+  if (elapsed >= timing.fillSetupStart) {
+    if (elapsed < timing.fillStart) {
+      const anchor = Number.isFinite(pose.lightFillX)
+        ? pose.lightFillX
+        : fillFrom;
+      out.lightFillX = terminalLightTravel(
+        anchor,
+        fillFrom,
+        terminalPhaseT(elapsed, timing.fillSetupStart, timing.fillSetupDuration)
+      );
+    } else if (elapsed < timing.fillEnd) {
+      out.lightFillX = terminalLightTravel(
+        fillFrom,
+        fillTo,
+        terminalPhaseT(elapsed, timing.fillStart, timing.fillDuration)
+      );
+    } else {
+      out.lightFillX = fillTo;
+    }
+  }
+
+  return out;
 }
 
 function sampleMotionPlayback(path, progress, speedOverride) {
@@ -2369,6 +2653,12 @@ function sampleMotionPlayback(path, progress, speedOverride) {
       ),
     };
   }
+  // v7.5.33 — the travelling lights are the next terminal phase, derived
+  // from the same elapsed time. A new object every time: the sampled pose
+  // is never mutated, and only the channel belonging to the active phase
+  // is replaced.
+  const terminalLights = terminalLightOverrides(pose, timing, elapsed);
+  if (terminalLights) pose = { ...pose, ...terminalLights };
   return { pose, pathProgress, ...timing };
 }
 
@@ -4398,6 +4688,113 @@ function DevControls({ initialP }) {
               label: "settled panel sheen",
               onChange: (v) => {
                 SHINE.persistent = v;
+              },
+            },
+          },
+          { collapsed: false }
+        ),
+        // ---- v7.5.33 TERMINAL LIGHT SWEEP. Tuning only. These are the
+        // dials for the phases appended after the sweep above; none of
+        // them is a pose value and none of them is saved into a path.
+        // Changing one re-times playback on the next sample, because
+        // motionPlaybackTiming() reads them every time. ----
+        "terminal light sweep (after the shine)": folder(
+          {
+            terminalLightEnabled: {
+              value: TERMINAL_LIGHT_FX.enabled,
+              label: "travelling lights on",
+              onChange: (v) => {
+                TERMINAL_LIGHT_FX.enabled = !!v;
+              },
+            },
+            terminalGap: {
+              value: TERMINAL_LIGHT_FX.afterShineGap,
+              min: 0,
+              max: 0.5,
+              step: 0.01,
+              label: "gap after glass sweep (s)",
+              onChange: (v) => {
+                TERMINAL_LIGHT_FX.afterShineGap = v;
+              },
+            },
+            terminalKeySetup: {
+              value: TERMINAL_LIGHT_FX.key.setup,
+              min: 0,
+              max: 1.5,
+              step: 0.01,
+              label: "KEY entry glide min (s)",
+              onChange: (v) => {
+                TERMINAL_LIGHT_FX.key.setup = v;
+              },
+            },
+            terminalKeyFrom: {
+              value: TERMINAL_LIGHT_FX.key.fromX,
+              min: -20,
+              max: 20,
+              step: 0.5,
+              label: "KEY start X",
+              onChange: (v) => {
+                TERMINAL_LIGHT_FX.key.fromX = v;
+              },
+            },
+            terminalKeyTo: {
+              value: TERMINAL_LIGHT_FX.key.toX,
+              min: -20,
+              max: 20,
+              step: 0.5,
+              label: "KEY end X",
+              onChange: (v) => {
+                TERMINAL_LIGHT_FX.key.toX = v;
+              },
+            },
+            terminalKeyDuration: {
+              value: TERMINAL_LIGHT_FX.key.duration,
+              min: 0.05,
+              max: 4,
+              step: 0.05,
+              label: "KEY sweep (s)",
+              onChange: (v) => {
+                TERMINAL_LIGHT_FX.key.duration = v;
+              },
+            },
+            terminalFillSetup: {
+              value: TERMINAL_LIGHT_FX.fill.setup,
+              min: 0,
+              max: 1.5,
+              step: 0.01,
+              label: "FILL entry glide min (s)",
+              onChange: (v) => {
+                TERMINAL_LIGHT_FX.fill.setup = v;
+              },
+            },
+            terminalFillFrom: {
+              value: TERMINAL_LIGHT_FX.fill.fromX,
+              min: -20,
+              max: 20,
+              step: 0.5,
+              label: "FILL start X",
+              onChange: (v) => {
+                TERMINAL_LIGHT_FX.fill.fromX = v;
+              },
+            },
+            terminalFillTo: {
+              value: TERMINAL_LIGHT_FX.fill.toX,
+              min: -20,
+              max: 20,
+              step: 0.5,
+              label: "FILL end X",
+              onChange: (v) => {
+                TERMINAL_LIGHT_FX.fill.toX = v;
+              },
+            },
+            terminalFillDuration: {
+              value: TERMINAL_LIGHT_FX.fill.duration,
+              min: 0.05,
+              max: 4,
+              step: 0.05,
+              label: "FILL sweep (s)",
+              onChange: (v) => {
+                TERMINAL_LIGHT_FX.fill.duration = v;
               },
             },
           },
