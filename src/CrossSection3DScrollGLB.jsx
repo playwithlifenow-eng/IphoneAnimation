@@ -18,7 +18,7 @@ import { Leva, useControls, button, folder } from "leva";
 
 gsap.registerPlugin(ScrollTrigger);
 
-const IGLASS_APP_VERSION = "7.5.39-faster-collapse-shine-tight-light-handoff";
+const IGLASS_APP_VERSION = "7.5.40-oled-chassis-gap-fix";
 
 // ============================================
 // v7.5.39 FASTER COLLAPSE SHINE + TIGHT KEY/FILL HANDOFF
@@ -1327,6 +1327,13 @@ const OLED = {
   showRim: false, // the slab's side wall — artefact, hidden by default
   luminance: 1,
 };
+
+// v7.5.40 — tiny geometric registration correction between the OLED slab and
+// the body chassis. OLED and glassGroup are siblings under the same pivot, so
+// this is the exact same local Y axis used by GLASS_REG.y. Keep this separate
+// from the motion JSON: the seam is a static assembly registration issue, not
+// an authored animation move.
+const OLED_CHASSIS_Y_OFFSET = -0.01;
 
 const LIGHT_TEMPERATURE_MIN = 2000;
 const LIGHT_TEMPERATURE_MAX = 12000;
@@ -9312,6 +9319,9 @@ function IPhoneExploded({
         target,
         damp
       );
+      // Static chassis registration correction. Direct write is deliberate:
+      // unlike the OLED explode Z channel, this must not animate or spring.
+      oledGroupRef.current.position.y = OLED_CHASSIS_Y_OFFSET;
     }
 
     if (bodyGroupRef.current) {
