@@ -18,7 +18,28 @@ import { Leva, useControls, button, folder } from "leva";
 
 gsap.registerPlugin(ScrollTrigger);
 
-const IGLASS_APP_VERSION = "7.5.37-mobile-end-shine-exit";
+const IGLASS_APP_VERSION = "7.5.38-single-collapse-shine";
+
+// ============================================
+// v7.5.38 SINGLE MOBILE COLLAPSE SHINE
+//
+//   ONE EVENT ONLY  Mobile front-glass shine is forced OFF outside one
+//                   deterministic autoplay window. Authored node shine
+//                   values cannot create a second sweep.
+//   EXACT START     The sole sweep starts at global autoplay P = 0.750.
+//                   Progress is 0 at that exact boundary.
+//   NODE 7 -> 8     From P .750 until the final-node arrival, shine progress
+//                   travels once from 0 -> 1 using strip .10, broad .03,
+//                   strength .30 and angle -48 degrees.
+//   NODE 6 / 8 OFF  Node 6 is blank before the trigger; at Node 8 arrival the
+//                   overlay is immediately failed closed, so no sweep is
+//                   parked on the final glass.
+//   TERMINAL LIGHTS The later KEY/FILL terminal-light sequence and its timing
+//                   are unchanged. The old terminal front-glass pass keeps
+//                   its timing reservation only, preserving the authored P
+//                   calibration, but is visually suppressed on mobile.
+//
+// ============================================
 
 // ============================================
 // v7.5.37 MOBILE END-SHINE CHOREOGRAPHY
@@ -1413,6 +1434,16 @@ function crackReflectionIntensity() {
 // ---------------------------------------------------------
 const SHINE_PROGRESS_MAX = 1.5;
 const SHINE_EXIT_PROGRESS = 1.4;
+
+// v7.5.38 — the ONLY mobile front-glass sweep. `startP` is the parent/runtime
+// autoplay progress value, not pathProgress and not an authored pose field.
+const MOBILE_COLLAPSE_SHINE = {
+  startP: 0.75,
+  sweepStrength: 0.3,
+  broadWidth: 0.03,
+  stripWidth: 0.1,
+  angleDeg: -48,
+};
 
 const SHINE = {
   progress: 0,
@@ -2839,7 +2870,15 @@ function sampleMotionPlayback(path, progress, speedOverride) {
   if (!sampledPose) return { pose: null, pathProgress, ...timing };
 
   let pose = sampledPose;
-  if (timing.shineDuration > 0 && elapsed >= timing.shineStart) {
+  // v7.5.38 — desktop keeps its existing terminal front-glass pass. Mobile
+  // suppresses that visual pass entirely: its timing span is deliberately
+  // retained by motionPlaybackTiming() so the established global-P mapping
+  // and the later KEY/FILL sequence do not move.
+  if (
+    TERMINAL_LIGHT_PROFILE !== "mobile" &&
+    timing.shineDuration > 0 &&
+    elapsed >= timing.shineStart
+  ) {
     const shineT = Math.max(
       0,
       Math.min(1, (elapsed - timing.shineStart) / timing.shineDuration)
@@ -2853,6 +2892,32 @@ function sampleMotionPlayback(path, progress, speedOverride) {
       ),
     };
   }
+
+  // The sole mobile front-glass event is keyed to GLOBAL autoplay P. It is
+  // blank at and before P=.750, travels once from 0->1 while the front glass
+  // collapses from Node 7 toward Node 8, then fails closed at final-node
+  // arrival. This overrides any stale shine values embedded in old mobile
+  // motion URLs, so Node 6 and Node 8 cannot resurrect extra sweeps.
+  if (TERMINAL_LIGHT_PROFILE === "mobile") {
+    const startP = MOBILE_COLLAPSE_SHINE.startP;
+    const endP = Math.max(
+      startP + 0.000001,
+      timing.pathArrival / Math.max(0.000001, timing.totalDuration)
+    );
+    const active = progress > startP && progress < endP;
+    const shineT = active
+      ? Math.max(0, Math.min(1, (progress - startP) / (endP - startP)))
+      : 0;
+    pose = {
+      ...pose,
+      shine: shineT,
+      shineStrength: MOBILE_COLLAPSE_SHINE.sweepStrength,
+      shineBroadWidth: MOBILE_COLLAPSE_SHINE.broadWidth,
+      shineStripWidth: MOBILE_COLLAPSE_SHINE.stripWidth,
+      shineAngle: MOBILE_COLLAPSE_SHINE.angleDeg,
+    };
+  }
+
   // v7.5.33 — the travelling lights are the next terminal phase, derived
   // from the same elapsed time. A new object every time: the sampled pose
   // is never mutated, and only the channel belonging to the active phase
