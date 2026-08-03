@@ -18,7 +18,29 @@ import { Leva, useControls, button, folder } from "leva";
 
 gsap.registerPlugin(ScrollTrigger);
 
-const IGLASS_APP_VERSION = "7.5.35-terminal-mobile-profiles";
+const IGLASS_APP_VERSION = "7.5.36-terminal-mobile-shine-corner-fix";
+
+// ============================================
+// v7.5.36 BOTTOM-LEFT SHINE LEAK — REGRESSION FIX
+//
+//   PANE TRANSFORM   The shine overlay uses the cloned front-glass geometry,
+//                    so it now inherits the same rebased position,
+//                    quaternion and scale as that pane. Geometry without the
+//                    source transform placed the sweep beside the chassis.
+//   DEPTH OCCLUSION  Shine depth testing is restored. The chassis/rim can
+//                    occlude the overlay instead of a misplaced highlight
+//                    drawing through the phone body.
+//   TRUE ZERO        A hard shader launch gate,
+//                    smoothstep(0.0, 0.03, uProgress), makes shine=0 produce
+//                    physically zero RGB/alpha rather than parking a live
+//                    strip on the pane edge.
+//   CPU FAIL-CLOSED  The material is also hidden at exact progress zero;
+//                    the shader remains the continuous authority for the
+//                    0.00 -> 0.03 launch ramp.
+//   NO CHOREOGRAPHY  Terminal lighting profiles, motion JSON, timings,
+//                    sweep paths and desktop/mobile routing are unchanged.
+//
+// ============================================
 
 // ============================================
 // v7.5.35 TERMINAL DESKTOP/MOBILE PROFILES
@@ -8845,10 +8867,12 @@ function IPhoneExploded({
           float s = sin(uAngle);
           vec2 rp = mat2(c, -s, s, c) * p;
 
-          // Travel beyond both pane edges so progress 0/1 have clean holds.
-          // At progress 0 the strip already touches the pane's left edge.
-          // Set the effect-strength sliders to zero when a blank frame is wanted.
-          float centre = mix(-0.62, 0.62, clamp(uProgress, 0.0, 1.0));
+          // Travel beyond both pane edges, but exact progress zero must be
+          // physically blank. Without this launch gate the live strip sits on
+          // the pane's left edge even when the authored shine value is 0.
+          float safeProgress = clamp(uProgress, 0.0, 1.0);
+          float launchGate = smoothstep(0.0, 0.03, safeProgress);
+          float centre = mix(-0.62, 0.62, safeProgress);
           float broad = gaussian(rp.x - centre, uBroadWidth);
           float strip = gaussian(rp.x - centre, uStripWidth);
           float sweep = (0.32 * broad + strip) * uSweepStrength;
@@ -8874,8 +8898,9 @@ function IPhoneExploded({
 
           vec3 warmWhite = vec3(1.0, 0.975, 0.92);
           vec3 coolWhite = vec3(0.76, 0.90, 1.0);
-          vec3 rgb = warmWhite * (sweep + panel + glint)
-                   + coolWhite * (0.18 * broad * uSweepStrength);
+          vec3 rgb = (warmWhite * (sweep + panel + glint)
+                    + coolWhite * (0.18 * broad * uSweepStrength))
+                   * launchGate;
           float gate = clamp(uCleanMix, 0.0, 1.0);
           float intensity = max(max(rgb.r, rgb.g), rgb.b) * gate;
 
@@ -8888,9 +8913,10 @@ function IPhoneExploded({
       `,
       transparent: true,
       depthWrite: false,
-      // Same source-mesh defect as the crack/front pane: at P=0 the pane is
-      // fractionally behind the OLED. The sweep must remain visible at any P.
-      depthTest: false,
+      // v7.5.36: the overlay now inherits the real pane transform, so normal
+      // chassis/rim depth occlusion is both safe and required. depthTest:false
+      // allowed the displaced sweep to leak through the bottom-left body edge.
+      depthTest: true,
       blending: THREE.NormalBlending,
       toneMapped: false,
       polygonOffset: true,
@@ -9038,9 +9064,12 @@ function IPhoneExploded({
     // ---- v6 PREMIUM GLASS. Pure state writes: no clock, no random seed. ----
     if (shineMat) {
       const u = shineMat.uniforms;
-      const cleanMix = 1;
+      const shineProgress = Math.max(0, Math.min(1, Number(SHINE.progress) || 0));
+      // Fail closed at exact zero. The GLSL smoothstep launch gate controls
+      // the continuous 0.00 -> 0.03 onset without changing authored timing.
+      const cleanMix = shineProgress > 0 ? 1 : 0;
       u.uCleanMix.value = cleanMix;
-      u.uProgress.value = SHINE.progress;
+      u.uProgress.value = shineProgress;
       u.uSweepStrength.value = SHINE.sweepStrength;
       u.uBroadWidth.value = SHINE.broadWidth;
       u.uStripWidth.value = SHINE.stripWidth;
@@ -9169,12 +9198,18 @@ function IPhoneExploded({
             {bezelMeshes.map((m, i) => (
               <primitive key={`bezel-${i}`} object={m} />
             ))}
-            {crackGeo && (
-              <mesh
-                geometry={crackGeo}
-                material={shineMat}
-                renderOrder={6}
-              />
+            {crackGeo && crackTransform && (
+              <group
+                position={crackTransform.position}
+                quaternion={crackTransform.quaternion}
+                scale={crackTransform.scale}
+              >
+                <mesh
+                  geometry={crackGeo}
+                  material={shineMat}
+                  renderOrder={6}
+                />
+              </group>
             )}
 
             {/* CRACKED PANE — child of the actual moving front glass. */}
