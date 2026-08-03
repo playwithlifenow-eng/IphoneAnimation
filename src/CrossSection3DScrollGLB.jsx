@@ -18,7 +18,27 @@ import { Leva, useControls, button, folder } from "leva";
 
 gsap.registerPlugin(ScrollTrigger);
 
-const IGLASS_APP_VERSION = "7.5.36-terminal-mobile-shine-corner-fix";
+const IGLASS_APP_VERSION = "7.5.37-mobile-end-shine-exit";
+
+// ============================================
+// v7.5.37 MOBILE END-SHINE CHOREOGRAPHY
+//
+//   POSE-SAVED LOOK  Sweep strength, broad width, strip width and angle are
+//                    now first-class pose/path channels alongside progress.
+//                    Existing paths without those fields remain compatible.
+//   NODES 6 + 7     UI poses 112 / 115: strip .10, broad .03, strength .30,
+//                    progress .40 and angle -48 degrees.
+//   NODE 7 -> 8     The authored angled sweep continues from .40 to 1.40 so
+//                    its centre physically extrapolates beyond the pane.
+//   FINAL NODE 8    UI pose 119 changes angle to 0 degrees. At its final hold
+//                    the existing automatic pass resets progress to 0 and
+//                    travels through 1 to 1.40, clearing the upper corner.
+//   EXTENDED SCALE  Progress supports 0..1.50. The shader no longer clamps at
+//                    1, and the overlay fails closed at the authored 1.40 exit.
+//   UNCHANGED       Motion positions, node timing, glass registration,
+//                    terminal KEY/FILL profiles and desktop routing are intact.
+//
+// ============================================
 
 // ============================================
 // v7.5.36 BOTTOM-LEFT SHINE LEAK — REGRESSION FIX
@@ -1391,6 +1411,9 @@ function crackReflectionIntensity() {
 // range/speed define an automatic terminal pass. It is appended only when
 // the LAST motion-path node returns glass registration to its home XYZ.
 // ---------------------------------------------------------
+const SHINE_PROGRESS_MAX = 1.5;
+const SHINE_EXIT_PROGRESS = 1.4;
+
 const SHINE = {
   progress: 0,
   range: [0, 1],
@@ -1910,6 +1933,10 @@ const DRIVE_READERS = {
   lift: () => SETTLE.arcLift,
   pscale: () => SETTLE.scale,
   shine: () => SHINE.progress,
+  shineStrength: () => SHINE.sweepStrength,
+  shineBroadWidth: () => SHINE.broadWidth,
+  shineStripWidth: () => SHINE.stripWidth,
+  shineAngle: () => SHINE.angleDeg,
   oledLuminance: () => OLED.luminance,
   lightAmbient: () => LIGHT.amb,
   lightKey: () => LIGHT.key,
@@ -1952,7 +1979,11 @@ const DRIVE_CLAMPS = {
   tilt: [-45, 45],
   lift: [-0.5, 0.5],
   pscale: [0.2, 1.5],
-  shine: [0, 1],
+  shine: [0, SHINE_PROGRESS_MAX],
+  shineStrength: [0, 1.5],
+  shineBroadWidth: [0.005, 0.8],
+  shineStripWidth: [0.005, 0.25],
+  shineAngle: [-90, 90],
   oledLuminance: [0, 1],
   lightAmbient: [0, 1],
   lightKey: [0, 5],
@@ -2630,8 +2661,14 @@ function motionPlaybackTiming(path, speedOverride) {
     ? nodeHoldDuration(path.nodes[path.nodes.length - 1]) / pathSpeed
     : 0;
   const shineStart = Math.max(0, pathDuration - finalHold);
-  const rangeStart = Math.max(0, Math.min(1, Number(SHINE.range[0]) || 0));
-  const rangeEnd = Math.max(0, Math.min(1, Number(SHINE.range[1]) || 0));
+  const rangeStart = Math.max(
+    0,
+    Math.min(SHINE_PROGRESS_MAX, Number(SHINE.range[0]) || 0)
+  );
+  const rangeEnd = Math.max(
+    0,
+    Math.min(SHINE_PROGRESS_MAX, Number(SHINE.range[1]) || 0)
+  );
   const shineDistance = Math.abs(rangeEnd - rangeStart);
   // ONE qualifying test for the whole terminal sequence. The sweep's
   // existing condition is unchanged; the travelling lights simply inherit
@@ -3375,7 +3412,19 @@ function applyPoseParamsDirect(pose) {
   if (Number.isFinite(pose.lift)) SETTLE.arcLift = pose.lift;
   if (Number.isFinite(pose.pscale) && pose.pscale > 0) SETTLE.scale = pose.pscale;
   if (Number.isFinite(pose.shine)) {
-    SHINE.progress = Math.max(0, Math.min(1, pose.shine));
+    SHINE.progress = Math.max(0, Math.min(SHINE_PROGRESS_MAX, pose.shine));
+  }
+  if (Number.isFinite(pose.shineStrength)) {
+    SHINE.sweepStrength = Math.max(0, Math.min(1.5, pose.shineStrength));
+  }
+  if (Number.isFinite(pose.shineBroadWidth)) {
+    SHINE.broadWidth = Math.max(0.005, Math.min(0.8, pose.shineBroadWidth));
+  }
+  if (Number.isFinite(pose.shineStripWidth)) {
+    SHINE.stripWidth = Math.max(0.005, Math.min(0.25, pose.shineStripWidth));
+  }
+  if (Number.isFinite(pose.shineAngle)) {
+    SHINE.angleDeg = Math.max(-90, Math.min(90, pose.shineAngle));
   }
   if (Number.isFinite(pose.oledLuminance)) {
     OLED.luminance = Math.max(0, Math.min(1, pose.oledLuminance));
@@ -4763,9 +4812,10 @@ function DevControls({ initialP }) {
       { collapsed: false }
     ),
 
-    // ---- v6 PREMIUM GLASS LAB. `shine` is part of every saved pose and
-    // motion path. All other values define the look and ride copy URL / the
-    // capture manifest through ?glassfx. ----
+    // ---- v7.5.37 PREMIUM GLASS LAB. Progress, brightness, broad width,
+    // strip width and angle are all saved/interpolated pose channels. The
+    // remaining values define the shared look and ride copy URL / capture
+    // manifests through ?glassfx. ----
     "💎 premium glass lab": folder(
       {
         "reflection sweep": folder(
@@ -4773,13 +4823,16 @@ function DevControls({ initialP }) {
             shineRange: {
               value: SHINE.range,
               min: 0,
-              max: 1,
+              max: SHINE_PROGRESS_MAX,
               step: 0.001,
               label: "automatic range (start → end)",
               onChange: (v) => {
                 if (!Array.isArray(v) || v.length !== 2) return;
                 SHINE.range = v.map((value) =>
-                  Math.max(0, Math.min(1, Number(value) || 0))
+                  Math.max(
+                    0,
+                    Math.min(SHINE_PROGRESS_MAX, Number(value) || 0)
+                  )
                 );
               },
             },
@@ -4796,7 +4849,7 @@ function DevControls({ initialP }) {
             shine: {
               value: SHINE.progress,
               min: 0,
-              max: 1,
+              max: SHINE_PROGRESS_MAX,
               step: 0.001,
               label: "shine progress (SAVED IN POSE)",
               onChange: (v) => {
@@ -7886,8 +7939,8 @@ function resolveRuntimeConfig() {
       SHINE.envStrip = q[15];
       SHINE.envRim = q[16];
       SHINE.range = [
-        Math.max(0, Math.min(1, q[17])),
-        Math.max(0, Math.min(1, q[18])),
+        Math.max(0, Math.min(SHINE_PROGRESS_MAX, q[17])),
+        Math.max(0, Math.min(SHINE_PROGRESS_MAX, q[18])),
       ];
       SHINE.speed = Math.max(0.05, q[19]);
       // v7.5.20 field. Absent on pre-v7.5.20 links -> authored default.
@@ -8870,15 +8923,18 @@ function IPhoneExploded({
           // Travel beyond both pane edges, but exact progress zero must be
           // physically blank. Without this launch gate the live strip sits on
           // the pane's left edge even when the authored shine value is 0.
-          float safeProgress = clamp(uProgress, 0.0, 1.0);
-          float launchGate = smoothstep(0.0, 0.03, safeProgress);
-          float centre = mix(-0.62, 0.62, safeProgress);
+          float travelProgress = max(uProgress, 0.0);
+          float launchGate = smoothstep(0.0, 0.03, travelProgress);
+          // GLSL mix extrapolates when progress exceeds 1. That is deliberate:
+          // the strip keeps travelling beyond the pane instead of clamping to
+          // its upper/right edge at the end of either mobile sweep.
+          float centre = mix(-0.62, 0.62, travelProgress);
           float broad = gaussian(rp.x - centre, uBroadWidth);
           float strip = gaussian(rp.x - centre, uStripWidth);
           float sweep = (0.32 * broad + strip) * uSweepStrength;
 
           // A quiet stationary panel reflection remains after the sweep.
-          float settled = smoothstep(0.04, 0.22, uProgress);
+          float settled = smoothstep(0.04, 0.22, travelProgress);
           float panel = gaussian(rp.x + 0.24, 0.42) * uPersistent * settled;
 
           // One art-directed sparkle with a soft halo and four restrained
@@ -8892,7 +8948,7 @@ function IPhoneExploded({
           vec2 diag = vec2(gd.x + gd.y, gd.x - gd.y) * 0.70710678;
           float rayD = (exp(-abs(diag.x) * 40.0) * exp(-abs(diag.y) * 3.8)
                       + exp(-abs(diag.y) * 40.0) * exp(-abs(diag.x) * 3.8)) * 0.22;
-          float glintEnvelope = gaussian(uProgress - uGlintAt, uGlintSpread);
+          float glintEnvelope = gaussian(travelProgress - uGlintAt, uGlintSpread);
           float glint = (core + halo + 0.24 * (rayH + rayV) + rayD)
                       * uGlint * uGlintStrength * glintEnvelope;
 
@@ -9064,10 +9120,15 @@ function IPhoneExploded({
     // ---- v6 PREMIUM GLASS. Pure state writes: no clock, no random seed. ----
     if (shineMat) {
       const u = shineMat.uniforms;
-      const shineProgress = Math.max(0, Math.min(1, Number(SHINE.progress) || 0));
-      // Fail closed at exact zero. The GLSL smoothstep launch gate controls
-      // the continuous 0.00 -> 0.03 onset without changing authored timing.
-      const cleanMix = shineProgress > 0 ? 1 : 0;
+      const shineProgress = Math.max(
+        0,
+        Math.min(SHINE_PROGRESS_MAX, Number(SHINE.progress) || 0)
+      );
+      // Fail closed at exact zero and at the authored off-pane exit. Between
+      // them the shader remains the continuous spatial authority, including
+      // the extrapolated >1 travel that clears the final top corner.
+      const cleanMix =
+        shineProgress > 0 && shineProgress < SHINE_EXIT_PROGRESS ? 1 : 0;
       u.uCleanMix.value = cleanMix;
       u.uProgress.value = shineProgress;
       u.uSweepStrength.value = SHINE.sweepStrength;
