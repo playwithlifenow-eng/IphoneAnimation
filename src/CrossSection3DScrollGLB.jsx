@@ -18,7 +18,26 @@ import { Leva, useControls, button, folder } from "leva";
 
 gsap.registerPlugin(ScrollTrigger);
 
-const IGLASS_APP_VERSION = "7.5.34-terminal-recorded-rig";
+const IGLASS_APP_VERSION = "7.5.35-terminal-mobile-profiles";
+
+// ============================================
+// v7.5.35 TERMINAL DESKTOP/MOBILE PROFILES
+//
+//   EXPLICIT ROUTE   The terminal light sequence now selects its recorded rig
+//                    from ?terminal=desktop|mobile. Desktop is the backwards-
+//                    compatible default; Framer adds terminal=mobile only to
+//                    its existing <810px mobile iframe URL. No viewport/path
+//                    inference and no motion JSON changes.
+//   DESKTOP LOCKED   v7.5.34 desktop values and sweep directions are preserved
+//                    exactly.
+//   MOBILE RESTORED  ambient .44; key 3.00 at Y -15 / Z 13.3 / 8800K; fill
+//                    1.20 at Y +20 / Z -20 / 7000K; environment .70; exposure
+//                    1.00. KEY X +20 -> -20, then FILL X +20 -> -20.
+//   SAME CLOCK       Glass sweep, gap, setup matching, durations, easing,
+//                    autoplay completion and render governor are unchanged.
+//   URL ROUND-TRIP   Preview/capture URLs preserve the active terminal profile.
+//
+// ============================================
 
 // ============================================
 // v7.5.34 TERMINAL RECORDED RIG
@@ -1416,17 +1435,10 @@ const SHINE = {
 // Every value here is tunable without touching the playback engine: the
 // timing model reads them, the sampler reads the timing model.
 // ---------------------------------------------------------
-const TERMINAL_LIGHT_FX = {
+const TERMINAL_LIGHT_FX_DESKTOP = {
   enabled: true,
   afterShineGap: 0.05,
-  // ---- v7.5.34 RECORDED WORKING SETUP ----
-  // The rig the travelling rim-light effect was visually designed against.
-  // The terminal sequence does NOT inherit whatever lighting the final JSON
-  // node happens to carry: it settles onto these constants during the entry
-  // glide and then holds them absolutely, so the only thing that moves
-  // through both sweeps is X. Same channel names as the pose, so they ride
-  // the existing applyPoseParamsDirect() write path with no new plumbing.
-  // The reflected world is LIGHT.preset, already "studio".
+  // v7.5.34 desktop recorded working setup — intentionally unchanged.
   base: {
     lightAmbient: 0.44,
     lightKey: 3.0,
@@ -1455,6 +1467,58 @@ const TERMINAL_LIGHT_FX = {
     duration: 0.75,
   },
 };
+
+const TERMINAL_LIGHT_FX_MOBILE = {
+  enabled: true,
+  afterShineGap: 0.05,
+  // Recorded mobile terminal rig recovered from the authored lighting sequence.
+  base: {
+    lightAmbient: 0.44,
+    lightKey: 3.0,
+    lightKeyY: -15.0,
+    lightKeyZ: 13.3,
+    lightKeyTemperature: 8800,
+    lightFill: 1.2,
+    lightFillY: 20.0,
+    lightFillZ: -20.0,
+    lightFillTemperature: 7000,
+    lightEnvironment: 0.7,
+    exp: 1.0,
+  },
+  key: {
+    setup: 0.3,
+    matchSweepSpeed: true,
+    fromX: 20,
+    toX: -20,
+    duration: 0.75,
+  },
+  fill: {
+    setup: 0.3,
+    matchSweepSpeed: true,
+    fromX: 20,
+    toX: -20,
+    duration: 0.75,
+  },
+};
+
+// Framer already owns the breakpoint decision. We only consume its explicit
+// route signal here; desktop remains the default for every existing URL.
+const TERMINAL_LIGHT_PROFILE = (() => {
+  if (typeof window === "undefined") return "desktop";
+  try {
+    return new URLSearchParams(window.location.search).get("terminal") === "mobile"
+      ? "mobile"
+      : "desktop";
+  } catch (e) {
+    return "desktop";
+  }
+})();
+
+function activeTerminalLightFx() {
+  return TERMINAL_LIGHT_PROFILE === "mobile"
+    ? TERMINAL_LIGHT_FX_MOBILE
+    : TERMINAL_LIGHT_FX_DESKTOP;
+}
 
 // Sine in / sine out. Zero velocity at both ends, so there is no abrupt
 // launch and no abrupt stop, and it cannot overshoot or bounce. A pure
@@ -2558,22 +2622,22 @@ function motionPlaybackTiming(path, speedOverride) {
   const shineEnd = shineStart + shineDuration;
 
   // ---- v7.5.33 travelling lights ----
-  const lightsRun = terminalQualifies && TERMINAL_LIGHT_FX.enabled === true;
+  const lightsRun = terminalQualifies && activeTerminalLightFx().enabled === true;
   const afterShineGap = lightsRun
-    ? terminalLightSeconds(TERMINAL_LIGHT_FX.afterShineGap, 1)
+    ? terminalLightSeconds(activeTerminalLightFx().afterShineGap, 1)
     : 0;
   const terminalPose = lightsRun ? finalAuthoredPose(path) : null;
   const keySetupDuration = lightsRun
-    ? terminalEntryDuration(TERMINAL_LIGHT_FX.key, terminalPose?.lightKeyX)
+    ? terminalEntryDuration(activeTerminalLightFx().key, terminalPose?.lightKeyX)
     : 0;
   const keyDuration = lightsRun
-    ? terminalLightSeconds(TERMINAL_LIGHT_FX.key.duration)
+    ? terminalLightSeconds(activeTerminalLightFx().key.duration)
     : 0;
   const fillSetupDuration = lightsRun
-    ? terminalEntryDuration(TERMINAL_LIGHT_FX.fill, terminalPose?.lightFillX)
+    ? terminalEntryDuration(activeTerminalLightFx().fill, terminalPose?.lightFillX)
     : 0;
   const fillDuration = lightsRun
-    ? terminalLightSeconds(TERMINAL_LIGHT_FX.fill.duration)
+    ? terminalLightSeconds(activeTerminalLightFx().fill.duration)
     : 0;
   // The lights begin only once BOTH the authored path and the sweep have
   // finished. On both production paths the sweep already outlasts the
@@ -2630,10 +2694,10 @@ function terminalLightOverrides(pose, timing, elapsed) {
   if (!pose || !timing?.lightsRun) return null;
   if (elapsed < timing.keySetupStart) return null;
 
-  const keyFrom = clampLightPosition(TERMINAL_LIGHT_FX.key.fromX);
-  const keyTo = clampLightPosition(TERMINAL_LIGHT_FX.key.toX);
-  const fillFrom = clampLightPosition(TERMINAL_LIGHT_FX.fill.fromX);
-  const fillTo = clampLightPosition(TERMINAL_LIGHT_FX.fill.toX);
+  const keyFrom = clampLightPosition(activeTerminalLightFx().key.fromX);
+  const keyTo = clampLightPosition(activeTerminalLightFx().key.toX);
+  const fillFrom = clampLightPosition(activeTerminalLightFx().fill.fromX);
+  const fillTo = clampLightPosition(activeTerminalLightFx().fill.toX);
   const out = {};
 
   // ---- RECORDED RIG (v7.5.34) ----
@@ -2648,8 +2712,8 @@ function terminalLightOverrides(pose, timing, elapsed) {
     timing.keySetupStart,
     timing.keySetupDuration
   );
-  for (const channel of Object.keys(TERMINAL_LIGHT_FX.base)) {
-    const target = Number(TERMINAL_LIGHT_FX.base[channel]);
+  for (const channel of Object.keys(activeTerminalLightFx().base)) {
+    const target = Number(activeTerminalLightFx().base[channel]);
     if (!Number.isFinite(target)) continue;
     if (entryT >= 1) {
       // Assigned, never interpolated — the held value must be exact.
@@ -3817,6 +3881,7 @@ function driveNudge(set, axis, dir, scale = 1) {
 // ---------------------------------------------------------
 function serialiseParams(params) {
   const deg = (r) => Math.round((r * 180) / Math.PI);
+  params.set("terminal", TERMINAL_LIGHT_PROFILE);
   params.set("tilt", ((START.tilt * 180) / Math.PI).toFixed(1));
   params.set("settle", SETTLE.targetEuler.map(deg).join(","));
   params.set("shift", SETTLE.xShiftFraction.toFixed(3));
@@ -4778,100 +4843,100 @@ function DevControls({ initialP }) {
         "terminal light sweep (after the shine)": folder(
           {
             terminalLightEnabled: {
-              value: TERMINAL_LIGHT_FX.enabled,
+              value: activeTerminalLightFx().enabled,
               label: "travelling lights on",
               onChange: (v) => {
-                TERMINAL_LIGHT_FX.enabled = !!v;
+                activeTerminalLightFx().enabled = !!v;
               },
             },
             terminalGap: {
-              value: TERMINAL_LIGHT_FX.afterShineGap,
+              value: activeTerminalLightFx().afterShineGap,
               min: 0,
               max: 0.5,
               step: 0.01,
               label: "gap after glass sweep (s)",
               onChange: (v) => {
-                TERMINAL_LIGHT_FX.afterShineGap = v;
+                activeTerminalLightFx().afterShineGap = v;
               },
             },
             terminalKeySetup: {
-              value: TERMINAL_LIGHT_FX.key.setup,
+              value: activeTerminalLightFx().key.setup,
               min: 0,
               max: 1.5,
               step: 0.01,
               label: "KEY entry glide min (s)",
               onChange: (v) => {
-                TERMINAL_LIGHT_FX.key.setup = v;
+                activeTerminalLightFx().key.setup = v;
               },
             },
             terminalKeyFrom: {
-              value: TERMINAL_LIGHT_FX.key.fromX,
+              value: activeTerminalLightFx().key.fromX,
               min: -20,
               max: 20,
               step: 0.5,
               label: "KEY start X",
               onChange: (v) => {
-                TERMINAL_LIGHT_FX.key.fromX = v;
+                activeTerminalLightFx().key.fromX = v;
               },
             },
             terminalKeyTo: {
-              value: TERMINAL_LIGHT_FX.key.toX,
+              value: activeTerminalLightFx().key.toX,
               min: -20,
               max: 20,
               step: 0.5,
               label: "KEY end X",
               onChange: (v) => {
-                TERMINAL_LIGHT_FX.key.toX = v;
+                activeTerminalLightFx().key.toX = v;
               },
             },
             terminalKeyDuration: {
-              value: TERMINAL_LIGHT_FX.key.duration,
+              value: activeTerminalLightFx().key.duration,
               min: 0.05,
               max: 4,
               step: 0.05,
               label: "KEY sweep (s)",
               onChange: (v) => {
-                TERMINAL_LIGHT_FX.key.duration = v;
+                activeTerminalLightFx().key.duration = v;
               },
             },
             terminalFillSetup: {
-              value: TERMINAL_LIGHT_FX.fill.setup,
+              value: activeTerminalLightFx().fill.setup,
               min: 0,
               max: 1.5,
               step: 0.01,
               label: "FILL entry glide min (s)",
               onChange: (v) => {
-                TERMINAL_LIGHT_FX.fill.setup = v;
+                activeTerminalLightFx().fill.setup = v;
               },
             },
             terminalFillFrom: {
-              value: TERMINAL_LIGHT_FX.fill.fromX,
+              value: activeTerminalLightFx().fill.fromX,
               min: -20,
               max: 20,
               step: 0.5,
               label: "FILL start X",
               onChange: (v) => {
-                TERMINAL_LIGHT_FX.fill.fromX = v;
+                activeTerminalLightFx().fill.fromX = v;
               },
             },
             terminalFillTo: {
-              value: TERMINAL_LIGHT_FX.fill.toX,
+              value: activeTerminalLightFx().fill.toX,
               min: -20,
               max: 20,
               step: 0.5,
               label: "FILL end X",
               onChange: (v) => {
-                TERMINAL_LIGHT_FX.fill.toX = v;
+                activeTerminalLightFx().fill.toX = v;
               },
             },
             terminalFillDuration: {
-              value: TERMINAL_LIGHT_FX.fill.duration,
+              value: activeTerminalLightFx().fill.duration,
               min: 0.05,
               max: 4,
               step: 0.05,
               label: "FILL sweep (s)",
               onChange: (v) => {
-                TERMINAL_LIGHT_FX.fill.duration = v;
+                activeTerminalLightFx().fill.duration = v;
               },
             },
           },
