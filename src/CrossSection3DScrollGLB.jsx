@@ -18,7 +18,25 @@ import { Leva, useControls, button, folder } from "leva";
 
 gsap.registerPlugin(ScrollTrigger);
 
-const IGLASS_APP_VERSION = "7.5.38-single-collapse-shine";
+const IGLASS_APP_VERSION = "7.5.39-faster-collapse-shine-tight-light-handoff";
+
+// ============================================
+// v7.5.39 FASTER COLLAPSE SHINE + TIGHT KEY/FILL HANDOFF
+//
+//   SWEEP DURATION   The sole mobile collapse sweep remains locked to global
+//                    autoplay P = 0.750, but now completes 0 -> 1 over
+//                    durationP = 0.090.
+//   SHORT DEAD GAP   Mobile KEY/FILL terminal positioning begins 0.15 seconds
+//                    after that visible sweep ends. This removes the old
+//                    hidden-terminal-shine wait that created the long pause.
+//   SPEEDS UNCHANGED KEY X and FILL X sweep durations remain 0.75s each;
+//                    their setup durations and recorded lighting rigs are
+//                    otherwise unchanged.
+//   P CALIBRATION    The legacy terminal end remains the playback-duration
+//                    governor, so the existing global-P choreography and
+//                    Node 7 -> Node 8 alignment do not move.
+//
+// ============================================
 
 // ============================================
 // v7.5.38 SINGLE MOBILE COLLAPSE SHINE
@@ -1439,6 +1457,8 @@ const SHINE_EXIT_PROGRESS = 1.4;
 // autoplay progress value, not pathProgress and not an authored pose field.
 const MOBILE_COLLAPSE_SHINE = {
   startP: 0.75,
+  durationP: 0.09,
+  postSweepGapSeconds: 0.15,
   sweepStrength: 0.3,
   broadWidth: 0.03,
   stripWidth: 0.1,
@@ -2734,9 +2754,42 @@ function motionPlaybackTiming(path, speedOverride) {
   // path, so this changes nothing there; it guarantees in general that
   // every non-X channel the lights leave alone is the settled final pose
   // rather than a value still being interpolated.
-  const keySetupStart = lightsRun
+  const legacyKeySetupStart = lightsRun
     ? Math.max(pathDuration, shineEnd) + afterShineGap
     : shineEnd;
+  const legacyKeyStart = legacyKeySetupStart + keySetupDuration;
+  const legacyKeyEnd = legacyKeyStart + keyDuration;
+  const legacyFillSetupStart = legacyKeyEnd;
+  const legacyFillStart = legacyFillSetupStart + fillSetupDuration;
+  const legacyFillEnd = legacyFillStart + fillDuration;
+
+  // v7.5.39 — mobile's visible glass sweep is P-authored and ends before the
+  // old hidden terminal-shine reservation. Start the KEY/FILL sequence from
+  // the visible sweep instead, after the deliberately brief dead gap. Keep
+  // the legacy fill end as the playback governor so global-P choreography,
+  // including the P=.750 collapse trigger, stays calibrated exactly as before.
+  const legacyTotalDuration = Math.max(
+    pathDuration,
+    shineEnd,
+    lightsRun ? legacyFillEnd : 0
+  );
+  let keySetupStart = legacyKeySetupStart;
+  if (lightsRun && TERMINAL_LIGHT_PROFILE === "mobile") {
+    const visibleSweepEndP = Math.max(
+      0,
+      Math.min(
+        1,
+        MOBILE_COLLAPSE_SHINE.startP + MOBILE_COLLAPSE_SHINE.durationP
+      )
+    );
+    const visibleSweepEndElapsed = visibleSweepEndP * legacyTotalDuration;
+    keySetupStart = Math.min(
+      legacyKeySetupStart,
+      visibleSweepEndElapsed +
+        terminalLightSeconds(MOBILE_COLLAPSE_SHINE.postSweepGapSeconds, 1)
+    );
+  }
+
   const keyStart = keySetupStart + keySetupDuration;
   const keyEnd = keyStart + keyDuration;
   // No intentional gap between the key finishing and the fill beginning.
@@ -2763,11 +2816,12 @@ function motionPlaybackTiming(path, speedOverride) {
     fillDuration,
     fillEnd,
     terminalLightDuration: lightsRun ? fillEnd - keySetupStart : 0,
-    totalDuration: Math.max(
-      pathDuration,
-      shineEnd,
-      lightsRun ? fillEnd : 0
-    ),
+    // Preserve the pre-v7.5.39 playback clock on mobile even though the
+    // visible KEY/FILL sequence now starts earlier. Desktop is identical.
+    totalDuration:
+      lightsRun && TERMINAL_LIGHT_PROFILE === "mobile"
+        ? legacyTotalDuration
+        : Math.max(pathDuration, shineEnd, lightsRun ? fillEnd : 0),
     rangeStart,
     rangeEnd,
   };
@@ -2894,15 +2948,17 @@ function sampleMotionPlayback(path, progress, speedOverride) {
   }
 
   // The sole mobile front-glass event is keyed to GLOBAL autoplay P. It is
-  // blank at and before P=.750, travels once from 0->1 while the front glass
-  // collapses from Node 7 toward Node 8, then fails closed at final-node
-  // arrival. This overrides any stale shine values embedded in old mobile
+  // blank at and before P=.750, travels once from 0->1 over durationP,
+  // then fails closed. This overrides any stale shine values embedded in old mobile
   // motion URLs, so Node 6 and Node 8 cannot resurrect extra sweeps.
   if (TERMINAL_LIGHT_PROFILE === "mobile") {
     const startP = MOBILE_COLLAPSE_SHINE.startP;
     const endP = Math.max(
       startP + 0.000001,
-      timing.pathArrival / Math.max(0.000001, timing.totalDuration)
+      Math.min(
+        1,
+        startP + Math.max(0.000001, MOBILE_COLLAPSE_SHINE.durationP)
+      )
     );
     const active = progress > startP && progress < endP;
     const shineT = active
