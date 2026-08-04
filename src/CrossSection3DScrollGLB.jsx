@@ -18,219 +18,7 @@ import { Leva, useControls, button, folder } from "leva";
 
 gsap.registerPlugin(ScrollTrigger);
 
-const IGLASS_APP_VERSION = "7.5.47-desktop-shine-optical-overlay";
-
-
-// ============================================
-// v7.5.47 DESKTOP SHINE OPTICAL OVERLAY
-//
-//   ROOT CAUSE      Desktop shine used the front-pane geometry but retained
-//                   depthTest:true while the real clean pane deliberately uses
-//                   depthTest:false because the authored pane sits behind the
-//                   OLED. The OLED therefore rejected the later shine fragments
-//                   even though authored progress and shader uniforms were valid.
-//   DESKTOP FIX     Desktop shine is an optical overlay: depth testing is OFF
-//                   and renderOrder 4 places it above the clean pane (3) but
-//                   below the bezel (5), so the OLED cannot erase the sweep and
-//                   the bezel still masks its physical boundary.
-//   MOBILE LOCKED   Mobile retains depthTest:true and renderOrder 6 exactly as
-//                   before. Its approved P-based sweep is otherwise untouched.
-//   UNCHANGED       Pose/URL round-trip, Node 8 -> 9 progress/style, shader,
-//                   surface bias, timing, motion, terminal lights and headlines.
-//
-// ============================================
-
-// ============================================
-// v7.5.46 SLOT IDENTITY ROUND-TRIP
-//
-//   SLOT PRESERVED    decodeMotionPath retains each embedded node slot, so a
-//                     URL-loaded path keeps its authored pose-slot identity.
-//   GATE EXTENDED     The motion round-trip diagnostic now compares node slot
-//                     identity as well as every required pose value.
-//   UNCHANGED         Pose defaults, URL precedence, desktop/mobile shine,
-//                     terminal lights, shader/depth geometry and motion remain
-//                     exactly as v7.5.45.
-//
-// ============================================
-
-// ============================================
-// v7.5.45 CANONICAL POSE + MOTION URL AUTHORITY
-//
-//   ONE SLOT SOURCE   Preview, manifest and JSON export all resolve from the
-//                     synchronous authoritative slot ref and share the same
-//                     snapshot validation gate.
-//   ONE POSE SCHEMA   Every admitted pose is completed and clamped through one
-//                     canonical registry. Unknown fields survive slot saves.
-//   ONE SHINE SOURCE  In motion URLs, node poses exclusively own shine progress
-//                     and style. Top-level glassfxlook carries look-only values.
-//   LEGACY SAFE       Old glassfx URLs still parse; missing legacy pose fields
-//                     complete once from a captured runtime URL baseline.
-//   UNCHANGED         Desktop Node 8 -> 9 authored sweep, final fail-closed,
-//                     mobile P sweep, terminal lights, shader/depth geometry,
-//                     motion, camera, registration and headlines.
-//
-// ============================================
-
-// ============================================
-// v7.5.44 SHINE SURFACE-BIAS FIX
-//
-//   ROOT CAUSE      The authored pane is fractionally behind the OLED and its
-//                   clean-glass material therefore renders with depthTest:false.
-//                   The shine carrier kept depthTest:true but, unlike the crack
-//                   carrier, had no local-normal surface bias. Its progress was
-//                   correct, yet OLED depth occluded the sweep during landing.
-//   FIX             Reuse the proven CRACK_SURFACE_EPSILON offset on the shine
-//                   carrier: local Z -0.02 places the shader fractionally above
-//                   the pane/OLED surface while preserving real chassis/rim
-//                   depth occlusion.
-//   UNCHANGED       Node 8 -> Node 9 authored shine 0 -> 1.5, final-node OFF,
-//                   legacy second-pass suppression, terminal KEY/FILL timing,
-//                   mobile sweep and every URL/JSON value remain unchanged.
-//
-// ============================================
-
-// ============================================
-// v7.5.43 DESKTOP AUTHORED LANDING SHINE ONLY
-//
-//   ROOT CAUSE      v7.5.42 unnecessarily replaced the already-correct authored
-//                   penultimate -> final shine interpolation with a runtime
-//                   0 -> 1.40 sweep. The production desktop motion already
-//                   carries shine 0 on Node 8 and shine 1 on Node 9.
-//   ONE AUTHORITY    During Node 8 -> Node 9 the sampled/authored path is again
-//                   the sole shine authority, preserving its original 0 -> 1
-//                   timing exactly alongside the glass landing.
-//   FINAL OFF        At final-node arrival, runtime forces shine to zero so the
-//                   stripe cannot remain parked on the top/right edge.
-//   NO SECOND PASS   The legacy post-final automatic desktop sweep remains
-//                   visually suppressed. Its timing reservation is retained so
-//                   terminal-light/headline/probe clocks do not shift.
-//   MOBILE UNCHANGED Mobile P=.750 / durationP=.090 shine and mobile terminal
-//                   lighting are untouched.
-//
-// ============================================
-
-// ============================================
-// v7.5.42 DESKTOP SINGLE LANDING SHINE
-//
-//   ONE DESKTOP PASS  In the terminal desktop section the front-glass shine
-//                     has one authority only: the penultimate -> final-node
-//                     landing leg (UI Node 8 -> Node 9 on the production path).
-//   PHYSICAL EXIT     That one pass travels 0 -> 1.40 during the landing, so
-//                     the strip clears the top edge instead of parking at 1.
-//   FINAL NODE OFF    At final-node arrival shine is forced to zero. The old
-//                     automatic post-final desktop sweep is visually suppressed.
-//   EARLIER SAFE      Authored shine before the penultimate node is untouched.
-//   CLOCK PRESERVED   The legacy terminal-shine timing reservation remains in
-//                     motionPlaybackTiming(), so desktop global-P/headline/probe
-//                     calibration and KEY/FILL timing do not move in this patch.
-//   MOBILE UNCHANGED  P=.750 / durationP=.090 mobile collapse shine and mobile
-//                     terminal lighting are byte-for-byte behaviourally intact.
-//
-// ============================================
-
-// ============================================
-// v7.5.41 MOBILE TERMINAL NODE-ARRIVAL GATE
-//
-//   ROOT CAUSE      v7.5.39 scheduled the mobile KEY/FILL handoff from the
-//                   fixed global-P glass-sweep end. After the path gained an
-//                   extra authored node, that P-based timestamp fell BEFORE
-//                   the final node had arrived, so the KEY sweep could finish
-//                   while S119 was still approaching. The terminal effect
-//                   therefore appeared missing at the terminal pose even
-//                   though all recorded light values were correct.
-//   FINAL AUTHORITY Mobile KEY/FILL setup may begin as soon as BOTH conditions
-//                   are true: (1) the visible P=.750 + .090 sweep plus its
-//                   .15s handoff has completed, AND (2) the final authored node
-//                   has physically arrived (start of its final hold).
-//   NO EXTRA DELAY  If the path arrival itself is later than the .15s handoff,
-//                   arrival satisfies the waiting period; no additional .15s
-//                   pause is added after arrival.
-//   UNCHANGED       P=.750 glass-sweep trigger, durationP=.090, KEY/FILL
-//                   recorded mobile rig, sweep durations, final hold, motion
-//                   JSON, desktop profile and render governor are unchanged.
-//
-// ============================================
-
-// ============================================
-// v7.5.39 FASTER COLLAPSE SHINE + TIGHT KEY/FILL HANDOFF
-//
-//   SWEEP DURATION   The sole mobile collapse sweep remains locked to global
-//                    autoplay P = 0.750, but now completes 0 -> 1 over
-//                    durationP = 0.090.
-//   SHORT DEAD GAP   Mobile KEY/FILL terminal positioning begins 0.15 seconds
-//                    after that visible sweep ends. This removes the old
-//                    hidden-terminal-shine wait that created the long pause.
-//   SPEEDS UNCHANGED KEY X and FILL X sweep durations remain 0.75s each;
-//                    their setup durations and recorded lighting rigs are
-//                    otherwise unchanged.
-//   P CALIBRATION    The legacy terminal end remains the playback-duration
-//                    governor, so the existing global-P choreography and
-//                    Node 7 -> Node 8 alignment do not move.
-//
-// ============================================
-
-// ============================================
-// v7.5.38 SINGLE MOBILE COLLAPSE SHINE
-//
-//   ONE EVENT ONLY  Mobile front-glass shine is forced OFF outside one
-//                   deterministic autoplay window. Authored node shine
-//                   values cannot create a second sweep.
-//   EXACT START     The sole sweep starts at global autoplay P = 0.750.
-//                   Progress is 0 at that exact boundary.
-//   NODE 7 -> 8     From P .750 until the final-node arrival, shine progress
-//                   travels once from 0 -> 1 using strip .10, broad .03,
-//                   strength .30 and angle -48 degrees.
-//   NODE 6 / 8 OFF  Node 6 is blank before the trigger; at Node 8 arrival the
-//                   overlay is immediately failed closed, so no sweep is
-//                   parked on the final glass.
-//   TERMINAL LIGHTS The later KEY/FILL terminal-light sequence and its timing
-//                   are unchanged. The old terminal front-glass pass keeps
-//                   its timing reservation only, preserving the authored P
-//                   calibration, but is visually suppressed on mobile.
-//
-// ============================================
-
-// ============================================
-// v7.5.37 MOBILE END-SHINE CHOREOGRAPHY
-//
-//   POSE-SAVED LOOK  Sweep strength, broad width, strip width and angle are
-//                    now first-class pose/path channels alongside progress.
-//                    Existing paths without those fields remain compatible.
-//   NODES 6 + 7     UI poses 112 / 115: strip .10, broad .03, strength .30,
-//                    progress .40 and angle -48 degrees.
-//   NODE 7 -> 8     The authored angled sweep continues from .40 to 1.40 so
-//                    its centre physically extrapolates beyond the pane.
-//   FINAL NODE 8    UI pose 119 changes angle to 0 degrees. At its final hold
-//                    the existing automatic pass resets progress to 0 and
-//                    travels through 1 to 1.40, clearing the upper corner.
-//   EXTENDED SCALE  Progress supports 0..1.50. The shader no longer clamps at
-//                    1, and the overlay fails closed at the authored 1.40 exit.
-//   UNCHANGED       Motion positions, node timing, glass registration,
-//                    terminal KEY/FILL profiles and desktop routing are intact.
-//
-// ============================================
-
-// ============================================
-// v7.5.36 BOTTOM-LEFT SHINE LEAK — REGRESSION FIX
-//
-//   PANE TRANSFORM   The shine overlay uses the cloned front-glass geometry,
-//                    so it now inherits the same rebased position,
-//                    quaternion and scale as that pane. Geometry without the
-//                    source transform placed the sweep beside the chassis.
-//   DEPTH OCCLUSION  Shine depth testing is restored. The chassis/rim can
-//                    occlude the overlay instead of a misplaced highlight
-//                    drawing through the phone body.
-//   TRUE ZERO        A hard shader launch gate,
-//                    smoothstep(0.0, 0.03, uProgress), makes shine=0 produce
-//                    physically zero RGB/alpha rather than parking a live
-//                    strip on the pane edge.
-//   CPU FAIL-CLOSED  The material is also hidden at exact progress zero;
-//                    the shader remains the continuous authority for the
-//                    0.00 -> 0.03 launch ramp.
-//   NO CHOREOGRAPHY  Terminal lighting profiles, motion JSON, timings,
-//                    sweep paths and desktop/mobile routing are unchanged.
-//
-// ============================================
+const IGLASS_APP_VERSION = "7.5.35-terminal-mobile-profiles";
 
 // ============================================
 // v7.5.35 TERMINAL DESKTOP/MOBILE PROFILES
@@ -1459,13 +1247,6 @@ const OLED = {
   luminance: 1,
 };
 
-// v7.5.40 — tiny geometric registration correction between the OLED slab and
-// the body chassis. OLED and glassGroup are siblings under the same pivot, so
-// this is the exact same local Y axis used by GLASS_REG.y. Keep this separate
-// from the motion JSON: the seam is a static assembly registration issue, not
-// an authored animation move.
-const OLED_CHASSIS_Y_OFFSET = -0.01;
-
 const LIGHT_TEMPERATURE_MIN = 2000;
 const LIGHT_TEMPERATURE_MAX = 12000;
 const LIGHT_KEY_BASE_SRGB = [1, 1, 1];
@@ -1512,13 +1293,34 @@ function setTemperatureTint(target, temperature, neutral, baseSrgb) {
   return target;
 }
 
-const SHINE_POSE_DEFAULTS = Object.freeze({
-  shine: 0,
-  shineStrength: 0.23,
-  shineBroadWidth: 0.23,
-  shineStripWidth: 0.04,
-  shineAngle: -41,
-});
+function animatedLightingPoseDefaults() {
+  return {
+    oledLuminance: OLED.luminance,
+    lightAmbient: LIGHT.amb,
+    lightKey: LIGHT.key,
+    lightFill: LIGHT.fill,
+    lightEnvironment: LIGHT.env,
+    exp: LIGHT.exp,
+    lightKeyX: LIGHT.keyPosition[0],
+    lightKeyY: LIGHT.keyPosition[1],
+    lightKeyZ: LIGHT.keyPosition[2],
+    lightKeyTemperature: LIGHT.keyTemperature,
+    lightFillX: LIGHT.fillPosition[0],
+    lightFillY: LIGHT.fillPosition[1],
+    lightFillZ: LIGHT.fillPosition[2],
+    lightFillTemperature: LIGHT.fillTemperature,
+  };
+}
+
+function withAnimatedLightingDefaults(pose) {
+  if (!pose || typeof pose !== "object") return pose;
+  const next = { ...pose };
+  const defaults = animatedLightingPoseDefaults();
+  for (const [key, value] of Object.entries(defaults)) {
+    if (!Number.isFinite(next[key])) next[key] = value;
+  }
+  return next;
+}
 
 // ---------------------------------------------------------
 // GLASS (v3.9) — the front pane's material, as dials.
@@ -1567,29 +1369,14 @@ function crackReflectionIntensity() {
 // range/speed define an automatic terminal pass. It is appended only when
 // the LAST motion-path node returns glass registration to its home XYZ.
 // ---------------------------------------------------------
-const SHINE_PROGRESS_MAX = 1.5;
-const SHINE_EXIT_PROGRESS = 1.4;
-
-// v7.5.38 — the ONLY mobile front-glass sweep. `startP` is the parent/runtime
-// autoplay progress value, not pathProgress and not an authored pose field.
-const MOBILE_COLLAPSE_SHINE = {
-  startP: 0.75,
-  durationP: 0.09,
-  postSweepGapSeconds: 0.15,
-  sweepStrength: 0.3,
-  broadWidth: 0.03,
-  stripWidth: 0.1,
-  angleDeg: -48,
-};
-
 const SHINE = {
-  progress: SHINE_POSE_DEFAULTS.shine,
+  progress: 0,
   range: [0, 1],
   speed: 0.7,
-  sweepStrength: SHINE_POSE_DEFAULTS.shineStrength,
-  broadWidth: SHINE_POSE_DEFAULTS.shineBroadWidth,
-  stripWidth: SHINE_POSE_DEFAULTS.shineStripWidth,
-  angleDeg: SHINE_POSE_DEFAULTS.shineAngle,
+  sweepStrength: 0.23,
+  broadWidth: 0.23,
+  stripWidth: 0.04,
+  angleDeg: -41,
   persistent: 0.04,
   glint: true,
   glintStrength: 0.7,
@@ -2101,10 +1888,6 @@ const DRIVE_READERS = {
   lift: () => SETTLE.arcLift,
   pscale: () => SETTLE.scale,
   shine: () => SHINE.progress,
-  shineStrength: () => SHINE.sweepStrength,
-  shineBroadWidth: () => SHINE.broadWidth,
-  shineStripWidth: () => SHINE.stripWidth,
-  shineAngle: () => SHINE.angleDeg,
   oledLuminance: () => OLED.luminance,
   lightAmbient: () => LIGHT.amb,
   lightKey: () => LIGHT.key,
@@ -2147,11 +1930,7 @@ const DRIVE_CLAMPS = {
   tilt: [-45, 45],
   lift: [-0.5, 0.5],
   pscale: [0.2, 1.5],
-  shine: [0, SHINE_PROGRESS_MAX],
-  shineStrength: [0, 1.5],
-  shineBroadWidth: [0.005, 0.8],
-  shineStripWidth: [0.005, 0.25],
-  shineAngle: [-90, 90],
+  shine: [0, 1],
   oledLuminance: [0, 1],
   lightAmbient: [0, 1],
   lightKey: [0, 5],
@@ -2174,148 +1953,6 @@ const DRIVE_CLAMPS = {
   crackSeverity: [0, 1],
   crackSharpness: [0.35, 3],
 };
-
-let POSE_RUNTIME_BASELINE = null;
-
-const POSE_FIELD_REGISTRY = Object.freeze({
-  ...Object.fromEntries(
-    Object.keys(DRIVE_READERS).map((key) => [
-      key,
-      Object.freeze({
-        type: "number",
-        clamp: DRIVE_CLAMPS[key] || null,
-        defaultSource: Object.prototype.hasOwnProperty.call(SHINE_POSE_DEFAULTS, key)
-          ? "static-shine"
-          : "runtime-baseline",
-      }),
-    ])
-  ),
-  p: Object.freeze({ type: "number", clamp: [0, 1], defaultSource: "static" }),
-  crackOn: Object.freeze({ type: "boolean", defaultSource: "runtime-baseline" }),
-  crackUseDefault: Object.freeze({ type: "boolean", defaultSource: "runtime-baseline" }),
-});
-
-const CANONICAL_POSE_FIELDS = Object.freeze(Object.keys(POSE_FIELD_REGISTRY));
-const ROUND_TRIP_POSE_FIELDS = Object.freeze([
-  "shine",
-  "shineStrength",
-  "shineBroadWidth",
-  "shineStripWidth",
-  "shineAngle",
-  "oledLuminance",
-  "lightAmbient",
-  "lightKey",
-  "lightFill",
-  "lightEnvironment",
-  "exp",
-  "lightKeyX",
-  "lightKeyY",
-  "lightKeyZ",
-  "lightKeyTemperature",
-  "lightFillX",
-  "lightFillY",
-  "lightFillZ",
-  "lightFillTemperature",
-  "glassRegX",
-  "glassRegY",
-  "glassRegZ",
-]);
-
-function readPoseRuntimeBaseline() {
-  const baseline = {};
-  for (const [key, reader] of Object.entries(DRIVE_READERS)) {
-    const value = reader();
-    if (Number.isFinite(value)) baseline[key] = value;
-  }
-  // Shine pose defaults are deliberately static: top-level glassfx values may
-  // never become hidden motion-pose defaults. Lighting/OLED/stage values remain
-  // the documented active URL baseline captured after URL parsing.
-  Object.assign(baseline, SHINE_POSE_DEFAULTS);
-  baseline.p = 0;
-  baseline.crackOn = !!CRACK.on;
-  baseline.crackUseDefault = !!CRACK.useDefault;
-  return baseline;
-}
-
-function capturePoseRuntimeBaseline() {
-  POSE_RUNTIME_BASELINE = Object.freeze({ ...readPoseRuntimeBaseline() });
-  return POSE_RUNTIME_BASELINE;
-}
-
-function poseRuntimeBaseline() {
-  return POSE_RUNTIME_BASELINE || capturePoseRuntimeBaseline();
-}
-
-function clampCanonicalPoseNumber(key, value) {
-  const clamp = POSE_FIELD_REGISTRY[key]?.clamp;
-  if (!Array.isArray(clamp)) return value;
-  return Math.max(clamp[0], Math.min(clamp[1], value));
-}
-
-function poseContextLabel(context = {}) {
-  const parts = [context.boundary || "pose"];
-  if (Number.isInteger(context.nodeIndex)) parts.push(`node ${context.nodeIndex + 1}`);
-  if (Number.isInteger(context.slot)) parts.push(`S${context.slot + 1}`);
-  return parts.join(" / ");
-}
-
-function reportCanonicalPoseRepair(context, backfilled, clamped) {
-  if (!DEV.enabled || (!backfilled.length && !clamped.length)) return;
-  console.error(`[iGlass canonical pose] ${poseContextLabel(context)}`, {
-    backfilled,
-    clamped,
-  });
-}
-
-function withCanonicalPoseDefaults(pose, context = {}) {
-  if (!pose || typeof pose !== "object") return pose;
-  const next = { ...pose }; // unknown fields are intentionally preserved
-  const baseline = poseRuntimeBaseline();
-  const backfilled = [];
-  const clamped = [];
-
-  for (const key of CANONICAL_POSE_FIELDS) {
-    const spec = POSE_FIELD_REGISTRY[key];
-    if (spec.type === "boolean") {
-      if (typeof next[key] !== "boolean") {
-        next[key] = !!baseline[key];
-        backfilled.push(key);
-      }
-      continue;
-    }
-
-    let value = Number(next[key]);
-    if (!Number.isFinite(value)) {
-      value = Number(baseline[key]);
-      if (!Number.isFinite(value)) continue;
-      backfilled.push(key);
-    }
-    const safe = clampCanonicalPoseNumber(key, value);
-    if (!Object.is(safe, value)) clamped.push(key);
-    next[key] = safe;
-  }
-
-  reportCanonicalPoseRepair(context, backfilled, clamped);
-  return next;
-}
-
-function canonicalPoseIssues(pose) {
-  if (!pose || typeof pose !== "object") return ["missing pose"];
-  const issues = [];
-  for (const key of CANONICAL_POSE_FIELDS) {
-    const spec = POSE_FIELD_REGISTRY[key];
-    if (spec.type === "boolean") {
-      if (typeof pose[key] !== "boolean") issues.push(`${key}: non-boolean`);
-    } else if (!Number.isFinite(pose[key])) {
-      issues.push(`${key}: non-finite`);
-    }
-  }
-  for (const [key, value] of Object.entries(pose)) {
-    if (value === undefined) issues.push(`${key}: undefined`);
-  }
-  return issues;
-}
-
 
 // Pose slots and motion paths may carry keys that no longer exist as Leva
 // controls (crackOpacity, crackExitZ, crackSpin* …). Every write to Leva
@@ -2573,11 +2210,7 @@ function normaliseMotionPath(saved) {
               ? n.position.map(Number)
               : null,
           pose: n.pose && typeof n.pose === "object"
-            ? withCanonicalPoseDefaults(n.pose, {
-                boundary: "normalise-motion",
-                nodeIndex: i,
-                slot: n.slot,
-              })
+            ? withAnimatedLightingDefaults(n.pose)
             : null,
         }))
     : [];
@@ -2662,7 +2295,7 @@ function motionPathFromCurrentPathExport(payload) {
   if (!source || !Array.isArray(source.nodes)) {
     throw new Error("current-path JSON has no path.nodes array");
   }
-  const nodes = source.nodes.map((node, nodeIndex) => {
+  const nodes = source.nodes.map((node) => {
     const timing = node.timing || {};
     const slot = Number.isInteger(node.slotIndex)
       ? node.slotIndex
@@ -2683,11 +2316,7 @@ function motionPathFromCurrentPathExport(payload) {
         ? node.positionOverride.map(Number)
         : null,
       pose: node.pose && typeof node.pose === "object"
-        ? withCanonicalPoseDefaults(node.pose, {
-            boundary: "current-path-import",
-            nodeIndex,
-            slot,
-          })
+        ? withAnimatedLightingDefaults(node.pose)
         : null,
     };
   });
@@ -2702,17 +2331,6 @@ function resolveMotionNodePose(node, slots) {
   const slotPose = node && slots?.[node.slot];
   if (slotPose && typeof slotPose === "object") return slotPose;
   return node?.pose && typeof node.pose === "object" ? node.pose : null;
-}
-
-function canonicalMotionNodePose(node, slots, nodeIndex, boundary) {
-  const pose = resolveMotionNodePose(node, slots);
-  return pose
-    ? withCanonicalPoseDefaults(pose, {
-        boundary,
-        nodeIndex,
-        slot: Number.isInteger(node?.slot) ? node.slot : undefined,
-      })
-    : null;
 }
 
 function poseSnapshotMismatch(source, snapshot) {
@@ -2735,71 +2353,37 @@ function poseSnapshotMismatch(source, snapshot) {
 function validateMotionPathSnapshot(path, sourceSlots) {
   const errors = [];
   (path?.nodes || []).forEach((node, index) => {
-    const source = canonicalMotionNodePose(node, sourceSlots, index, "validate-source");
-    const snapshot = node.pose
-      ? withCanonicalPoseDefaults(node.pose, {
-          boundary: "validate-snapshot",
-          nodeIndex: index,
-          slot: node.slot,
-        })
-      : null;
-    const sourceIssues = canonicalPoseIssues(source);
-    const snapshotIssues = canonicalPoseIssues(snapshot);
-    if (sourceIssues.length) {
-      errors.push(`node ${index + 1} / S${node.slot + 1} — source ${sourceIssues[0]}`);
-      return;
-    }
-    if (snapshotIssues.length) {
-      errors.push(`node ${index + 1} / S${node.slot + 1} — snapshot ${snapshotIssues[0]}`);
-      return;
-    }
-    const mismatch = poseSnapshotMismatch(source, snapshot);
+    const source = resolveMotionNodePose(node, sourceSlots);
+    const mismatch = poseSnapshotMismatch(source, node.pose || null);
     if (mismatch) errors.push(`node ${index + 1} / S${node.slot + 1} — ${mismatch}`);
   });
   return errors;
 }
 
-function embedMotionPathSnapshot(path, sourceSlots) {
-  const normalised = normaliseMotionPath(path);
-  return {
-    ...normalised,
-    nodes: normalised.nodes.map((node, index) => ({
-      ...node,
-      pose: canonicalMotionNodePose(
-        node,
-        sourceSlots,
-        index,
-        "embed-motion-snapshot"
-      ),
-    })),
-  };
-}
-
 function slotsWithSavedPathSnapshot(path, slots) {
   const nextSlots = [...slots];
   let restored = 0;
-  (path?.nodes || []).forEach((node, nodeIndex) => {
+  for (const node of path?.nodes || []) {
     if (
       !Number.isInteger(node.slot) ||
       node.slot < 0 ||
       node.slot >= nextSlots.length ||
       !node.pose ||
       typeof node.pose !== "object"
-    ) return;
-    nextSlots[node.slot] = withCanonicalPoseDefaults(node.pose, {
-      boundary: "restore-saved-path",
-      nodeIndex,
-      slot: node.slot,
-    });
+    ) continue;
+    nextSlots[node.slot] = {
+      ...withAnimatedLightingDefaults(node.pose),
+      shine: Number.isFinite(node.pose.shine) ? node.pose.shine : 0,
+    };
     restored++;
-  });
+  }
   return { slots: nextSlots, restored };
 }
 
 function compileMotionPath(path, slots) {
   const nodes = path.nodes
-    .map((node, nodeIndex) => {
-      const pose = canonicalMotionNodePose(node, slots, nodeIndex, "compile-motion");
+    .map((node) => {
+      const pose = resolveMotionNodePose(node, slots);
       const position =
         Array.isArray(node.position) && node.position.every(Number.isFinite)
           ? node.position.map(Number)
@@ -3024,14 +2608,8 @@ function motionPlaybackTiming(path, speedOverride) {
     ? nodeHoldDuration(path.nodes[path.nodes.length - 1]) / pathSpeed
     : 0;
   const shineStart = Math.max(0, pathDuration - finalHold);
-  const rangeStart = Math.max(
-    0,
-    Math.min(SHINE_PROGRESS_MAX, Number(SHINE.range[0]) || 0)
-  );
-  const rangeEnd = Math.max(
-    0,
-    Math.min(SHINE_PROGRESS_MAX, Number(SHINE.range[1]) || 0)
-  );
+  const rangeStart = Math.max(0, Math.min(1, Number(SHINE.range[0]) || 0));
+  const rangeEnd = Math.max(0, Math.min(1, Number(SHINE.range[1]) || 0));
   const shineDistance = Math.abs(rangeEnd - rangeStart);
   // ONE qualifying test for the whole terminal sequence. The sweep's
   // existing condition is unchanged; the travelling lights simply inherit
@@ -3066,50 +2644,9 @@ function motionPlaybackTiming(path, speedOverride) {
   // path, so this changes nothing there; it guarantees in general that
   // every non-X channel the lights leave alone is the settled final pose
   // rather than a value still being interpolated.
-  const legacyKeySetupStart = lightsRun
+  const keySetupStart = lightsRun
     ? Math.max(pathDuration, shineEnd) + afterShineGap
     : shineEnd;
-  const legacyKeyStart = legacyKeySetupStart + keySetupDuration;
-  const legacyKeyEnd = legacyKeyStart + keyDuration;
-  const legacyFillSetupStart = legacyKeyEnd;
-  const legacyFillStart = legacyFillSetupStart + fillSetupDuration;
-  const legacyFillEnd = legacyFillStart + fillDuration;
-
-  // v7.5.39 — mobile's visible glass sweep is P-authored and ends before the
-  // old hidden terminal-shine reservation. Start the KEY/FILL sequence from
-  // the visible sweep instead, after the deliberately brief dead gap. Keep
-  // the legacy fill end as the playback governor so global-P choreography,
-  // including the P=.750 collapse trigger, stays calibrated exactly as before.
-  const legacyTotalDuration = Math.max(
-    pathDuration,
-    shineEnd,
-    lightsRun ? legacyFillEnd : 0
-  );
-  let keySetupStart = legacyKeySetupStart;
-  if (lightsRun && TERMINAL_LIGHT_PROFILE === "mobile") {
-    const visibleSweepEndP = Math.max(
-      0,
-      Math.min(
-        1,
-        MOBILE_COLLAPSE_SHINE.startP + MOBILE_COLLAPSE_SHINE.durationP
-      )
-    );
-    const visibleSweepEndElapsed = visibleSweepEndP * legacyTotalDuration;
-    // v7.5.41 — the final node must be the sampled pose before the terminal
-    // rig begins. `shineStart` is exactly final-node ARRIVAL (start of its
-    // authored final hold), not the end of the path. This keeps the tight
-    // P-authored handoff but prevents KEY/FILL from being spent during the
-    // incoming S115 -> S119 leg when upstream node timing changes.
-    const visibleHandoffReady =
-      visibleSweepEndElapsed +
-      terminalLightSeconds(MOBILE_COLLAPSE_SHINE.postSweepGapSeconds, 1);
-    const finalNodeArrived = shineStart;
-    keySetupStart = Math.min(
-      legacyKeySetupStart,
-      Math.max(finalNodeArrived, visibleHandoffReady)
-    );
-  }
-
   const keyStart = keySetupStart + keySetupDuration;
   const keyEnd = keyStart + keyDuration;
   // No intentional gap between the key finishing and the fill beginning.
@@ -3136,12 +2673,11 @@ function motionPlaybackTiming(path, speedOverride) {
     fillDuration,
     fillEnd,
     terminalLightDuration: lightsRun ? fillEnd - keySetupStart : 0,
-    // Preserve the pre-v7.5.39 playback clock on mobile even though the
-    // visible KEY/FILL sequence now starts earlier. Desktop is identical.
-    totalDuration:
-      lightsRun && TERMINAL_LIGHT_PROFILE === "mobile"
-        ? legacyTotalDuration
-        : Math.max(pathDuration, shineEnd, lightsRun ? fillEnd : 0),
+    totalDuration: Math.max(
+      pathDuration,
+      shineEnd,
+      lightsRun ? fillEnd : 0
+    ),
     rangeStart,
     rangeEnd,
   };
@@ -3244,48 +2780,20 @@ function sampleMotionPlayback(path, progress, speedOverride) {
   if (!sampledPose) return { pose: null, pathProgress, ...timing };
 
   let pose = sampledPose;
-
-  // v7.5.43 — DESKTOP: keep the authored penultimate -> final shine exactly
-  // as sampled by the motion path (production desktop is Node 8 shine=0 ->
-  // Node 9 shine=1.5). We intervene only at FINAL ARRIVAL, where the overlay is
-  // failed closed. The old post-final automatic pass stays suppressed.
-  if (TERMINAL_LIGHT_PROFILE !== "mobile" && path?.nodes?.length >= 2) {
-    const lastNodeIndex = path.nodes.length - 1;
-    const expectedIndex = expectedMotionNodeIndex(path, pathProgress);
-    if (expectedIndex >= lastNodeIndex - 1e-6) {
-      pose = { ...pose, shine: 0 };
-    }
-  }
-
-  // v7.5.38+ — MOBILE: the old automatic terminal-shine timing reservation is
-  // retained by motionPlaybackTiming(), but its visual pass is suppressed.
-  // The sole mobile front-glass event is keyed to GLOBAL autoplay P. It is
-  // blank at and before P=.750, travels once from 0->1 over durationP,
-  // then fails closed. This overrides any stale shine values embedded in old mobile
-  // motion URLs, so Node 6 and Node 8 cannot resurrect extra sweeps.
-  if (TERMINAL_LIGHT_PROFILE === "mobile") {
-    const startP = MOBILE_COLLAPSE_SHINE.startP;
-    const endP = Math.max(
-      startP + 0.000001,
-      Math.min(
-        1,
-        startP + Math.max(0.000001, MOBILE_COLLAPSE_SHINE.durationP)
-      )
+  if (timing.shineDuration > 0 && elapsed >= timing.shineStart) {
+    const shineT = Math.max(
+      0,
+      Math.min(1, (elapsed - timing.shineStart) / timing.shineDuration)
     );
-    const active = progress > startP && progress < endP;
-    const shineT = active
-      ? Math.max(0, Math.min(1, (progress - startP) / (endP - startP)))
-      : 0;
     pose = {
-      ...pose,
-      shine: shineT,
-      shineStrength: MOBILE_COLLAPSE_SHINE.sweepStrength,
-      shineBroadWidth: MOBILE_COLLAPSE_SHINE.broadWidth,
-      shineStripWidth: MOBILE_COLLAPSE_SHINE.stripWidth,
-      shineAngle: MOBILE_COLLAPSE_SHINE.angleDeg,
+      ...sampledPose,
+      shine: THREE.MathUtils.lerp(
+        timing.rangeStart,
+        timing.rangeEnd,
+        shineT
+      ),
     };
   }
-
   // v7.5.33 — the travelling lights are the next terminal phase, derived
   // from the same elapsed time. A new object every time: the sampled pose
   // is never mutated, and only the channel belonging to the active phase
@@ -3845,19 +3353,7 @@ function applyPoseParamsDirect(pose) {
   if (Number.isFinite(pose.lift)) SETTLE.arcLift = pose.lift;
   if (Number.isFinite(pose.pscale) && pose.pscale > 0) SETTLE.scale = pose.pscale;
   if (Number.isFinite(pose.shine)) {
-    SHINE.progress = Math.max(0, Math.min(SHINE_PROGRESS_MAX, pose.shine));
-  }
-  if (Number.isFinite(pose.shineStrength)) {
-    SHINE.sweepStrength = Math.max(0, Math.min(1.5, pose.shineStrength));
-  }
-  if (Number.isFinite(pose.shineBroadWidth)) {
-    SHINE.broadWidth = Math.max(0.005, Math.min(0.8, pose.shineBroadWidth));
-  }
-  if (Number.isFinite(pose.shineStripWidth)) {
-    SHINE.stripWidth = Math.max(0.005, Math.min(0.25, pose.shineStripWidth));
-  }
-  if (Number.isFinite(pose.shineAngle)) {
-    SHINE.angleDeg = Math.max(-90, Math.min(90, pose.shineAngle));
+    SHINE.progress = Math.max(0, Math.min(1, pose.shine));
   }
   if (Number.isFinite(pose.oledLuminance)) {
     OLED.luminance = Math.max(0, Math.min(1, pose.oledLuminance));
@@ -3969,7 +3465,6 @@ function decodeMotionPath(value) {
       const nodes = parsed.nodes
         .filter((node) => node && node.pose && typeof node.pose === "object")
         .map((node, i) => ({
-          slot: Number.isInteger(node.slot) ? node.slot : undefined,
           duration: i === 0 ? 0 : Math.max(0.1, Number(node.duration) || 1.25),
           hold: Math.max(0, Number(node.hold) || 0),
           motionMode: ["inherit", "continuous", "custom"].includes(node.motionMode)
@@ -3989,11 +3484,7 @@ function decodeMotionPath(value) {
             Array.isArray(node.position) && node.position.length === 3
               ? node.position.map(Number)
               : [node.pose.sposX, node.pose.sposY, node.pose.sposZ],
-          pose: withCanonicalPoseDefaults(node.pose, {
-            boundary: "decode-motion",
-            nodeIndex: i,
-            slot: Number.isInteger(node.slot) ? node.slot : undefined,
-          }),
+          pose: withAnimatedLightingDefaults(node.pose),
         }));
       if (!nodes.length) return null;
       const legacy = Number(parsed.version) < 2;
@@ -4035,78 +3526,6 @@ function decodeMotionPath(value) {
   return null;
 }
 
-function poseValuesEqual(a, b) {
-  if (typeof a === "number" && typeof b === "number") {
-    return Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) <= 1e-10;
-  }
-  return Object.is(a, b);
-}
-
-function motionPathRoundTripDiagnostic(embeddedPath, compiledPath = null) {
-  const compiled = compiledPath || compileMotionPath(embeddedPath, null);
-  const encoded = encodeMotionPath(compiled);
-  const decoded = decodeMotionPath(encoded);
-  const differences = [];
-
-  if (!decoded || decoded.nodes.length !== compiled.nodes.length) {
-    return {
-      pass: false,
-      encoded,
-      decoded,
-      differences: [{ message: "motion payload failed to decode with the same node count" }],
-    };
-  }
-
-  compiled.nodes.forEach((compiledNode, nodeIndex) => {
-    const authoritativePose = embeddedPath.nodes[nodeIndex]?.pose || null;
-    const decodedPose = decoded.nodes[nodeIndex]?.pose || null;
-    const runtimePose = sampleAtTrack(
-      decoded,
-      decoded.nodes.length <= 1 ? 0 : nodeIndex / (decoded.nodes.length - 1)
-    );
-    const slot = Number.isInteger(compiledNode.slot) ? compiledNode.slot : -1;
-    const decodedSlot = Number.isInteger(decoded.nodes[nodeIndex]?.slot)
-      ? decoded.nodes[nodeIndex].slot
-      : -1;
-    if (decodedSlot !== slot) {
-      differences.push({
-        nodeNumber: nodeIndex + 1,
-        slotNumber: slot + 1,
-        field: "slot",
-        authoritative: slot,
-        compiled: slot,
-        urlEncoded: slot,
-        urlDecoded: decodedSlot,
-        runtimeSampled: decodedSlot,
-        message: `node ${nodeIndex + 1} / S${slot + 1} / slot identity round-trip mismatch`,
-      });
-    }
-
-    for (const field of ROUND_TRIP_POSE_FIELDS) {
-      const authoritative = authoritativePose?.[field];
-      const compiledValue = compiledNode.pose?.[field];
-      const encodedValue = compiledValue;
-      const decodedValue = decodedPose?.[field];
-      const runtimeSampled = runtimePose?.[field];
-      const values = [compiledValue, encodedValue, decodedValue, runtimeSampled];
-      if (values.every((value) => poseValuesEqual(authoritative, value))) continue;
-      differences.push({
-        nodeNumber: nodeIndex + 1,
-        slotNumber: slot + 1,
-        field,
-        authoritative,
-        compiled: compiledValue,
-        urlEncoded: encodedValue,
-        urlDecoded: decodedValue,
-        runtimeSampled,
-        message: `node ${nodeIndex + 1} / S${slot + 1} / ${field} round-trip mismatch`,
-      });
-    }
-  });
-
-  return { pass: differences.length === 0, encoded, decoded, differences };
-}
-
 function loadSlots() {
   try {
     const raw = window.localStorage.getItem(SLOT_KEY);
@@ -4117,7 +3536,10 @@ function loadSlots() {
       for (let i = 0; i < n; i++) {
         const pose = arr[i];
         out[i] = pose && typeof pose === "object"
-          ? withCanonicalPoseDefaults(pose, { boundary: "load-slot", slot: i })
+          ? {
+              ...withAnimatedLightingDefaults(pose),
+              shine: Number.isFinite(pose.shine) ? pose.shine : 0,
+            }
           : null;
       }
       return out;
@@ -4457,8 +3879,7 @@ function driveNudge(set, axis, dir, scale = 1) {
 // ---------------------------------------------------------
 // URL / manifest serialisation
 // ---------------------------------------------------------
-function serialiseParams(params, options = {}) {
-  const motion = options.motion === true;
+function serialiseParams(params) {
   const deg = (r) => Math.round((r * 180) / Math.PI);
   params.set("terminal", TERMINAL_LIGHT_PROFILE);
   params.set("tilt", ((START.tilt * 180) / Math.PI).toFixed(1));
@@ -4507,64 +3928,34 @@ function serialiseParams(params, options = {}) {
       .map((v) => v.toFixed(3))
       .join(",")
   );
-  if (motion) {
-    // Motion node poses exclusively own progress + authored style. Look-only
-    // fields remain top-level because they are not interpolated pose channels.
-    params.delete("glassfx");
-    params.set(
-      "glassfxlook",
-      [
-        SHINE.persistent,
-        SHINE.glint ? 1 : 0,
-        SHINE.glintStrength,
-        SHINE.glintSize,
-        SHINE.glintAt,
-        SHINE.glintSpread,
-        SHINE.glintX,
-        SHINE.glintY,
-        SHINE.customEnv ? 1 : 0,
-        SHINE.envBroad,
-        SHINE.envStrip,
-        SHINE.envRim,
-        SHINE.range[0],
-        SHINE.range[1],
-        SHINE.speed,
-        SHINE.envLeft,
-      ]
-        .map((v) => Number(v).toFixed(4))
-        .join(",")
-    );
-  } else {
-    params.delete("glassfxlook");
-    params.set(
-      "glassfx",
-      [
-        SHINE.progress,
-        SHINE.sweepStrength,
-        SHINE.broadWidth,
-        SHINE.stripWidth,
-        SHINE.angleDeg,
-        SHINE.persistent,
-        SHINE.glint ? 1 : 0,
-        SHINE.glintStrength,
-        SHINE.glintSize,
-        SHINE.glintAt,
-        SHINE.glintSpread,
-        SHINE.glintX,
-        SHINE.glintY,
-        SHINE.customEnv ? 1 : 0,
-        SHINE.envBroad,
-        SHINE.envStrip,
-        SHINE.envRim,
-        SHINE.range[0],
-        SHINE.range[1],
-        SHINE.speed,
-        SHINE.envLeft,
-      ]
-        .map((v) => Number(v).toFixed(4))
-        .join(",")
-    );
-  }
+  params.set(
+    "glassfx",
+    [
+      SHINE.progress,
+      SHINE.sweepStrength,
+      SHINE.broadWidth,
+      SHINE.stripWidth,
+      SHINE.angleDeg,
+      SHINE.persistent,
+      SHINE.glint ? 1 : 0,
+      SHINE.glintStrength,
+      SHINE.glintSize,
+      SHINE.glintAt,
+      SHINE.glintSpread,
+      SHINE.glintX,
+      SHINE.glintY,
+      SHINE.customEnv ? 1 : 0,
+      SHINE.envBroad,
+      SHINE.envStrip,
+      SHINE.envRim,
+      SHINE.range[0],
+      SHINE.range[1],
+      SHINE.speed,
+      SHINE.envLeft,
+    ]
+      .map((v) => Number(v).toFixed(4))
+      .join(",")
+  );
   params.set("envp", LIGHT.preset);
   params.set("envb", LIGHT.blur.toFixed(2));
   // v4.2, on, effectiveX, effectiveY, severity, sharpness,
@@ -4617,30 +4008,11 @@ function copyManifest() {
   if (navigator.clipboard) navigator.clipboard.writeText(json);
 }
 
-let LAST_MOTION_ARTIFACT_ERROR = "";
-
 function buildMotionPathBaseURL(path, slots) {
-  LAST_MOTION_ARTIFACT_ERROR = "";
-  const embeddedPath = embedMotionPathSnapshot(path, slots);
-  const errors = validateMotionPathSnapshot(embeddedPath, slots);
-  if (errors.length) {
-    LAST_MOTION_ARTIFACT_ERROR = errors[0];
-    if (DEV.enabled) console.error("[iGlass motion artifact blocked]", errors);
-    return null;
-  }
-  const compiled = compileMotionPath(embeddedPath, null);
-  if (compiled.nodes.length < 2) {
-    LAST_MOTION_ARTIFACT_ERROR = "the loaded path needs at least two valid nodes";
-    return null;
-  }
-  const roundTrip = motionPathRoundTripDiagnostic(embeddedPath, compiled);
-  if (!roundTrip.pass) {
-    LAST_MOTION_ARTIFACT_ERROR = roundTrip.differences[0]?.message || "round-trip mismatch";
-    if (DEV.enabled) console.error("[iGlass round-trip blocked]", roundTrip);
-    return null;
-  }
+  const compiled = compileMotionPath(path, slots);
+  if (compiled.nodes.length < 2) return null;
   const params = new URLSearchParams();
-  serialiseParams(params, { motion: true });
+  serialiseParams(params);
   params.set("motion", encodeMotionPath(compiled));
   return `${window.location.origin}${window.location.pathname}?${params.toString()}`;
 }
@@ -5369,10 +4741,9 @@ function DevControls({ initialP }) {
       { collapsed: false }
     ),
 
-    // ---- v7.5.37 PREMIUM GLASS LAB. Progress, brightness, broad width,
-    // strip width and angle are all saved/interpolated pose channels. The
-    // remaining values define the shared look and ride copy URL / capture
-    // manifests through ?glassfx. ----
+    // ---- v6 PREMIUM GLASS LAB. `shine` is part of every saved pose and
+    // motion path. All other values define the look and ride copy URL / the
+    // capture manifest through ?glassfx. ----
     "💎 premium glass lab": folder(
       {
         "reflection sweep": folder(
@@ -5380,16 +4751,13 @@ function DevControls({ initialP }) {
             shineRange: {
               value: SHINE.range,
               min: 0,
-              max: SHINE_PROGRESS_MAX,
+              max: 1,
               step: 0.001,
               label: "automatic range (start → end)",
               onChange: (v) => {
                 if (!Array.isArray(v) || v.length !== 2) return;
                 SHINE.range = v.map((value) =>
-                  Math.max(
-                    0,
-                    Math.min(SHINE_PROGRESS_MAX, Number(value) || 0)
-                  )
+                  Math.max(0, Math.min(1, Number(value) || 0))
                 );
               },
             },
@@ -5406,7 +4774,7 @@ function DevControls({ initialP }) {
             shine: {
               value: SHINE.progress,
               min: 0,
-              max: SHINE_PROGRESS_MAX,
+              max: 1,
               step: 0.001,
               label: "shine progress (SAVED IN POSE)",
               onChange: (v) => {
@@ -6557,10 +5925,7 @@ function DevDashboard() {
     const currentSlots = slotsRef.current;
     if (currentSlots[i] && !window.confirm(`Replace pose slot ${i + 1}?`)) return;
     const next = [...currentSlots];
-    const savedPose = withCanonicalPoseDefaults(
-      { ...(currentSlots[i] || {}), ...readPoseParams() },
-      { boundary: "save-slot", slot: i }
-    );
+    const savedPose = readPoseParams();
     next[i] = savedPose;
     const meta = {
       ...slotMeta,
@@ -6749,8 +6114,13 @@ function DevDashboard() {
     persistSlotRecord(MOTION_LIBRARY_KEY, next);
   };
 
-  const embedMotionPath = (path, sourceSlots = slotsRef.current) =>
-    embedMotionPathSnapshot(path, sourceSlots);
+  const embedMotionPath = (path, sourceSlots = slotsRef.current) => ({
+    ...normaliseMotionPath(path),
+    nodes: path.nodes.map((node) => {
+      const pose = resolveMotionNodePose(node, sourceSlots);
+      return { ...node, pose: pose ? { ...pose } : null };
+    }),
+  });
 
   const savePathVersion = (asNew = false, targetId = libraryId) => {
     const sourceSlots = slotsRef.current;
@@ -7055,7 +6425,10 @@ function DevDashboard() {
         const nextSlots = Array(SLOT_COUNT).fill(null);
         (parsed.slots || []).slice(0, SLOT_COUNT).forEach((pose, i) => {
           nextSlots[i] = pose && typeof pose === "object"
-            ? withCanonicalPoseDefaults(pose, { boundary: "studio-import", slot: i })
+            ? {
+                ...withAnimatedLightingDefaults(pose),
+                shine: Number.isFinite(pose.shine) ? pose.shine : 0,
+              }
             : null;
         });
         const meta = parsed.slotMeta || {};
@@ -7613,8 +6986,8 @@ function DevDashboard() {
           <span style={chipStyle(false)} onClick={undoPath}>undo</span>
           <span style={chipStyle(false)} onClick={redoPath}>redo</span>
           <span style={chipStyle(false)} onClick={() => { commitMotionPath(defaultMotionPath()); setSelectedPathNode(-1); }}>clear</span>
-          <span style={chipStyle(false)} title="self-contained preview URL" onClick={async () => { const ok = await copyMotionPreviewURL(motionPath, slotsRef.current); setStatus(ok ? "self-contained preview URL copied · canonical slots verified" : `PREVIEW URL BLOCKED — ${LAST_MOTION_ARTIFACT_ERROR || "clipboard permission denied"}`); }}>🔗 preview</span>
-          <span style={chipStyle(false)} title="deterministic mp capture manifest" onClick={async () => { const ok = await copyMotionManifest(motionPath, slotsRef.current); setStatus(ok ? "deterministic mp manifest copied · canonical slots verified" : `MANIFEST BLOCKED — ${LAST_MOTION_ARTIFACT_ERROR || "clipboard permission denied"}`); }}>🎞 manifest</span>
+          <span style={chipStyle(false)} title="self-contained preview URL" onClick={async () => setStatus(await copyMotionPreviewURL(motionPath, slots) ? "self-contained preview URL copied" : "preview URL needs at least two valid nodes and clipboard permission")}>🔗 preview</span>
+          <span style={chipStyle(false)} title="deterministic mp capture manifest" onClick={async () => setStatus(await copyMotionManifest(motionPath, slots) ? "deterministic mp manifest copied" : "manifest needs at least two valid nodes and clipboard permission")}>🎞 manifest</span>
         </div>
       </details>
 
@@ -8347,8 +7720,7 @@ function DevGizmo() {
 //   ?bezel=env,rough,offset       v3.8.1 bezel dials
 //   ?oled=-0.5,0,1                OLED face-split, rim, luminance
 //   ?glass=rough,env,opac,cc,ccr  v3.9 front-glass material
-//   ?glassfx=...                   static-pose sweep/glint/environment
-//   ?glassfxlook=...               motion URL look-only shine configuration
+//   ?glassfx=...                   deterministic sweep/glint/environment
 //   ?envp=studio   ?envb=0        reflected world + IBL blur
 //   ?crack=4.2,on,exX,exY,severity,sharpness,defaultX,defaultY,useDefault
 //   ?motion=<base64url-json>       self-contained slot-based motion path
@@ -8358,7 +7730,6 @@ function DevGizmo() {
 // ============================================
 function resolveRuntimeConfig() {
   const params = new URLSearchParams(window.location.search);
-  const motionPayloadPresent = params.has("motion");
   const forced = params.get("mode");
   const isEmbedded = window.self !== window.top;
   const mode =
@@ -8493,8 +7864,8 @@ function resolveRuntimeConfig() {
       SHINE.envStrip = q[15];
       SHINE.envRim = q[16];
       SHINE.range = [
-        Math.max(0, Math.min(SHINE_PROGRESS_MAX, q[17])),
-        Math.max(0, Math.min(SHINE_PROGRESS_MAX, q[18])),
+        Math.max(0, Math.min(1, q[17])),
+        Math.max(0, Math.min(1, q[18])),
       ];
       SHINE.speed = Math.max(0.05, q[19]);
       // v7.5.20 field. Absent on pre-v7.5.20 links -> authored default.
@@ -8557,42 +7928,6 @@ function resolveRuntimeConfig() {
       SHINE.envRim = q[22];
     }
   }
-  // Motion payloads have one authority for all pose-owned shine channels.
-  // Legacy glassfx links remain readable for look-only fields, but their first
-  // five values cannot become a hidden fallback behind authored node poses.
-  if (motionPayloadPresent) {
-    SHINE.progress = SHINE_POSE_DEFAULTS.shine;
-    SHINE.sweepStrength = SHINE_POSE_DEFAULTS.shineStrength;
-    SHINE.broadWidth = SHINE_POSE_DEFAULTS.shineBroadWidth;
-    SHINE.stripWidth = SHINE_POSE_DEFAULTS.shineStripWidth;
-    SHINE.angleDeg = SHINE_POSE_DEFAULTS.shineAngle;
-  }
-
-  const glassFxLookParam = params.get("glassfxlook");
-  if (glassFxLookParam) {
-    const q = glassFxLookParam.split(",").map((v) => parseFloat(v));
-    if (q.length === 16 && q.every((v) => !isNaN(v))) {
-      SHINE.persistent = q[0];
-      SHINE.glint = q[1] === 1;
-      SHINE.glintStrength = q[2];
-      SHINE.glintSize = q[3];
-      SHINE.glintAt = q[4];
-      SHINE.glintSpread = q[5];
-      SHINE.glintX = q[6];
-      SHINE.glintY = q[7];
-      SHINE.customEnv = q[8] === 1;
-      SHINE.envBroad = q[9];
-      SHINE.envStrip = q[10];
-      SHINE.envRim = q[11];
-      SHINE.range = [
-        Math.max(0, Math.min(SHINE_PROGRESS_MAX, q[12])),
-        Math.max(0, Math.min(SHINE_PROGRESS_MAX, q[13])),
-      ];
-      SHINE.speed = Math.max(0.05, q[14]);
-      SHINE.envLeft = Math.max(0, Math.min(4, q[15]));
-    }
-  }
-
   const envpParam = params.get("envp");
   if (envpParam && ENV_PRESETS.includes(envpParam)) {
     LIGHT.preset = envpParam;
@@ -8671,11 +8006,6 @@ function resolveRuntimeConfig() {
   DEV.gizmoSpace = effectiveTarget() === "stage" ? "world" : "local";
 
   CAPTURE_SNAP = params.get("snap") === "1" || params.get("snap") === "true";
-
-  // Freeze the post-URL baseline before any motion node is decoded or sampled.
-  // Legacy lighting/OLED values therefore remain URL-relative but cannot drift
-  // later when applyPoseParamsDirect mutates the live globals.
-  capturePoseRuntimeBaseline();
 
   const motionPath = params.get("motion")
     ? decodeMotionPath(params.get("motion"))
@@ -9515,21 +8845,16 @@ function IPhoneExploded({
           float s = sin(uAngle);
           vec2 rp = mat2(c, -s, s, c) * p;
 
-          // Travel beyond both pane edges, but exact progress zero must be
-          // physically blank. Without this launch gate the live strip sits on
-          // the pane's left edge even when the authored shine value is 0.
-          float travelProgress = max(uProgress, 0.0);
-          float launchGate = smoothstep(0.0, 0.03, travelProgress);
-          // GLSL mix extrapolates when progress exceeds 1. That is deliberate:
-          // the strip keeps travelling beyond the pane instead of clamping to
-          // its upper/right edge at the end of either mobile sweep.
-          float centre = mix(-0.62, 0.62, travelProgress);
+          // Travel beyond both pane edges so progress 0/1 have clean holds.
+          // At progress 0 the strip already touches the pane's left edge.
+          // Set the effect-strength sliders to zero when a blank frame is wanted.
+          float centre = mix(-0.62, 0.62, clamp(uProgress, 0.0, 1.0));
           float broad = gaussian(rp.x - centre, uBroadWidth);
           float strip = gaussian(rp.x - centre, uStripWidth);
           float sweep = (0.32 * broad + strip) * uSweepStrength;
 
           // A quiet stationary panel reflection remains after the sweep.
-          float settled = smoothstep(0.04, 0.22, travelProgress);
+          float settled = smoothstep(0.04, 0.22, uProgress);
           float panel = gaussian(rp.x + 0.24, 0.42) * uPersistent * settled;
 
           // One art-directed sparkle with a soft halo and four restrained
@@ -9543,15 +8868,14 @@ function IPhoneExploded({
           vec2 diag = vec2(gd.x + gd.y, gd.x - gd.y) * 0.70710678;
           float rayD = (exp(-abs(diag.x) * 40.0) * exp(-abs(diag.y) * 3.8)
                       + exp(-abs(diag.y) * 40.0) * exp(-abs(diag.x) * 3.8)) * 0.22;
-          float glintEnvelope = gaussian(travelProgress - uGlintAt, uGlintSpread);
+          float glintEnvelope = gaussian(uProgress - uGlintAt, uGlintSpread);
           float glint = (core + halo + 0.24 * (rayH + rayV) + rayD)
                       * uGlint * uGlintStrength * glintEnvelope;
 
           vec3 warmWhite = vec3(1.0, 0.975, 0.92);
           vec3 coolWhite = vec3(0.76, 0.90, 1.0);
-          vec3 rgb = (warmWhite * (sweep + panel + glint)
-                    + coolWhite * (0.18 * broad * uSweepStrength))
-                   * launchGate;
+          vec3 rgb = warmWhite * (sweep + panel + glint)
+                   + coolWhite * (0.18 * broad * uSweepStrength);
           float gate = clamp(uCleanMix, 0.0, 1.0);
           float intensity = max(max(rgb.r, rgb.g), rgb.b) * gate;
 
@@ -9564,10 +8888,9 @@ function IPhoneExploded({
       `,
       transparent: true,
       depthWrite: false,
-      // Desktop: the authored pane itself must ignore OLED depth, so its shine
-      // carrier must do the same. Render order keeps it below the bezel. Mobile
-      // retains the existing depth-tested carrier to preserve its approved look.
-      depthTest: TERMINAL_LIGHT_PROFILE === "mobile",
+      // Same source-mesh defect as the crack/front pane: at P=0 the pane is
+      // fractionally behind the OLED. The sweep must remain visible at any P.
+      depthTest: false,
       blending: THREE.NormalBlending,
       toneMapped: false,
       polygonOffset: true,
@@ -9715,17 +9038,9 @@ function IPhoneExploded({
     // ---- v6 PREMIUM GLASS. Pure state writes: no clock, no random seed. ----
     if (shineMat) {
       const u = shineMat.uniforms;
-      const shineProgress = Math.max(
-        0,
-        Math.min(SHINE_PROGRESS_MAX, Number(SHINE.progress) || 0)
-      );
-      // Fail closed at exact zero and at the authored off-pane exit. Between
-      // them the shader remains the continuous spatial authority, including
-      // the extrapolated >1 travel that clears the final top corner.
-      const cleanMix =
-        shineProgress > 0 && shineProgress < SHINE_EXIT_PROGRESS ? 1 : 0;
+      const cleanMix = 1;
       u.uCleanMix.value = cleanMix;
-      u.uProgress.value = shineProgress;
+      u.uProgress.value = SHINE.progress;
       u.uSweepStrength.value = SHINE.sweepStrength;
       u.uBroadWidth.value = SHINE.broadWidth;
       u.uStripWidth.value = SHINE.stripWidth;
@@ -9786,9 +9101,6 @@ function IPhoneExploded({
         target,
         damp
       );
-      // Static chassis registration correction. Direct write is deliberate:
-      // unlike the OLED explode Z channel, this must not animate or spring.
-      oledGroupRef.current.position.y = OLED_CHASSIS_Y_OFFSET;
     }
 
     if (bodyGroupRef.current) {
@@ -9857,19 +9169,12 @@ function IPhoneExploded({
             {bezelMeshes.map((m, i) => (
               <primitive key={`bezel-${i}`} object={m} />
             ))}
-            {crackGeo && crackTransform && (
-              <group
-                position={crackTransform.position}
-                quaternion={crackTransform.quaternion}
-                scale={crackTransform.scale}
-              >
-                <mesh
-                  geometry={crackGeo}
-                  material={shineMat}
-                  position={[0, 0, -CRACK_SURFACE_EPSILON]}
-                  renderOrder={TERMINAL_LIGHT_PROFILE === "mobile" ? 6 : 4}
-                />
-              </group>
+            {crackGeo && (
+              <mesh
+                geometry={crackGeo}
+                material={shineMat}
+                renderOrder={6}
+              />
             )}
 
             {/* CRACKED PANE — child of the actual moving front glass. */}
