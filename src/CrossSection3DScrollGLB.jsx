@@ -18,8 +18,21 @@ import { Leva, useControls, button, folder } from "leva";
 
 gsap.registerPlugin(ScrollTrigger);
 
-const IGLASS_APP_VERSION = "7.5.45-canonical-pose-roundtrip-fix";
+const IGLASS_APP_VERSION = "7.5.46-slot-identity-roundtrip-fix";
 
+
+// ============================================
+// v7.5.46 SLOT IDENTITY ROUND-TRIP
+//
+//   SLOT PRESERVED    decodeMotionPath retains each embedded node slot, so a
+//                     URL-loaded path keeps its authored pose-slot identity.
+//   GATE EXTENDED     The motion round-trip diagnostic now compares node slot
+//                     identity as well as every required pose value.
+//   UNCHANGED         Pose defaults, URL precedence, desktop/mobile shine,
+//                     terminal lights, shader/depth geometry and motion remain
+//                     exactly as v7.5.45.
+//
+// ============================================
 
 // ============================================
 // v7.5.45 CANONICAL POSE + MOTION URL AUTHORITY
@@ -3937,6 +3950,7 @@ function decodeMotionPath(value) {
       const nodes = parsed.nodes
         .filter((node) => node && node.pose && typeof node.pose === "object")
         .map((node, i) => ({
+          slot: Number.isInteger(node.slot) ? node.slot : undefined,
           duration: i === 0 ? 0 : Math.max(0.1, Number(node.duration) || 1.25),
           hold: Math.max(0, Number(node.hold) || 0),
           motionMode: ["inherit", "continuous", "custom"].includes(node.motionMode)
@@ -4032,6 +4046,22 @@ function motionPathRoundTripDiagnostic(embeddedPath, compiledPath = null) {
       decoded.nodes.length <= 1 ? 0 : nodeIndex / (decoded.nodes.length - 1)
     );
     const slot = Number.isInteger(compiledNode.slot) ? compiledNode.slot : -1;
+    const decodedSlot = Number.isInteger(decoded.nodes[nodeIndex]?.slot)
+      ? decoded.nodes[nodeIndex].slot
+      : -1;
+    if (decodedSlot !== slot) {
+      differences.push({
+        nodeNumber: nodeIndex + 1,
+        slotNumber: slot + 1,
+        field: "slot",
+        authoritative: slot,
+        compiled: slot,
+        urlEncoded: slot,
+        urlDecoded: decodedSlot,
+        runtimeSampled: decodedSlot,
+        message: `node ${nodeIndex + 1} / S${slot + 1} / slot identity round-trip mismatch`,
+      });
+    }
 
     for (const field of ROUND_TRIP_POSE_FIELDS) {
       const authoritative = authoritativePose?.[field];
