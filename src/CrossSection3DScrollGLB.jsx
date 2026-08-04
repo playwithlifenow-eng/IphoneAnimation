@@ -18,7 +18,26 @@ import { Leva, useControls, button, folder } from "leva";
 
 gsap.registerPlugin(ScrollTrigger);
 
-const IGLASS_APP_VERSION = "7.5.44-shine-surface-bias-fix";
+const IGLASS_APP_VERSION = "7.5.45-canonical-pose-roundtrip-fix";
+
+
+// ============================================
+// v7.5.45 CANONICAL POSE + MOTION URL AUTHORITY
+//
+//   ONE SLOT SOURCE   Preview, manifest and JSON export all resolve from the
+//                     synchronous authoritative slot ref and share the same
+//                     snapshot validation gate.
+//   ONE POSE SCHEMA   Every admitted pose is completed and clamped through one
+//                     canonical registry. Unknown fields survive slot saves.
+//   ONE SHINE SOURCE  In motion URLs, node poses exclusively own shine progress
+//                     and style. Top-level glassfxlook carries look-only values.
+//   LEGACY SAFE       Old glassfx URLs still parse; missing legacy pose fields
+//                     complete once from a captured runtime URL baseline.
+//   UNCHANGED         Desktop Node 8 -> 9 authored sweep, final fail-closed,
+//                     mobile P sweep, terminal lights, shader/depth geometry,
+//                     motion, camera, registration and headlines.
+//
+// ============================================
 
 // ============================================
 // v7.5.44 SHINE SURFACE-BIAS FIX
@@ -1461,34 +1480,13 @@ function setTemperatureTint(target, temperature, neutral, baseSrgb) {
   return target;
 }
 
-function animatedLightingPoseDefaults() {
-  return {
-    oledLuminance: OLED.luminance,
-    lightAmbient: LIGHT.amb,
-    lightKey: LIGHT.key,
-    lightFill: LIGHT.fill,
-    lightEnvironment: LIGHT.env,
-    exp: LIGHT.exp,
-    lightKeyX: LIGHT.keyPosition[0],
-    lightKeyY: LIGHT.keyPosition[1],
-    lightKeyZ: LIGHT.keyPosition[2],
-    lightKeyTemperature: LIGHT.keyTemperature,
-    lightFillX: LIGHT.fillPosition[0],
-    lightFillY: LIGHT.fillPosition[1],
-    lightFillZ: LIGHT.fillPosition[2],
-    lightFillTemperature: LIGHT.fillTemperature,
-  };
-}
-
-function withAnimatedLightingDefaults(pose) {
-  if (!pose || typeof pose !== "object") return pose;
-  const next = { ...pose };
-  const defaults = animatedLightingPoseDefaults();
-  for (const [key, value] of Object.entries(defaults)) {
-    if (!Number.isFinite(next[key])) next[key] = value;
-  }
-  return next;
-}
+const SHINE_POSE_DEFAULTS = Object.freeze({
+  shine: 0,
+  shineStrength: 0.23,
+  shineBroadWidth: 0.23,
+  shineStripWidth: 0.04,
+  shineAngle: -41,
+});
 
 // ---------------------------------------------------------
 // GLASS (v3.9) — the front pane's material, as dials.
@@ -1553,13 +1551,13 @@ const MOBILE_COLLAPSE_SHINE = {
 };
 
 const SHINE = {
-  progress: 0,
+  progress: SHINE_POSE_DEFAULTS.shine,
   range: [0, 1],
   speed: 0.7,
-  sweepStrength: 0.23,
-  broadWidth: 0.23,
-  stripWidth: 0.04,
-  angleDeg: -41,
+  sweepStrength: SHINE_POSE_DEFAULTS.shineStrength,
+  broadWidth: SHINE_POSE_DEFAULTS.shineBroadWidth,
+  stripWidth: SHINE_POSE_DEFAULTS.shineStripWidth,
+  angleDeg: SHINE_POSE_DEFAULTS.shineAngle,
   persistent: 0.04,
   glint: true,
   glintStrength: 0.7,
@@ -2145,6 +2143,148 @@ const DRIVE_CLAMPS = {
   crackSharpness: [0.35, 3],
 };
 
+let POSE_RUNTIME_BASELINE = null;
+
+const POSE_FIELD_REGISTRY = Object.freeze({
+  ...Object.fromEntries(
+    Object.keys(DRIVE_READERS).map((key) => [
+      key,
+      Object.freeze({
+        type: "number",
+        clamp: DRIVE_CLAMPS[key] || null,
+        defaultSource: Object.prototype.hasOwnProperty.call(SHINE_POSE_DEFAULTS, key)
+          ? "static-shine"
+          : "runtime-baseline",
+      }),
+    ])
+  ),
+  p: Object.freeze({ type: "number", clamp: [0, 1], defaultSource: "static" }),
+  crackOn: Object.freeze({ type: "boolean", defaultSource: "runtime-baseline" }),
+  crackUseDefault: Object.freeze({ type: "boolean", defaultSource: "runtime-baseline" }),
+});
+
+const CANONICAL_POSE_FIELDS = Object.freeze(Object.keys(POSE_FIELD_REGISTRY));
+const ROUND_TRIP_POSE_FIELDS = Object.freeze([
+  "shine",
+  "shineStrength",
+  "shineBroadWidth",
+  "shineStripWidth",
+  "shineAngle",
+  "oledLuminance",
+  "lightAmbient",
+  "lightKey",
+  "lightFill",
+  "lightEnvironment",
+  "exp",
+  "lightKeyX",
+  "lightKeyY",
+  "lightKeyZ",
+  "lightKeyTemperature",
+  "lightFillX",
+  "lightFillY",
+  "lightFillZ",
+  "lightFillTemperature",
+  "glassRegX",
+  "glassRegY",
+  "glassRegZ",
+]);
+
+function readPoseRuntimeBaseline() {
+  const baseline = {};
+  for (const [key, reader] of Object.entries(DRIVE_READERS)) {
+    const value = reader();
+    if (Number.isFinite(value)) baseline[key] = value;
+  }
+  // Shine pose defaults are deliberately static: top-level glassfx values may
+  // never become hidden motion-pose defaults. Lighting/OLED/stage values remain
+  // the documented active URL baseline captured after URL parsing.
+  Object.assign(baseline, SHINE_POSE_DEFAULTS);
+  baseline.p = 0;
+  baseline.crackOn = !!CRACK.on;
+  baseline.crackUseDefault = !!CRACK.useDefault;
+  return baseline;
+}
+
+function capturePoseRuntimeBaseline() {
+  POSE_RUNTIME_BASELINE = Object.freeze({ ...readPoseRuntimeBaseline() });
+  return POSE_RUNTIME_BASELINE;
+}
+
+function poseRuntimeBaseline() {
+  return POSE_RUNTIME_BASELINE || capturePoseRuntimeBaseline();
+}
+
+function clampCanonicalPoseNumber(key, value) {
+  const clamp = POSE_FIELD_REGISTRY[key]?.clamp;
+  if (!Array.isArray(clamp)) return value;
+  return Math.max(clamp[0], Math.min(clamp[1], value));
+}
+
+function poseContextLabel(context = {}) {
+  const parts = [context.boundary || "pose"];
+  if (Number.isInteger(context.nodeIndex)) parts.push(`node ${context.nodeIndex + 1}`);
+  if (Number.isInteger(context.slot)) parts.push(`S${context.slot + 1}`);
+  return parts.join(" / ");
+}
+
+function reportCanonicalPoseRepair(context, backfilled, clamped) {
+  if (!DEV.enabled || (!backfilled.length && !clamped.length)) return;
+  console.error(`[iGlass canonical pose] ${poseContextLabel(context)}`, {
+    backfilled,
+    clamped,
+  });
+}
+
+function withCanonicalPoseDefaults(pose, context = {}) {
+  if (!pose || typeof pose !== "object") return pose;
+  const next = { ...pose }; // unknown fields are intentionally preserved
+  const baseline = poseRuntimeBaseline();
+  const backfilled = [];
+  const clamped = [];
+
+  for (const key of CANONICAL_POSE_FIELDS) {
+    const spec = POSE_FIELD_REGISTRY[key];
+    if (spec.type === "boolean") {
+      if (typeof next[key] !== "boolean") {
+        next[key] = !!baseline[key];
+        backfilled.push(key);
+      }
+      continue;
+    }
+
+    let value = Number(next[key]);
+    if (!Number.isFinite(value)) {
+      value = Number(baseline[key]);
+      if (!Number.isFinite(value)) continue;
+      backfilled.push(key);
+    }
+    const safe = clampCanonicalPoseNumber(key, value);
+    if (!Object.is(safe, value)) clamped.push(key);
+    next[key] = safe;
+  }
+
+  reportCanonicalPoseRepair(context, backfilled, clamped);
+  return next;
+}
+
+function canonicalPoseIssues(pose) {
+  if (!pose || typeof pose !== "object") return ["missing pose"];
+  const issues = [];
+  for (const key of CANONICAL_POSE_FIELDS) {
+    const spec = POSE_FIELD_REGISTRY[key];
+    if (spec.type === "boolean") {
+      if (typeof pose[key] !== "boolean") issues.push(`${key}: non-boolean`);
+    } else if (!Number.isFinite(pose[key])) {
+      issues.push(`${key}: non-finite`);
+    }
+  }
+  for (const [key, value] of Object.entries(pose)) {
+    if (value === undefined) issues.push(`${key}: undefined`);
+  }
+  return issues;
+}
+
+
 // Pose slots and motion paths may carry keys that no longer exist as Leva
 // controls (crackOpacity, crackExitZ, crackSpin* …). Every write to Leva
 // is filtered through this set so unknown keys never reach it and legacy
@@ -2401,7 +2541,11 @@ function normaliseMotionPath(saved) {
               ? n.position.map(Number)
               : null,
           pose: n.pose && typeof n.pose === "object"
-            ? withAnimatedLightingDefaults(n.pose)
+            ? withCanonicalPoseDefaults(n.pose, {
+                boundary: "normalise-motion",
+                nodeIndex: i,
+                slot: n.slot,
+              })
             : null,
         }))
     : [];
@@ -2486,7 +2630,7 @@ function motionPathFromCurrentPathExport(payload) {
   if (!source || !Array.isArray(source.nodes)) {
     throw new Error("current-path JSON has no path.nodes array");
   }
-  const nodes = source.nodes.map((node) => {
+  const nodes = source.nodes.map((node, nodeIndex) => {
     const timing = node.timing || {};
     const slot = Number.isInteger(node.slotIndex)
       ? node.slotIndex
@@ -2507,7 +2651,11 @@ function motionPathFromCurrentPathExport(payload) {
         ? node.positionOverride.map(Number)
         : null,
       pose: node.pose && typeof node.pose === "object"
-        ? withAnimatedLightingDefaults(node.pose)
+        ? withCanonicalPoseDefaults(node.pose, {
+            boundary: "current-path-import",
+            nodeIndex,
+            slot,
+          })
         : null,
     };
   });
@@ -2522,6 +2670,17 @@ function resolveMotionNodePose(node, slots) {
   const slotPose = node && slots?.[node.slot];
   if (slotPose && typeof slotPose === "object") return slotPose;
   return node?.pose && typeof node.pose === "object" ? node.pose : null;
+}
+
+function canonicalMotionNodePose(node, slots, nodeIndex, boundary) {
+  const pose = resolveMotionNodePose(node, slots);
+  return pose
+    ? withCanonicalPoseDefaults(pose, {
+        boundary,
+        nodeIndex,
+        slot: Number.isInteger(node?.slot) ? node.slot : undefined,
+      })
+    : null;
 }
 
 function poseSnapshotMismatch(source, snapshot) {
@@ -2544,37 +2703,71 @@ function poseSnapshotMismatch(source, snapshot) {
 function validateMotionPathSnapshot(path, sourceSlots) {
   const errors = [];
   (path?.nodes || []).forEach((node, index) => {
-    const source = resolveMotionNodePose(node, sourceSlots);
-    const mismatch = poseSnapshotMismatch(source, node.pose || null);
+    const source = canonicalMotionNodePose(node, sourceSlots, index, "validate-source");
+    const snapshot = node.pose
+      ? withCanonicalPoseDefaults(node.pose, {
+          boundary: "validate-snapshot",
+          nodeIndex: index,
+          slot: node.slot,
+        })
+      : null;
+    const sourceIssues = canonicalPoseIssues(source);
+    const snapshotIssues = canonicalPoseIssues(snapshot);
+    if (sourceIssues.length) {
+      errors.push(`node ${index + 1} / S${node.slot + 1} — source ${sourceIssues[0]}`);
+      return;
+    }
+    if (snapshotIssues.length) {
+      errors.push(`node ${index + 1} / S${node.slot + 1} — snapshot ${snapshotIssues[0]}`);
+      return;
+    }
+    const mismatch = poseSnapshotMismatch(source, snapshot);
     if (mismatch) errors.push(`node ${index + 1} / S${node.slot + 1} — ${mismatch}`);
   });
   return errors;
 }
 
+function embedMotionPathSnapshot(path, sourceSlots) {
+  const normalised = normaliseMotionPath(path);
+  return {
+    ...normalised,
+    nodes: normalised.nodes.map((node, index) => ({
+      ...node,
+      pose: canonicalMotionNodePose(
+        node,
+        sourceSlots,
+        index,
+        "embed-motion-snapshot"
+      ),
+    })),
+  };
+}
+
 function slotsWithSavedPathSnapshot(path, slots) {
   const nextSlots = [...slots];
   let restored = 0;
-  for (const node of path?.nodes || []) {
+  (path?.nodes || []).forEach((node, nodeIndex) => {
     if (
       !Number.isInteger(node.slot) ||
       node.slot < 0 ||
       node.slot >= nextSlots.length ||
       !node.pose ||
       typeof node.pose !== "object"
-    ) continue;
-    nextSlots[node.slot] = {
-      ...withAnimatedLightingDefaults(node.pose),
-      shine: Number.isFinite(node.pose.shine) ? node.pose.shine : 0,
-    };
+    ) return;
+    nextSlots[node.slot] = withCanonicalPoseDefaults(node.pose, {
+      boundary: "restore-saved-path",
+      nodeIndex,
+      slot: node.slot,
+    });
     restored++;
-  }
+  });
   return { slots: nextSlots, restored };
 }
 
 function compileMotionPath(path, slots) {
   const nodes = path.nodes
-    .map((node) => {
-      const pose = resolveMotionNodePose(node, slots);
+    .map((node, nodeIndex) => {
+      const pose = canonicalMotionNodePose(node, slots, nodeIndex, "compile-motion");
       const position =
         Array.isArray(node.position) && node.position.every(Number.isFinite)
           ? node.position.map(Number)
@@ -3022,7 +3215,7 @@ function sampleMotionPlayback(path, progress, speedOverride) {
 
   // v7.5.43 — DESKTOP: keep the authored penultimate -> final shine exactly
   // as sampled by the motion path (production desktop is Node 8 shine=0 ->
-  // Node 9 shine=1). We intervene only at FINAL ARRIVAL, where the overlay is
+  // Node 9 shine=1.5). We intervene only at FINAL ARRIVAL, where the overlay is
   // failed closed. The old post-final automatic pass stays suppressed.
   if (TERMINAL_LIGHT_PROFILE !== "mobile" && path?.nodes?.length >= 2) {
     const lastNodeIndex = path.nodes.length - 1;
@@ -3763,7 +3956,11 @@ function decodeMotionPath(value) {
             Array.isArray(node.position) && node.position.length === 3
               ? node.position.map(Number)
               : [node.pose.sposX, node.pose.sposY, node.pose.sposZ],
-          pose: withAnimatedLightingDefaults(node.pose),
+          pose: withCanonicalPoseDefaults(node.pose, {
+            boundary: "decode-motion",
+            nodeIndex: i,
+            slot: Number.isInteger(node.slot) ? node.slot : undefined,
+          }),
         }));
       if (!nodes.length) return null;
       const legacy = Number(parsed.version) < 2;
@@ -3805,6 +4002,62 @@ function decodeMotionPath(value) {
   return null;
 }
 
+function poseValuesEqual(a, b) {
+  if (typeof a === "number" && typeof b === "number") {
+    return Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) <= 1e-10;
+  }
+  return Object.is(a, b);
+}
+
+function motionPathRoundTripDiagnostic(embeddedPath, compiledPath = null) {
+  const compiled = compiledPath || compileMotionPath(embeddedPath, null);
+  const encoded = encodeMotionPath(compiled);
+  const decoded = decodeMotionPath(encoded);
+  const differences = [];
+
+  if (!decoded || decoded.nodes.length !== compiled.nodes.length) {
+    return {
+      pass: false,
+      encoded,
+      decoded,
+      differences: [{ message: "motion payload failed to decode with the same node count" }],
+    };
+  }
+
+  compiled.nodes.forEach((compiledNode, nodeIndex) => {
+    const authoritativePose = embeddedPath.nodes[nodeIndex]?.pose || null;
+    const decodedPose = decoded.nodes[nodeIndex]?.pose || null;
+    const runtimePose = sampleAtTrack(
+      decoded,
+      decoded.nodes.length <= 1 ? 0 : nodeIndex / (decoded.nodes.length - 1)
+    );
+    const slot = Number.isInteger(compiledNode.slot) ? compiledNode.slot : -1;
+
+    for (const field of ROUND_TRIP_POSE_FIELDS) {
+      const authoritative = authoritativePose?.[field];
+      const compiledValue = compiledNode.pose?.[field];
+      const encodedValue = compiledValue;
+      const decodedValue = decodedPose?.[field];
+      const runtimeSampled = runtimePose?.[field];
+      const values = [compiledValue, encodedValue, decodedValue, runtimeSampled];
+      if (values.every((value) => poseValuesEqual(authoritative, value))) continue;
+      differences.push({
+        nodeNumber: nodeIndex + 1,
+        slotNumber: slot + 1,
+        field,
+        authoritative,
+        compiled: compiledValue,
+        urlEncoded: encodedValue,
+        urlDecoded: decodedValue,
+        runtimeSampled,
+        message: `node ${nodeIndex + 1} / S${slot + 1} / ${field} round-trip mismatch`,
+      });
+    }
+  });
+
+  return { pass: differences.length === 0, encoded, decoded, differences };
+}
+
 function loadSlots() {
   try {
     const raw = window.localStorage.getItem(SLOT_KEY);
@@ -3815,10 +4068,7 @@ function loadSlots() {
       for (let i = 0; i < n; i++) {
         const pose = arr[i];
         out[i] = pose && typeof pose === "object"
-          ? {
-              ...withAnimatedLightingDefaults(pose),
-              shine: Number.isFinite(pose.shine) ? pose.shine : 0,
-            }
+          ? withCanonicalPoseDefaults(pose, { boundary: "load-slot", slot: i })
           : null;
       }
       return out;
@@ -4158,7 +4408,8 @@ function driveNudge(set, axis, dir, scale = 1) {
 // ---------------------------------------------------------
 // URL / manifest serialisation
 // ---------------------------------------------------------
-function serialiseParams(params) {
+function serialiseParams(params, options = {}) {
+  const motion = options.motion === true;
   const deg = (r) => Math.round((r * 180) / Math.PI);
   params.set("terminal", TERMINAL_LIGHT_PROFILE);
   params.set("tilt", ((START.tilt * 180) / Math.PI).toFixed(1));
@@ -4207,34 +4458,64 @@ function serialiseParams(params) {
       .map((v) => v.toFixed(3))
       .join(",")
   );
-  params.set(
-    "glassfx",
-    [
-      SHINE.progress,
-      SHINE.sweepStrength,
-      SHINE.broadWidth,
-      SHINE.stripWidth,
-      SHINE.angleDeg,
-      SHINE.persistent,
-      SHINE.glint ? 1 : 0,
-      SHINE.glintStrength,
-      SHINE.glintSize,
-      SHINE.glintAt,
-      SHINE.glintSpread,
-      SHINE.glintX,
-      SHINE.glintY,
-      SHINE.customEnv ? 1 : 0,
-      SHINE.envBroad,
-      SHINE.envStrip,
-      SHINE.envRim,
-      SHINE.range[0],
-      SHINE.range[1],
-      SHINE.speed,
-      SHINE.envLeft,
-    ]
-      .map((v) => Number(v).toFixed(4))
-      .join(",")
-  );
+  if (motion) {
+    // Motion node poses exclusively own progress + authored style. Look-only
+    // fields remain top-level because they are not interpolated pose channels.
+    params.delete("glassfx");
+    params.set(
+      "glassfxlook",
+      [
+        SHINE.persistent,
+        SHINE.glint ? 1 : 0,
+        SHINE.glintStrength,
+        SHINE.glintSize,
+        SHINE.glintAt,
+        SHINE.glintSpread,
+        SHINE.glintX,
+        SHINE.glintY,
+        SHINE.customEnv ? 1 : 0,
+        SHINE.envBroad,
+        SHINE.envStrip,
+        SHINE.envRim,
+        SHINE.range[0],
+        SHINE.range[1],
+        SHINE.speed,
+        SHINE.envLeft,
+      ]
+        .map((v) => Number(v).toFixed(4))
+        .join(",")
+    );
+  } else {
+    params.delete("glassfxlook");
+    params.set(
+      "glassfx",
+      [
+        SHINE.progress,
+        SHINE.sweepStrength,
+        SHINE.broadWidth,
+        SHINE.stripWidth,
+        SHINE.angleDeg,
+        SHINE.persistent,
+        SHINE.glint ? 1 : 0,
+        SHINE.glintStrength,
+        SHINE.glintSize,
+        SHINE.glintAt,
+        SHINE.glintSpread,
+        SHINE.glintX,
+        SHINE.glintY,
+        SHINE.customEnv ? 1 : 0,
+        SHINE.envBroad,
+        SHINE.envStrip,
+        SHINE.envRim,
+        SHINE.range[0],
+        SHINE.range[1],
+        SHINE.speed,
+        SHINE.envLeft,
+      ]
+        .map((v) => Number(v).toFixed(4))
+        .join(",")
+    );
+  }
   params.set("envp", LIGHT.preset);
   params.set("envb", LIGHT.blur.toFixed(2));
   // v4.2, on, effectiveX, effectiveY, severity, sharpness,
@@ -4287,11 +4568,30 @@ function copyManifest() {
   if (navigator.clipboard) navigator.clipboard.writeText(json);
 }
 
+let LAST_MOTION_ARTIFACT_ERROR = "";
+
 function buildMotionPathBaseURL(path, slots) {
-  const compiled = compileMotionPath(path, slots);
-  if (compiled.nodes.length < 2) return null;
+  LAST_MOTION_ARTIFACT_ERROR = "";
+  const embeddedPath = embedMotionPathSnapshot(path, slots);
+  const errors = validateMotionPathSnapshot(embeddedPath, slots);
+  if (errors.length) {
+    LAST_MOTION_ARTIFACT_ERROR = errors[0];
+    if (DEV.enabled) console.error("[iGlass motion artifact blocked]", errors);
+    return null;
+  }
+  const compiled = compileMotionPath(embeddedPath, null);
+  if (compiled.nodes.length < 2) {
+    LAST_MOTION_ARTIFACT_ERROR = "the loaded path needs at least two valid nodes";
+    return null;
+  }
+  const roundTrip = motionPathRoundTripDiagnostic(embeddedPath, compiled);
+  if (!roundTrip.pass) {
+    LAST_MOTION_ARTIFACT_ERROR = roundTrip.differences[0]?.message || "round-trip mismatch";
+    if (DEV.enabled) console.error("[iGlass round-trip blocked]", roundTrip);
+    return null;
+  }
   const params = new URLSearchParams();
-  serialiseParams(params);
+  serialiseParams(params, { motion: true });
   params.set("motion", encodeMotionPath(compiled));
   return `${window.location.origin}${window.location.pathname}?${params.toString()}`;
 }
@@ -6208,7 +6508,10 @@ function DevDashboard() {
     const currentSlots = slotsRef.current;
     if (currentSlots[i] && !window.confirm(`Replace pose slot ${i + 1}?`)) return;
     const next = [...currentSlots];
-    const savedPose = readPoseParams();
+    const savedPose = withCanonicalPoseDefaults(
+      { ...(currentSlots[i] || {}), ...readPoseParams() },
+      { boundary: "save-slot", slot: i }
+    );
     next[i] = savedPose;
     const meta = {
       ...slotMeta,
@@ -6397,13 +6700,8 @@ function DevDashboard() {
     persistSlotRecord(MOTION_LIBRARY_KEY, next);
   };
 
-  const embedMotionPath = (path, sourceSlots = slotsRef.current) => ({
-    ...normaliseMotionPath(path),
-    nodes: path.nodes.map((node) => {
-      const pose = resolveMotionNodePose(node, sourceSlots);
-      return { ...node, pose: pose ? { ...pose } : null };
-    }),
-  });
+  const embedMotionPath = (path, sourceSlots = slotsRef.current) =>
+    embedMotionPathSnapshot(path, sourceSlots);
 
   const savePathVersion = (asNew = false, targetId = libraryId) => {
     const sourceSlots = slotsRef.current;
@@ -6708,10 +7006,7 @@ function DevDashboard() {
         const nextSlots = Array(SLOT_COUNT).fill(null);
         (parsed.slots || []).slice(0, SLOT_COUNT).forEach((pose, i) => {
           nextSlots[i] = pose && typeof pose === "object"
-            ? {
-                ...withAnimatedLightingDefaults(pose),
-                shine: Number.isFinite(pose.shine) ? pose.shine : 0,
-              }
+            ? withCanonicalPoseDefaults(pose, { boundary: "studio-import", slot: i })
             : null;
         });
         const meta = parsed.slotMeta || {};
@@ -7269,8 +7564,8 @@ function DevDashboard() {
           <span style={chipStyle(false)} onClick={undoPath}>undo</span>
           <span style={chipStyle(false)} onClick={redoPath}>redo</span>
           <span style={chipStyle(false)} onClick={() => { commitMotionPath(defaultMotionPath()); setSelectedPathNode(-1); }}>clear</span>
-          <span style={chipStyle(false)} title="self-contained preview URL" onClick={async () => setStatus(await copyMotionPreviewURL(motionPath, slots) ? "self-contained preview URL copied" : "preview URL needs at least two valid nodes and clipboard permission")}>🔗 preview</span>
-          <span style={chipStyle(false)} title="deterministic mp capture manifest" onClick={async () => setStatus(await copyMotionManifest(motionPath, slots) ? "deterministic mp manifest copied" : "manifest needs at least two valid nodes and clipboard permission")}>🎞 manifest</span>
+          <span style={chipStyle(false)} title="self-contained preview URL" onClick={async () => { const ok = await copyMotionPreviewURL(motionPath, slotsRef.current); setStatus(ok ? "self-contained preview URL copied · canonical slots verified" : `PREVIEW URL BLOCKED — ${LAST_MOTION_ARTIFACT_ERROR || "clipboard permission denied"}`); }}>🔗 preview</span>
+          <span style={chipStyle(false)} title="deterministic mp capture manifest" onClick={async () => { const ok = await copyMotionManifest(motionPath, slotsRef.current); setStatus(ok ? "deterministic mp manifest copied · canonical slots verified" : `MANIFEST BLOCKED — ${LAST_MOTION_ARTIFACT_ERROR || "clipboard permission denied"}`); }}>🎞 manifest</span>
         </div>
       </details>
 
@@ -8003,7 +8298,8 @@ function DevGizmo() {
 //   ?bezel=env,rough,offset       v3.8.1 bezel dials
 //   ?oled=-0.5,0,1                OLED face-split, rim, luminance
 //   ?glass=rough,env,opac,cc,ccr  v3.9 front-glass material
-//   ?glassfx=...                   deterministic sweep/glint/environment
+//   ?glassfx=...                   static-pose sweep/glint/environment
+//   ?glassfxlook=...               motion URL look-only shine configuration
 //   ?envp=studio   ?envb=0        reflected world + IBL blur
 //   ?crack=4.2,on,exX,exY,severity,sharpness,defaultX,defaultY,useDefault
 //   ?motion=<base64url-json>       self-contained slot-based motion path
@@ -8013,6 +8309,7 @@ function DevGizmo() {
 // ============================================
 function resolveRuntimeConfig() {
   const params = new URLSearchParams(window.location.search);
+  const motionPayloadPresent = params.has("motion");
   const forced = params.get("mode");
   const isEmbedded = window.self !== window.top;
   const mode =
@@ -8211,6 +8508,42 @@ function resolveRuntimeConfig() {
       SHINE.envRim = q[22];
     }
   }
+  // Motion payloads have one authority for all pose-owned shine channels.
+  // Legacy glassfx links remain readable for look-only fields, but their first
+  // five values cannot become a hidden fallback behind authored node poses.
+  if (motionPayloadPresent) {
+    SHINE.progress = SHINE_POSE_DEFAULTS.shine;
+    SHINE.sweepStrength = SHINE_POSE_DEFAULTS.shineStrength;
+    SHINE.broadWidth = SHINE_POSE_DEFAULTS.shineBroadWidth;
+    SHINE.stripWidth = SHINE_POSE_DEFAULTS.shineStripWidth;
+    SHINE.angleDeg = SHINE_POSE_DEFAULTS.shineAngle;
+  }
+
+  const glassFxLookParam = params.get("glassfxlook");
+  if (glassFxLookParam) {
+    const q = glassFxLookParam.split(",").map((v) => parseFloat(v));
+    if (q.length === 16 && q.every((v) => !isNaN(v))) {
+      SHINE.persistent = q[0];
+      SHINE.glint = q[1] === 1;
+      SHINE.glintStrength = q[2];
+      SHINE.glintSize = q[3];
+      SHINE.glintAt = q[4];
+      SHINE.glintSpread = q[5];
+      SHINE.glintX = q[6];
+      SHINE.glintY = q[7];
+      SHINE.customEnv = q[8] === 1;
+      SHINE.envBroad = q[9];
+      SHINE.envStrip = q[10];
+      SHINE.envRim = q[11];
+      SHINE.range = [
+        Math.max(0, Math.min(SHINE_PROGRESS_MAX, q[12])),
+        Math.max(0, Math.min(SHINE_PROGRESS_MAX, q[13])),
+      ];
+      SHINE.speed = Math.max(0.05, q[14]);
+      SHINE.envLeft = Math.max(0, Math.min(4, q[15]));
+    }
+  }
+
   const envpParam = params.get("envp");
   if (envpParam && ENV_PRESETS.includes(envpParam)) {
     LIGHT.preset = envpParam;
@@ -8289,6 +8622,11 @@ function resolveRuntimeConfig() {
   DEV.gizmoSpace = effectiveTarget() === "stage" ? "world" : "local";
 
   CAPTURE_SNAP = params.get("snap") === "1" || params.get("snap") === "true";
+
+  // Freeze the post-URL baseline before any motion node is decoded or sampled.
+  // Legacy lighting/OLED values therefore remain URL-relative but cannot drift
+  // later when applyPoseParamsDirect mutates the live globals.
+  capturePoseRuntimeBaseline();
 
   const motionPath = params.get("motion")
     ? decodeMotionPath(params.get("motion"))
