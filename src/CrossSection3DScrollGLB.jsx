@@ -18,8 +18,27 @@ import { Leva, useControls, button, folder } from "leva";
 
 gsap.registerPlugin(ScrollTrigger);
 
-const IGLASS_APP_VERSION = "7.5.46-slot-identity-roundtrip-fix";
+const IGLASS_APP_VERSION = "7.5.47-desktop-shine-optical-overlay";
 
+
+// ============================================
+// v7.5.47 DESKTOP SHINE OPTICAL OVERLAY
+//
+//   ROOT CAUSE      Desktop shine used the front-pane geometry but retained
+//                   depthTest:true while the real clean pane deliberately uses
+//                   depthTest:false because the authored pane sits behind the
+//                   OLED. The OLED therefore rejected the later shine fragments
+//                   even though authored progress and shader uniforms were valid.
+//   DESKTOP FIX     Desktop shine is an optical overlay: depth testing is OFF
+//                   and renderOrder 4 places it above the clean pane (3) but
+//                   below the bezel (5), so the OLED cannot erase the sweep and
+//                   the bezel still masks its physical boundary.
+//   MOBILE LOCKED   Mobile retains depthTest:true and renderOrder 6 exactly as
+//                   before. Its approved P-based sweep is otherwise untouched.
+//   UNCHANGED       Pose/URL round-trip, Node 8 -> 9 progress/style, shader,
+//                   surface bias, timing, motion, terminal lights and headlines.
+//
+// ============================================
 
 // ============================================
 // v7.5.46 SLOT IDENTITY ROUND-TRIP
@@ -9545,10 +9564,10 @@ function IPhoneExploded({
       `,
       transparent: true,
       depthWrite: false,
-      // v7.5.36: the overlay now inherits the real pane transform, so normal
-      // chassis/rim depth occlusion is both safe and required. depthTest:false
-      // allowed the displaced sweep to leak through the bottom-left body edge.
-      depthTest: true,
+      // Desktop: the authored pane itself must ignore OLED depth, so its shine
+      // carrier must do the same. Render order keeps it below the bezel. Mobile
+      // retains the existing depth-tested carrier to preserve its approved look.
+      depthTest: TERMINAL_LIGHT_PROFILE === "mobile",
       blending: THREE.NormalBlending,
       toneMapped: false,
       polygonOffset: true,
@@ -9848,7 +9867,7 @@ function IPhoneExploded({
                   geometry={crackGeo}
                   material={shineMat}
                   position={[0, 0, -CRACK_SURFACE_EPSILON]}
-                  renderOrder={6}
+                  renderOrder={TERMINAL_LIGHT_PROFILE === "mobile" ? 6 : 4}
                 />
               </group>
             )}
