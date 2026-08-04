@@ -18,7 +18,25 @@ import { Leva, useControls, button, folder } from "leva";
 
 gsap.registerPlugin(ScrollTrigger);
 
-const IGLASS_APP_VERSION = "7.5.43-desktop-authored-landing-shine-only";
+const IGLASS_APP_VERSION = "7.5.44-shine-surface-bias-fix";
+
+// ============================================
+// v7.5.44 SHINE SURFACE-BIAS FIX
+//
+//   ROOT CAUSE      The authored pane is fractionally behind the OLED and its
+//                   clean-glass material therefore renders with depthTest:false.
+//                   The shine carrier kept depthTest:true but, unlike the crack
+//                   carrier, had no local-normal surface bias. Its progress was
+//                   correct, yet OLED depth occluded the sweep during landing.
+//   FIX             Reuse the proven CRACK_SURFACE_EPSILON offset on the shine
+//                   carrier: local Z -0.02 places the shader fractionally above
+//                   the pane/OLED surface while preserving real chassis/rim
+//                   depth occlusion.
+//   UNCHANGED       Node 8 -> Node 9 authored shine 0 -> 1.5, final-node OFF,
+//                   legacy second-pass suppression, terminal KEY/FILL timing,
+//                   mobile sweep and every URL/JSON value remain unchanged.
+//
+// ============================================
 
 // ============================================
 // v7.5.43 DESKTOP AUTHORED LANDING SHINE ONLY
@@ -9461,6 +9479,7 @@ function IPhoneExploded({
                 <mesh
                   geometry={crackGeo}
                   material={shineMat}
+                  position={[0, 0, -CRACK_SURFACE_EPSILON]}
                   renderOrder={6}
                 />
               </group>
