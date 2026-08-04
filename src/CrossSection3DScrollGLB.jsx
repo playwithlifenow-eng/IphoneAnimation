@@ -18,7 +18,30 @@ import { Leva, useControls, button, folder } from "leva";
 
 gsap.registerPlugin(ScrollTrigger);
 
-const IGLASS_APP_VERSION = "7.5.40-oled-chassis-gap-fix";
+const IGLASS_APP_VERSION = "7.5.41-terminal-node9-gate-fix";
+
+// ============================================
+// v7.5.41 MOBILE TERMINAL NODE-ARRIVAL GATE
+//
+//   ROOT CAUSE      v7.5.39 scheduled the mobile KEY/FILL handoff from the
+//                   fixed global-P glass-sweep end. After the path gained an
+//                   extra authored node, that P-based timestamp fell BEFORE
+//                   the final node had arrived, so the KEY sweep could finish
+//                   while S119 was still approaching. The terminal effect
+//                   therefore appeared missing at the terminal pose even
+//                   though all recorded light values were correct.
+//   FINAL AUTHORITY Mobile KEY/FILL setup may begin as soon as BOTH conditions
+//                   are true: (1) the visible P=.750 + .090 sweep plus its
+//                   .15s handoff has completed, AND (2) the final authored node
+//                   has physically arrived (start of its final hold).
+//   NO EXTRA DELAY  If the path arrival itself is later than the .15s handoff,
+//                   arrival satisfies the waiting period; no additional .15s
+//                   pause is added after arrival.
+//   UNCHANGED       P=.750 glass-sweep trigger, durationP=.090, KEY/FILL
+//                   recorded mobile rig, sweep durations, final hold, motion
+//                   JSON, desktop profile and render governor are unchanged.
+//
+// ============================================
 
 // ============================================
 // v7.5.39 FASTER COLLAPSE SHINE + TIGHT KEY/FILL HANDOFF
@@ -2790,10 +2813,18 @@ function motionPlaybackTiming(path, speedOverride) {
       )
     );
     const visibleSweepEndElapsed = visibleSweepEndP * legacyTotalDuration;
+    // v7.5.41 — the final node must be the sampled pose before the terminal
+    // rig begins. `shineStart` is exactly final-node ARRIVAL (start of its
+    // authored final hold), not the end of the path. This keeps the tight
+    // P-authored handoff but prevents KEY/FILL from being spent during the
+    // incoming S115 -> S119 leg when upstream node timing changes.
+    const visibleHandoffReady =
+      visibleSweepEndElapsed +
+      terminalLightSeconds(MOBILE_COLLAPSE_SHINE.postSweepGapSeconds, 1);
+    const finalNodeArrived = shineStart;
     keySetupStart = Math.min(
       legacyKeySetupStart,
-      visibleSweepEndElapsed +
-        terminalLightSeconds(MOBILE_COLLAPSE_SHINE.postSweepGapSeconds, 1)
+      Math.max(finalNodeArrived, visibleHandoffReady)
     );
   }
 
