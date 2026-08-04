@@ -18,7 +18,27 @@ import { Leva, useControls, button, folder } from "leva";
 
 gsap.registerPlugin(ScrollTrigger);
 
-const IGLASS_APP_VERSION = "7.5.42-desktop-single-landing-shine";
+const IGLASS_APP_VERSION = "7.5.43-desktop-authored-landing-shine-only";
+
+// ============================================
+// v7.5.43 DESKTOP AUTHORED LANDING SHINE ONLY
+//
+//   ROOT CAUSE      v7.5.42 unnecessarily replaced the already-correct authored
+//                   penultimate -> final shine interpolation with a runtime
+//                   0 -> 1.40 sweep. The production desktop motion already
+//                   carries shine 0 on Node 8 and shine 1 on Node 9.
+//   ONE AUTHORITY    During Node 8 -> Node 9 the sampled/authored path is again
+//                   the sole shine authority, preserving its original 0 -> 1
+//                   timing exactly alongside the glass landing.
+//   FINAL OFF        At final-node arrival, runtime forces shine to zero so the
+//                   stripe cannot remain parked on the top/right edge.
+//   NO SECOND PASS   The legacy post-final automatic desktop sweep remains
+//                   visually suppressed. Its timing reservation is retained so
+//                   terminal-light/headline/probe clocks do not shift.
+//   MOBILE UNCHANGED Mobile P=.750 / durationP=.090 shine and mobile terminal
+//                   lighting are untouched.
+//
+// ============================================
 
 // ============================================
 // v7.5.42 DESKTOP SINGLE LANDING SHINE
@@ -2982,30 +3002,15 @@ function sampleMotionPlayback(path, progress, speedOverride) {
 
   let pose = sampledPose;
 
-  // v7.5.42 — DESKTOP: one and only one terminal-section glass sweep.
-  // Keep every authored shine before the penultimate node intact. From the
-  // penultimate node onward, runtime becomes authoritative: the final landing
-  // leg travels 0 -> 1.40 and final-node arrival is hard OFF. This removes
-  // both the stale node-carried stripe and the old post-final automatic pass.
-  // `expectedMotionNodeIndex()` follows the authored motion timeline/easing, so
-  // this remains node-relative if upstream desktop durations change.
+  // v7.5.43 — DESKTOP: keep the authored penultimate -> final shine exactly
+  // as sampled by the motion path (production desktop is Node 8 shine=0 ->
+  // Node 9 shine=1). We intervene only at FINAL ARRIVAL, where the overlay is
+  // failed closed. The old post-final automatic pass stays suppressed.
   if (TERMINAL_LIGHT_PROFILE !== "mobile" && path?.nodes?.length >= 2) {
     const lastNodeIndex = path.nodes.length - 1;
-    const penultimateNodeIndex = lastNodeIndex - 1;
     const expectedIndex = expectedMotionNodeIndex(path, pathProgress);
-    if (expectedIndex >= penultimateNodeIndex) {
-      const landingT = Math.max(
-        0,
-        Math.min(1, expectedIndex - penultimateNodeIndex)
-      );
-      const landingActive =
-        expectedIndex >= penultimateNodeIndex && expectedIndex < lastNodeIndex;
-      pose = {
-        ...pose,
-        shine: landingActive
-          ? THREE.MathUtils.lerp(0, SHINE_EXIT_PROGRESS, landingT)
-          : 0,
-      };
+    if (expectedIndex >= lastNodeIndex - 1e-6) {
+      pose = { ...pose, shine: 0 };
     }
   }
 
