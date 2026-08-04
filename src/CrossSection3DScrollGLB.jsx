@@ -18,7 +18,26 @@ import { Leva, useControls, button, folder } from "leva";
 
 gsap.registerPlugin(ScrollTrigger);
 
-const IGLASS_APP_VERSION = "7.5.41-terminal-node9-gate-fix";
+const IGLASS_APP_VERSION = "7.5.42-desktop-single-landing-shine";
+
+// ============================================
+// v7.5.42 DESKTOP SINGLE LANDING SHINE
+//
+//   ONE DESKTOP PASS  In the terminal desktop section the front-glass shine
+//                     has one authority only: the penultimate -> final-node
+//                     landing leg (UI Node 8 -> Node 9 on the production path).
+//   PHYSICAL EXIT     That one pass travels 0 -> 1.40 during the landing, so
+//                     the strip clears the top edge instead of parking at 1.
+//   FINAL NODE OFF    At final-node arrival shine is forced to zero. The old
+//                     automatic post-final desktop sweep is visually suppressed.
+//   EARLIER SAFE      Authored shine before the penultimate node is untouched.
+//   CLOCK PRESERVED   The legacy terminal-shine timing reservation remains in
+//                     motionPlaybackTiming(), so desktop global-P/headline/probe
+//                     calibration and KEY/FILL timing do not move in this patch.
+//   MOBILE UNCHANGED  P=.750 / durationP=.090 mobile collapse shine and mobile
+//                     terminal lighting are byte-for-byte behaviourally intact.
+//
+// ============================================
 
 // ============================================
 // v7.5.41 MOBILE TERMINAL NODE-ARRIVAL GATE
@@ -2962,29 +2981,36 @@ function sampleMotionPlayback(path, progress, speedOverride) {
   if (!sampledPose) return { pose: null, pathProgress, ...timing };
 
   let pose = sampledPose;
-  // v7.5.38 — desktop keeps its existing terminal front-glass pass. Mobile
-  // suppresses that visual pass entirely: its timing span is deliberately
-  // retained by motionPlaybackTiming() so the established global-P mapping
-  // and the later KEY/FILL sequence do not move.
-  if (
-    TERMINAL_LIGHT_PROFILE !== "mobile" &&
-    timing.shineDuration > 0 &&
-    elapsed >= timing.shineStart
-  ) {
-    const shineT = Math.max(
-      0,
-      Math.min(1, (elapsed - timing.shineStart) / timing.shineDuration)
-    );
-    pose = {
-      ...sampledPose,
-      shine: THREE.MathUtils.lerp(
-        timing.rangeStart,
-        timing.rangeEnd,
-        shineT
-      ),
-    };
+
+  // v7.5.42 — DESKTOP: one and only one terminal-section glass sweep.
+  // Keep every authored shine before the penultimate node intact. From the
+  // penultimate node onward, runtime becomes authoritative: the final landing
+  // leg travels 0 -> 1.40 and final-node arrival is hard OFF. This removes
+  // both the stale node-carried stripe and the old post-final automatic pass.
+  // `expectedMotionNodeIndex()` follows the authored motion timeline/easing, so
+  // this remains node-relative if upstream desktop durations change.
+  if (TERMINAL_LIGHT_PROFILE !== "mobile" && path?.nodes?.length >= 2) {
+    const lastNodeIndex = path.nodes.length - 1;
+    const penultimateNodeIndex = lastNodeIndex - 1;
+    const expectedIndex = expectedMotionNodeIndex(path, pathProgress);
+    if (expectedIndex >= penultimateNodeIndex) {
+      const landingT = Math.max(
+        0,
+        Math.min(1, expectedIndex - penultimateNodeIndex)
+      );
+      const landingActive =
+        expectedIndex >= penultimateNodeIndex && expectedIndex < lastNodeIndex;
+      pose = {
+        ...pose,
+        shine: landingActive
+          ? THREE.MathUtils.lerp(0, SHINE_EXIT_PROGRESS, landingT)
+          : 0,
+      };
+    }
   }
 
+  // v7.5.38+ — MOBILE: the old automatic terminal-shine timing reservation is
+  // retained by motionPlaybackTiming(), but its visual pass is suppressed.
   // The sole mobile front-glass event is keyed to GLOBAL autoplay P. It is
   // blank at and before P=.750, travels once from 0->1 over durationP,
   // then fails closed. This overrides any stale shine values embedded in old mobile
