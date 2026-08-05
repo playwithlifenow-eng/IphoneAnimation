@@ -47,6 +47,18 @@ jobs:
           curl --fail --location --retry 3 --retry-all-errors "$map_url" \
             --output .integration/current-framer/HeroGlassDriver.compiled.js.map
           python3 scripts/extract-framer-source-map.py
+      - name: Upload exact source snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: current-framer-authority
+          path: |
+            .integration/current-framer/HeroGlassDriver.current.tsx
+            .integration/current-framer/HeroGlassDriver.current.sha256
+            .integration/current-framer/COMPACT_EMBED_URL.literal.txt
+            .integration/current-framer/HeroGlassDriver.compiled.js
+            .integration/current-framer/HeroGlassDriver.compiled.js.map
+          retention-days: 7
+          if-no-files-found: error
       - name: Commit retrieved authority snapshot
         run: |
           git config user.name 'github-actions[bot]'
