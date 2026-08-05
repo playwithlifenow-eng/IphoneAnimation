@@ -1,0 +1,19 @@
+HTTP/2 200 
+content-type: text/javascript; charset=utf-8
+content-length: 319
+date: Wed, 05 Aug 2026 20:39:14 GMT
+x-xss-protection: 0
+access-control-allow-methods: GET, HEAD, OPTIONS
+access-control-allow-origin: *
+access-control-expose-headers: Content-Range
+cache-control: public, max-age=5
+referrer-policy: strict-origin-when-cross-origin
+strict-transport-security: max-age=31536000; includeSubDomains; preload
+x-content-type-options: nosniff
+x-frame-options: deny
+x-cache: Miss from cloudfront
+via: 1.1 ed769d9f7e8f06199b47692e115648e2.cloudfront.net (CloudFront)
+x-amz-cf-pop: ATL59-P14
+alt-svc: h3=":443"; ma=86400
+x-amz-cf-id: ygcOipE6gbI3pe1mnYbbuXeFj1eQkCP1j1AB8wyeoN8CM40lRAPQ6g==
+
