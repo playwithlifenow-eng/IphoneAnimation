@@ -42,12 +42,7 @@ jobs:
             exit 0
           fi
           module_url="$(cat .integration/current-framer/module-url.txt)"
-          map_url="$(python3 - "$module_url" "$ref" <<'PY'
-import sys
-from urllib.parse import urljoin
-print(urljoin(sys.argv[1], sys.argv[2]))
-PY
-)"
+          map_url="$(python3 -c 'import sys; from urllib.parse import urljoin; print(urljoin(sys.argv[1], sys.argv[2]))' "$module_url" "$ref")"
           printf '%s\n' "$map_url" > .integration/current-framer/source-map-url.txt
           curl --fail --location --retry 3 --retry-all-errors "$map_url" \
             --output .integration/current-framer/HeroGlassDriver.compiled.js.map || true
