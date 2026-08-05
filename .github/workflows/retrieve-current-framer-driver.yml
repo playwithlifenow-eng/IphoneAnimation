@@ -34,7 +34,7 @@ jobs:
             | sort -u > .integration/current-framer/urls.txt || true
           grep -aoE 'sourceMappingURL=[^[:space:]]+' .integration/current-framer/HeroGlassDriver.compiled.js \
             > .integration/current-framer/source-map-reference.txt || true
-      - name: Download source map when exposed
+      - name: Download and extract source map
         run: |
           ref="$(sed -n 's/.*sourceMappingURL=//p' .integration/current-framer/source-map-reference.txt | tail -1)"
           if [ -z "$ref" ]; then
@@ -45,7 +45,8 @@ jobs:
           map_url="$(python3 -c 'import sys; from urllib.parse import urljoin; print(urljoin(sys.argv[1], sys.argv[2]))' "$module_url" "$ref")"
           printf '%s\n' "$map_url" > .integration/current-framer/source-map-url.txt
           curl --fail --location --retry 3 --retry-all-errors "$map_url" \
-            --output .integration/current-framer/HeroGlassDriver.compiled.js.map || true
+            --output .integration/current-framer/HeroGlassDriver.compiled.js.map
+          python3 scripts/extract-framer-source-map.py
       - name: Commit retrieved authority snapshot
         run: |
           git config user.name 'github-actions[bot]'
@@ -55,5 +56,5 @@ jobs:
             echo 'Retrieved module unchanged.'
             exit 0
           fi
-          git commit -m 'Snapshot exact current Framer HeroGlassDriver module'
+          git commit -m 'Snapshot exact current Framer HeroGlassDriver source'
           git push
