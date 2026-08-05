@@ -18,7 +18,7 @@ import { Leva, useControls, button, folder } from "leva";
 
 gsap.registerPlugin(ScrollTrigger);
 
-const IGLASS_APP_VERSION = "7.5.49-shine-temperature-fresnel";
+const IGLASS_APP_VERSION = "7.5.51-mobile-headline-telemetry";
 
 
 // ============================================
@@ -1943,6 +1943,11 @@ const DEV = {
   oledScreenMats: [], // live handles — pose-animated OLED luminance
   glassMat: null, // live handle — the front-glass folder
   glassPaneMesh: null, // live handle — v7.5.9 glass edge feed projection source
+  bezelOuterMesh: null, // v7.5.50 — largest bezel mesh; the thick black rim
+  oledSlabMesh: null, // v7.5.50 — Display_OLED slab, physical edge source
+  bodyChassisMesh: null, // v7.5.50 — largest body mesh; the chassis flank
+  bodyAltMesh: null, // v7.5.50 — runner-up chassis primitive, for equivalence proof
+  edgeDebugPayload: null, // v7.5.50 — last physical payload, for ?edgeDebug=1
   crackMat: null, // live handle — the cracked-pane folder
   crackUndersideMat: null, // inner-face crack; depth-tested against the phone
   shineMat: null, // deterministic sweep / glint shader
@@ -9275,6 +9280,9 @@ function IPhoneExploded({
           oledRimMat,
         ];
         child.renderOrder = 1;
+        // v7.5.50 — the slab is the OLED physical-edge source. One mesh,
+        // one local frame, so its edge identity can never be ambiguous.
+        DEV.oledSlabMesh = child;
         oled.push(child);
         return;
       }
@@ -9356,6 +9364,16 @@ function IPhoneExploded({
         rebased.decompose(m.position, m.quaternion, m.scale);
       }
     }
+
+    // v7.5.50 — PHYSICAL EDGE REFERENCE MESHES.
+    // Each family reports edges from ONE mesh's own local geometry, exactly as
+    // the proven v7.5.9 pane reporter already does. A union bounding box in a
+    // shared parent frame would be a ROTATED box (the anchored rebase
+    // left-multiplies anchorLocal), so its axis-aligned corners would not be
+    // the phone's real edges. One mesh, its own frame, is exact.
+    DEV.bezelOuterMesh = largestPlanarMesh(bezel);
+    DEV.bodyChassisMesh = largestPlanarMesh(body);
+    DEV.bodyAltMesh = secondLargestPlanarMesh(body);
 
     // The overlay uses cloned local-space pane geometry, so it must also use
     // the pane mesh's rebased local transform. Geometry alone is insufficient.
@@ -10020,6 +10038,452 @@ function IPhoneExploded({
   );
 }
 
+
+// ============================================
+// PHYSICAL EDGE MAP (v7.5.50)
+//
+// WHY THIS EXISTS: v7.5.9's reporter classifies the front pane's two long
+// edges as `near` and `far` by live camera depth. Those are CAMERA-RELATIVE
+// ROLES. They are correct for the desktop reveal, which only ever needs
+// "whichever edge is closest", but they are useless as a mobile mask
+// authority: a rotation that crosses the depth ordering swaps which physical
+// edge the label refers to, and a headline mask attached to it would jump.
+//
+// This module adds STABLE PHYSICAL IDENTITY. Each family reports the four
+// edges of its reference mesh's own local bounding rectangle, named by the
+// local axis they sit on — xMin, xMax, yMin, yMax. Those names are fixed
+// properties of the authored geometry, so a given name means the same
+// physical strip of the phone at every pose, for the whole of playback.
+//
+// Camera depth is still reported PER EDGE, as an extra field. It is
+// diagnostic. It never selects identity.
+//
+// Families:
+//   glass  Glass_Front pane — the transparent front sheet
+//   bezel  the black rim that rides the glass unit — the "thick black bezel"
+//   oled   the Display_OLED slab
+//   body   the chassis — largest body mesh by local XY area
+//
+// The legacy { a, b, edges:{near,far} } payload is emitted UNCHANGED beside
+// this. Desktop consumers cannot observe that this module exists.
+// ============================================
+
+// Largest mesh by local XY bounding area. The chassis and the outer bezel are
+// each the biggest planar member of their family, so this picks the member
+// whose rectangle is the visible silhouette rather than a screw boss or a
+// button. Returns null for an empty family, which fails the family closed.
+function planarMeshesByArea(meshes) {
+  const scored = [];
+  for (const m of meshes || []) {
+    if (!m || !m.geometry) continue;
+    if (!m.geometry.boundingBox) m.geometry.computeBoundingBox();
+    const b = m.geometry.boundingBox;
+    if (!b) continue;
+    scored.push({
+      mesh: m,
+      area: (b.max.x - b.min.x) * (b.max.y - b.min.y),
+    });
+  }
+  scored.sort((a, b) => b.area - a.area);
+  return scored.map((x) => x.mesh);
+}
+
+function largestPlanarMesh(meshes) {
+  return planarMeshesByArea(meshes)[0] || null;
+}
+
+// The chassis family contains two primitives whose local rectangles agree to
+// 0.01 model units. Dimensional similarity is NOT interchangeability: they can
+// still carry different node transforms. The runner-up is therefore reported as
+// its own family so the two can be compared as PROJECTED edges, per pose,
+// across the whole interval that uses them.
+function secondLargestPlanarMesh(meshes) {
+  return planarMeshesByArea(meshes)[1] || null;
+}
+
+// The four XY corners of a mesh's local bounding rectangle, taken at mid-Z.
+// The pane and the slab are flat, so mid-Z IS the sheet; for the chassis it is
+// the mid-plane of the frame, which is the silhouette the camera sees.
+//
+// Corner order is fixed and load-bearing:
+//   0 (xMin,yMin)  1 (xMax,yMin)  2 (xMax,yMax)  3 (xMin,yMax)
+function localRectCorners(mesh) {
+  if (!mesh || !mesh.geometry) return null;
+  if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
+  const b = mesh.geometry.boundingBox;
+  if (!b) return null;
+  const zMid = (b.min.z + b.max.z) * 0.5;
+  return {
+    corners: [
+      new THREE.Vector3(b.min.x, b.min.y, zMid),
+      new THREE.Vector3(b.max.x, b.min.y, zMid),
+      new THREE.Vector3(b.max.x, b.max.y, zMid),
+      new THREE.Vector3(b.min.x, b.max.y, zMid),
+    ],
+    extentX: b.max.x - b.min.x,
+    extentY: b.max.y - b.min.y,
+  };
+}
+
+// Which local axis is the phone's LONG axis for this mesh. Reported rather
+// than assumed, so a family whose geometry is authored on the other axis is
+// still described correctly instead of silently mislabelled.
+function rectLongAxis(rect) {
+  return rect.extentY >= rect.extentX ? "y" : "x";
+}
+
+// Projects one family's rectangle through the live camera and returns its four
+// named edges in normalized viewport coordinates (0..1, y-DOWN — the DOM
+// convention, matching the legacy payload exactly).
+//
+// Precision note: no rounding, no clamping and no quantisation happens here.
+// Raw projected floats leave this function. Clamping belongs at the final CSS
+// boundary on the consumer side and nowhere earlier.
+function projectFamilyEdges(mesh, camera, scratch) {
+  const rect = localRectCorners(mesh);
+  if (!rect) return null;
+
+  mesh.updateWorldMatrix(true, false);
+
+  const { v, view } = scratch;
+  const projected = [];
+  const depth = [];
+  // v7.5.50 — WORLD corners are emitted alongside the projected ones. Screen
+  // space cannot answer "is the bezel rectangle outside the pane rectangle",
+  // because a rotation reverses the apparent ordering; world space can, and it
+  // is the only frame the two meshes genuinely share.
+  const world = [];
+  let finite = true;
+
+  for (let i = 0; i < 4; i++) {
+    v.copy(rect.corners[i]).applyMatrix4(mesh.matrixWorld);
+    world.push({ x: v.x, y: v.y, z: v.z });
+    view.copy(v).applyMatrix4(camera.matrixWorldInverse);
+    depth.push(-view.z);
+    v.project(camera);
+    const x = (v.x + 1) * 0.5;
+    const y = (1 - v.y) * 0.5;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) finite = false;
+    projected.push({ x, y });
+  }
+  // A corner behind the camera projects to a MIRRORED BUT PERFECTLY FINITE
+  // point. Testing Number.isFinite alone is therefore not enough: it admits a
+  // plausible-looking line that is geometrically wrong, which is precisely the
+  // failure that would expose an incorrectly revealed headline. Reject the
+  // family whenever any corner is at or behind the near plane.
+  if (!finite) return null;
+  for (let i = 0; i < 4; i++) {
+    if (!(depth[i] > camera.near)) return null;
+  }
+
+  const edge = (i0, i1) => ({
+    a: { x: projected[i0].x, y: projected[i0].y },
+    b: { x: projected[i1].x, y: projected[i1].y },
+    depth: (depth[i0] + depth[i1]) * 0.5,
+  });
+
+  return {
+    mesh: mesh.name || "(unnamed)",
+    longAxis: rectLongAxis(rect),
+    extent: { x: rect.extentX, y: rect.extentY },
+    world,
+    // Long edges when longAxis === "y": the two sides running down the phone.
+    xMin: edge(0, 3),
+    xMax: edge(1, 2),
+    // Short edges when longAxis === "y": the phone's top and bottom.
+    yMin: edge(0, 1),
+    yMax: edge(3, 2),
+  };
+}
+
+// ============================================
+// VIEW-DEPENDENT SILHOUETTE (v7.5.50)
+//
+// WHY THE RECTANGLE MODEL WAS NOT ENOUGH. localRectCorners() takes the four XY
+// corners of a mesh's local box AT MID-Z. That is exact for a flat sheet viewed
+// from a distance, and it is what the proven v7.5.9 pane reporter does. It is
+// WRONG for the bezel during the close-approach phase: the bezel has real Z
+// thickness, the phone is very near the camera, and under strong perspective
+// the visible black boundary is produced by whichever surface is extremal FROM
+// THIS VIEWPOINT — a near face, a far face, or a rim — and that changes with
+// orientation. Collapsing Z to its midpoint deletes precisely the geometry that
+// makes the silhouette sweep across the screen.
+//
+// So: project the mesh's actual vertices and take their 2D convex hull. That
+// hull IS the screen-space silhouette, whatever face happens to be producing
+// it. Vertices are strided to bound the cost, and the whole thing is gated on
+// ?edgeDebug=1, so production pays nothing.
+// ============================================
+
+const SILHOUETTE_MAX_SAMPLES = 1400;
+
+function convexHull2D(points) {
+  if (points.length < 3) return points.slice();
+  const pts = points.slice().sort((a, b) => (a.x - b.x) || (a.y - b.y));
+  const cross = (o, a, b) =>
+    (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+  const build = (src) => {
+    const out = [];
+    for (const p of src) {
+      while (out.length >= 2 && cross(out[out.length - 2], out[out.length - 1], p) <= 0) {
+        out.pop();
+      }
+      out.push(p);
+    }
+    out.pop();
+    return out;
+  };
+  return build(pts).concat(build(pts.slice().reverse()));
+}
+
+// Project a single VIEW-space point (already camera-relative) to normalized
+// screen. Kept separate so near-plane-clipped intersection points, which never
+// existed as vertices, can be projected the same way.
+function projectViewPoint(view, camera, out) {
+  out.copy(view).applyMatrix4(camera.projectionMatrix);
+  const w = out.w === 0 ? 1e-9 : out.w;
+  return {
+    x: (out.x / w + 1) * 0.5,
+    y: (1 - out.y / w) * 0.5,
+  };
+}
+
+function projectSilhouette(mesh, camera, scratch) {
+  if (!mesh || !mesh.geometry) return null;
+  const geo = mesh.geometry;
+  const pos = geo.attributes && geo.attributes.position;
+  if (!pos) return null;
+  mesh.updateWorldMatrix(true, false);
+  const { v, view } = scratch;
+  const near = camera.near;
+  // View-space vertices, computed once, reused by the near-plane clipper.
+  const stride = Math.max(1, Math.ceil(pos.count / SILHOUETTE_MAX_SAMPLES));
+  const vv = [];
+  for (let i = 0; i < pos.count; i += stride) {
+    v.fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld);
+    view.copy(v).applyMatrix4(camera.matrixWorldInverse);
+    vv.push({ x: view.x, y: view.y, z: view.z, in: -view.z > near });
+  }
+  const proj = new THREE.Vector4();
+  const pts = [];
+  const pushView = (vx, vy, vz) => {
+    proj.set(vx, vy, vz, 1);
+    const p = projectViewPoint(proj, camera, proj);
+    if (Number.isFinite(p.x) && Number.isFinite(p.y)) pts.push(p);
+  };
+  // In-front vertices go straight in.
+  for (const p of vv) if (p.in) pushView(p.x, p.y, p.z);
+  // For every stride-adjacent pair straddling the near plane, add the exact
+  // crossing point so a mesh entering the near field still contributes a
+  // boundary instead of vanishing. This is a boundary approximation, not exact
+  // silhouette clipping, but it keeps the family alive and its extremes honest.
+  for (let i = 1; i < vv.length; i++) {
+    const a = vv[i - 1], b = vv[i];
+    if (a.in === b.in) continue;
+    const za = -a.z, zb = -b.z;
+    const t = (near - za) / (zb - za);
+    if (t <= 0 || t >= 1) continue;
+    pushView(
+      a.x + (b.x - a.x) * t,
+      a.y + (b.y - a.y) * t,
+      a.z + (b.z - a.z) * t
+    );
+  }
+  if (pts.length < 3) return null;
+  const hull = convexHull2D(pts);
+  if (hull.length < 3) return null;
+  let minY = hull[0], maxY = hull[0], minX = hull[0], maxX = hull[0];
+  for (const p of hull) {
+    if (p.y < minY.y) minY = p;
+    if (p.y > maxY.y) maxY = p;
+    if (p.x < minX.x) minX = p;
+    if (p.x > maxX.x) maxX = p;
+  }
+  return {
+    sampled: pts.length,
+    stride,
+    hull,
+    // Screen-space extremes of the real silhouette. topY/bottomY are the
+    // boundaries a horizontally-sweeping mask actually needs.
+    topY: minY.y,
+    bottomY: maxY.y,
+    leftX: minX.x,
+    rightX: maxX.x,
+  };
+}
+
+// A compact signature of the whole physical payload, so the existing
+// epsilon gate can suppress a message when NOTHING moved — including the
+// added families. Without this, a still pane could silence an OLED that is
+// still travelling.
+function physicalSignature(physical) {
+  if (!physical) return "";
+  let out = "";
+  for (const family of ["glass", "bezel", "oled", "body", "bodyAlt"]) {
+    const f = physical[family];
+    if (!f) {
+      out += "-|";
+      continue;
+    }
+    for (const id of ["xMin", "xMax", "yMin", "yMax"]) {
+      const e = f[id];
+      out +=
+        e.a.x.toFixed(4) +
+        "," +
+        e.a.y.toFixed(4) +
+        "," +
+        e.b.x.toFixed(4) +
+        "," +
+        e.b.y.toFixed(4) +
+        ";";
+    }
+    out += "|";
+  }
+  const bezelSilhouette = physical.silhouette?.bezel;
+  out += bezelSilhouette
+    ? [
+        bezelSilhouette.topY,
+        bezelSilhouette.bottomY,
+        bezelSilhouette.leftX,
+        bezelSilhouette.rightX,
+      ]
+        .map((v) => Number(v).toFixed(4))
+        .join(",")
+    : "-";
+  return out;
+}
+
+// ?edgeDebug=1 — temporary calibration mode. Draws every candidate edge, in a
+// fixed colour per family and a fixed dash per edge id, so a screenshot can be
+// compared against a hand-annotated frame and the correct identity PROVEN
+// rather than assumed. Absent, this costs nothing: the flag is read once and
+// the overlay is never mounted.
+const EDGE_DEBUG = (() => {
+  if (typeof window === "undefined") return false;
+  try {
+    return new URLSearchParams(window.location.search).get("edgeDebug") === "1";
+  } catch (e) {
+    return false;
+  }
+})();
+
+const EDGE_DEBUG_COLOURS = {
+  glass: "#00b0ff",
+  bezel: "#ff1744",
+  oled: "#00e676",
+  body: "#ffab00",
+};
+
+const EDGE_DEBUG_DASH = {
+  xMin: "none",
+  xMax: "10 6",
+  yMin: "3 5",
+  yMax: "16 4 3 4",
+};
+
+// v7.5.50 — IMPERATIVE, FRAME-SYNCHRONOUS DEBUG OVERLAY.
+//
+// The first cut of this was a React component repainting on a 120 ms interval.
+// That made it USELESS AS PROOF: a capture taken right after a deterministic
+// scrub could show lines belonging to the PREVIOUS p while the JSON payload
+// already held the current one. A labelled capture that can disagree with the
+// geometry it is supposed to be labelling is not evidence.
+//
+// This draws straight from the payload inside the reporter's own useFrame, in
+// the same frame the geometry was computed. There is no second clock, no
+// interval, and no React state, so overlay and payload cannot diverge by
+// construction. __iglassEdgeDebugRenderedP is published so a probe can assert
+// the drawn frame matches the sampled one before capturing.
+const EDGE_DEBUG_DOM = { root: null, svg: null, items: new Map(), badge: null };
+
+function edgeDebugEnsureDom() {
+  if (EDGE_DEBUG_DOM.root || typeof document === "undefined") return;
+  const root = document.createElement("div");
+  root.id = "iglass-edge-debug";
+  root.setAttribute("aria-hidden", "true");
+  root.style.cssText =
+    "position:fixed;inset:0;z-index:2147483645;pointer-events:none";
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.style.cssText = "position:absolute;inset:0;width:100%;height:100%";
+  root.appendChild(svg);
+  const badge = document.createElement("div");
+  badge.style.cssText =
+    "position:absolute;right:6px;bottom:6px;font:700 10px ui-monospace," +
+    "Menlo,monospace;color:#111;background:rgba(255,255,255,0.86);" +
+    "border-radius:4px;padding:4px 6px;line-height:1.5;white-space:pre";
+  root.appendChild(badge);
+  document.body.appendChild(root);
+  EDGE_DEBUG_DOM.root = root;
+  EDGE_DEBUG_DOM.svg = svg;
+  EDGE_DEBUG_DOM.badge = badge;
+}
+
+function edgeDebugItem(key, colour, dash) {
+  let item = EDGE_DEBUG_DOM.items.get(key);
+  if (item) return item;
+  const ns = "http://www.w3.org/2000/svg";
+  const line = document.createElementNS(ns, "line");
+  line.setAttribute("stroke", colour);
+  line.setAttribute("stroke-width", "2");
+  line.setAttribute("stroke-dasharray", dash);
+  line.setAttribute("opacity", "0.95");
+  const text = document.createElementNS(ns, "text");
+  text.setAttribute("fill", colour);
+  text.setAttribute(
+    "style",
+    "font:700 10px ui-monospace,Menlo,monospace;paint-order:stroke;" +
+      "stroke:rgba(255,255,255,0.85);stroke-width:3"
+  );
+  text.textContent = key;
+  EDGE_DEBUG_DOM.svg.appendChild(line);
+  EDGE_DEBUG_DOM.svg.appendChild(text);
+  item = { line, text };
+  EDGE_DEBUG_DOM.items.set(key, item);
+  return item;
+}
+
+function edgeDebugRender(payload) {
+  if (typeof document === "undefined") return;
+  edgeDebugEnsureDom();
+  if (!EDGE_DEBUG_DOM.svg) return;
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+  const physical = (payload && payload.physical) || {};
+  let missing = "";
+  for (const family of ["glass", "bezel", "oled", "body"]) {
+    const f = physical[family];
+    if (!f) missing += family + "\u2717 ";
+    for (const id of ["xMin", "xMax", "yMin", "yMax"]) {
+      const key = family + "." + id;
+      const item = edgeDebugItem(
+        key,
+        EDGE_DEBUG_COLOURS[family],
+        EDGE_DEBUG_DASH[id]
+      );
+      const e = f && f[id];
+      if (!e) {
+        item.line.setAttribute("visibility", "hidden");
+        item.text.setAttribute("visibility", "hidden");
+        continue;
+      }
+      item.line.setAttribute("visibility", "visible");
+      item.text.setAttribute("visibility", "visible");
+      item.line.setAttribute("x1", e.a.x * w);
+      item.line.setAttribute("y1", e.a.y * h);
+      item.line.setAttribute("x2", e.b.x * w);
+      item.line.setAttribute("y2", e.b.y * h);
+      item.text.setAttribute("x", (e.a.x + e.b.x) * 0.5 * w + 4);
+      item.text.setAttribute("y", (e.a.y + e.b.y) * 0.5 * h - 4);
+    }
+  }
+  const p = Number((payload && payload.p) || 0);
+  EDGE_DEBUG_DOM.badge.textContent =
+    "p=" + p.toFixed(4) + (missing ? "\n" + missing : "");
+  // Published AFTER the DOM is written, so a probe that reads it knows the
+  // drawn frame corresponds to exactly this p.
+  window.__iglassEdgeDebugRenderedP = p;
+}
+
 // ============================================
 // GLASS EDGE FEED (v7.5.9)
 //
@@ -10069,6 +10533,12 @@ function GlassEdgeReporter() {
   // is the sheet itself; taking the box's four XY corners at zMid gives
   // the pane's actual rectangle, not an inflated 3D box.
   const cornersRef = useRef(null);
+  // v7.5.50 — one shared scratch pair for every family projection, so the
+  // added work allocates nothing per frame.
+  const physicalScratchRef = useRef({
+    v: new THREE.Vector3(),
+    view: new THREE.Vector3(),
+  });
   const scratchRef = useRef({
     v: new THREE.Vector3(),
     view: new THREE.Vector3(),
@@ -10089,7 +10559,10 @@ function GlassEdgeReporter() {
   const lastSentRef = useRef(null);
 
   useFrame(() => {
-    if (!targetOrigin) return;
+    // v7.5.50 — the physical map is also read by ?edgeDebug=1 and by
+    // deterministic probes on a TOP-LEVEL page, where there is no parent to
+    // post to. Compute when either consumer exists; post only when embedded.
+    if (!targetOrigin && !EDGE_DEBUG) return;
     const mesh = DEV.glassPaneMesh;
     if (!mesh || !mesh.geometry) return;
 
@@ -10145,6 +10618,56 @@ function GlassEdgeReporter() {
     const far = near === xMinEdge ? xMaxEdge : xMinEdge;
     const p = scrollState.parentProgress;
 
+    // ---- v7.5.50 STABLE PHYSICAL FAMILIES ----
+    // Additive. Every legacy field above is already computed and is emitted
+    // byte-identically below; nothing here can alter it.
+    const ps = physicalScratchRef.current;
+    const physical = {
+      glass: projectFamilyEdges(mesh, camera, ps),
+      bezel: projectFamilyEdges(DEV.bezelOuterMesh, camera, ps),
+      oled: projectFamilyEdges(DEV.oledSlabMesh, camera, ps),
+      body: projectFamilyEdges(DEV.bodyChassisMesh, camera, ps),
+      bodyAlt: projectFamilyEdges(DEV.bodyAltMesh, camera, ps),
+      // v7.5.51 — production-safe semantic boundary required by the locked
+      // mobile H1→H2 bezel swap. Only the data is emitted in normal runtime;
+      // all visible SVG lines and labels remain strictly edgeDebug-gated.
+      silhouette: {
+        bezel: projectSilhouette(DEV.bezelOuterMesh, camera, ps),
+      },
+    };
+    // edgeDebug adds the remaining diagnostic silhouettes used for calibration.
+    if (EDGE_DEBUG) {
+      Object.assign(physical.silhouette, {
+        glass: projectSilhouette(DEV.glassPaneMesh, camera, ps),
+        oled: projectSilhouette(DEV.oledSlabMesh, camera, ps),
+        body: projectSilhouette(DEV.bodyChassisMesh, camera, ps),
+      });
+    }
+    const physicalSig = physicalSignature(physical);
+
+    const payload = {
+      type: "glass-edge",
+      p,
+      // Legacy single-line fields now carry the stable far-side edge.
+      a: far.a,
+      b: far.b,
+      edges: { near, far },
+      // v7.5.50 — additive. Absent-family keys are null, never omitted, so a
+      // consumer can tell "this build has no physical map" (undefined) from
+      // "this build could not resolve that family this frame" (null).
+      physical,
+    };
+
+    // Local consumers are published BEFORE the epsilon gate. The gate exists to
+    // spare the parent a postMessage when nothing moved; it must never leave a
+    // debug overlay or a deterministic probe holding a previous frame's
+    // geometry, because that is precisely what makes a labelled capture lie.
+    DEV.edgeDebugPayload = payload;
+    if (typeof window !== "undefined") window.__iglassEdge = payload;
+    if (EDGE_DEBUG) edgeDebugRender(payload);
+
+    if (!targetOrigin) return;
+
     const last = lastSentRef.current;
     if (
       last &&
@@ -10158,7 +10681,8 @@ function GlassEdgeReporter() {
       Math.abs(last.fay - far.a.y) < GLASS_EDGE_FEED.epsilon &&
       Math.abs(last.fbx - far.b.x) < GLASS_EDGE_FEED.epsilon &&
       Math.abs(last.fby - far.b.y) < GLASS_EDGE_FEED.epsilon &&
-      Math.abs(last.p - p) < GLASS_EDGE_FEED.epsilon
+      Math.abs(last.p - p) < GLASS_EDGE_FEED.epsilon &&
+      last.physicalSig === physicalSig
     ) return;
 
     lastSentRef.current = {
@@ -10173,19 +10697,10 @@ function GlassEdgeReporter() {
       fbx: far.b.x,
       fby: far.b.y,
       p,
+      physicalSig,
     };
 
-    window.parent.postMessage(
-      {
-        type: "glass-edge",
-        p,
-        // Legacy single-line fields now carry the stable far-side edge.
-        a: far.a,
-        b: far.b,
-        edges: { near, far },
-      },
-      targetOrigin
-    );
+    window.parent.postMessage(payload, targetOrigin);
   });
 
   return null;
@@ -10782,6 +11297,16 @@ function CrossSection3DScrollGLBScene(props) {
       }
     };
 
+    // v7.5.50 — DETERMINISTIC SCRUB HOOK, ?edgeDebug=1 ONLY.
+    // Calibration needs the SAME progress authority the runtime uses, sampled
+    // densely, without paying a GLB decode and a shader compile per sample.
+    // This exposes exactly the existing applyRuntimeProgress — it introduces no
+    // second clock, and outside edgeDebug the hook does not exist at all.
+    if (EDGE_DEBUG && typeof window !== "undefined") {
+      window.__iglassSetProgress = (value) =>
+        applyRuntimeProgress(Math.max(0, Math.min(1, Number(value) || 0)));
+    }
+
     if (runtimeMotionPath && motionFreezeP !== null) {
       document.documentElement.style.overflow = "hidden";
       document.body.style.overflow = "hidden";
@@ -11064,7 +11589,9 @@ function CrossSection3DScrollGLBScene(props) {
             crackTexture={crackTexture}
             explodeDistance={explodeDistance}
             dev={dev}
-            glassEdgeFeed={mode === "scroll" || mode === "autoplay"}
+            glassEdgeFeed={
+              mode === "scroll" || mode === "autoplay" || EDGE_DEBUG
+            }
             onReady={() => {
               markTiming("ready");
               // Dismissed BEFORE the gate releases, so the fade overlaps
