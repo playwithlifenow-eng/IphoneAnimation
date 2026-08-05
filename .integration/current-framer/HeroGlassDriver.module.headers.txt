@@ -2,7 +2,7 @@ HTTP/2 200
 server: CloudFront
 content-type: text/javascript; charset=utf-8
 content-length: 38702
-date: Wed, 05 Aug 2026 20:42:20 GMT
+date: Wed, 05 Aug 2026 20:48:22 GMT
 access-control-allow-methods: GET, HEAD, OPTIONS
 access-control-allow-origin: *
 access-control-expose-headers: Content-Range
@@ -12,12 +12,11 @@ strict-transport-security: max-age=31536000; includeSubDomains; preload
 x-content-type-options: nosniff
 x-frame-options: deny
 x-xss-protection: 0
-x-cache: Hit from cloudfront
-via: 1.1 d0db17ab565101172c4057aabc1a1086.cloudfront.net (CloudFront)
-x-amz-cf-pop: SFO53-P4
+x-cache: Miss from cloudfront
+via: 1.1 e802097b75aa610276233c6b3bb4ed5c.cloudfront.net (CloudFront)
+x-amz-cf-pop: ORD56-P11
 alt-svc: h3=":443"; ma=86400
-x-amz-cf-id: 3Sp0zO1OO6XTD9NFiP-BWewIhU-zXYPHF3Rz23T1kh88kSXGzSCV5A==
-age: 187
+x-amz-cf-id: 1_MbMALmMK1A1In6wLpUM57nsH5ojJnSpGkttJVJTi2GAjXJvgeqdQ==
 timing-allow-origin: *
-server-timing: cdn-cache-hit,cdn-pop;desc="SFO53-P4",cdn-rid;desc="3Sp0zO1OO6XTD9NFiP-BWewIhU-zXYPHF3Rz23T1kh88kSXGzSCV5A==",cdn-hit-layer;desc="REC",cdn-downstream-fbl;dur=22
+server-timing: cdn-upstream-layer;desc="REC",cdn-upstream-dns;dur=0,cdn-upstream-connect;dur=0,cdn-upstream-fbl;dur=119,cdn-cache-miss,cdn-pop;desc="ORD56-P11",cdn-rid;desc="1_MbMALmMK1A1In6wLpUM57nsH5ojJnSpGkttJVJTi2GAjXJvgeqdQ==",cdn-downstream-fbl;dur=136
 
