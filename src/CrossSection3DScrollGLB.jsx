@@ -18,8 +18,24 @@ import { Leva, useControls, button, folder } from "leva";
 
 gsap.registerPlugin(ScrollTrigger);
 
-const IGLASS_APP_VERSION = "7.5.46-slot-identity-roundtrip-fix";
+const IGLASS_APP_VERSION = "7.5.49-shine-temperature-fresnel";
 
+
+// ============================================
+// v7.5.49 SHINE TEMPERATURE + VIEW-ANGLE REFLECTION
+//
+//   WHITE CONTROL     Reflection sweep colour is now a pose-owned Kelvin
+//                     channel. 6500 K is an exact neutral-white anchor.
+//   ANGLE CONTRAST    A restrained, look-only Fresnel boost increases the
+//                     animated reflection at grazing desktop view angles
+//                     without adding neutral pane opacity over the OLED.
+//   URL SAFE          Motion paths own temperature; ?glassview owns only the
+//                     non-pose Fresnel look. Legacy glassfx/glassfxlook parse.
+//   BASELINE          Built directly from v7.5.46. Its motion, terminal-light
+//                     routing, mobile P sweep, geometry, depthTest/renderOrder,
+//                     camera, registration and headline logic are unchanged.
+//
+// ============================================
 
 // ============================================
 // v7.5.46 SLOT IDENTITY ROUND-TRIP
@@ -1493,12 +1509,44 @@ function setTemperatureTint(target, temperature, neutral, baseSrgb) {
   return target;
 }
 
+const SHINE_TEMPERATURE_MIN = 3000;
+const SHINE_TEMPERATURE_MAX = 12000;
+const SHINE_TEMPERATURE_NEUTRAL = 6500;
+const SHINE_FRESNEL_BOOST_DEFAULT = 0.6;
+const SHINE_FRESNEL_BOOST_MAX = 2.0;
+
+function clampShineTemperature(value) {
+  return Math.max(
+    SHINE_TEMPERATURE_MIN,
+    Math.min(
+      SHINE_TEMPERATURE_MAX,
+      Number(value) || SHINE_TEMPERATURE_NEUTRAL
+    )
+  );
+}
+
+function clampShineFresnelBoost(value) {
+  return Math.max(0, Math.min(SHINE_FRESNEL_BOOST_MAX, Number(value) || 0));
+}
+
+function setShineTemperatureTint(target, temperature) {
+  // Anchor 6500 K to exact RGB white. Temperatures below/above it retain
+  // physically intuitive warm/cool direction without the old baked yellow.
+  return setTemperatureTint(
+    target,
+    clampShineTemperature(temperature),
+    SHINE_TEMPERATURE_NEUTRAL,
+    [1, 1, 1]
+  );
+}
+
 const SHINE_POSE_DEFAULTS = Object.freeze({
   shine: 0,
   shineStrength: 0.23,
   shineBroadWidth: 0.23,
   shineStripWidth: 0.04,
   shineAngle: -41,
+  shineTemperature: SHINE_TEMPERATURE_NEUTRAL,
 });
 
 // ---------------------------------------------------------
@@ -1571,6 +1619,10 @@ const SHINE = {
   broadWidth: SHINE_POSE_DEFAULTS.shineBroadWidth,
   stripWidth: SHINE_POSE_DEFAULTS.shineStripWidth,
   angleDeg: SHINE_POSE_DEFAULTS.shineAngle,
+  temperature: SHINE_POSE_DEFAULTS.shineTemperature,
+  // Look-only: not interpolated into motion poses. 0.6 gives a restrained
+  // grazing-angle lift while leaving near-normal/mobile views almost unchanged.
+  fresnelBoost: SHINE_FRESNEL_BOOST_DEFAULT,
   persistent: 0.04,
   glint: true,
   glintStrength: 0.7,
@@ -2086,6 +2138,7 @@ const DRIVE_READERS = {
   shineBroadWidth: () => SHINE.broadWidth,
   shineStripWidth: () => SHINE.stripWidth,
   shineAngle: () => SHINE.angleDeg,
+  shineTemperature: () => SHINE.temperature,
   oledLuminance: () => OLED.luminance,
   lightAmbient: () => LIGHT.amb,
   lightKey: () => LIGHT.key,
@@ -2133,6 +2186,7 @@ const DRIVE_CLAMPS = {
   shineBroadWidth: [0.005, 0.8],
   shineStripWidth: [0.005, 0.25],
   shineAngle: [-90, 90],
+  shineTemperature: [SHINE_TEMPERATURE_MIN, SHINE_TEMPERATURE_MAX],
   oledLuminance: [0, 1],
   lightAmbient: [0, 1],
   lightKey: [0, 5],
@@ -2183,6 +2237,7 @@ const ROUND_TRIP_POSE_FIELDS = Object.freeze([
   "shineBroadWidth",
   "shineStripWidth",
   "shineAngle",
+  "shineTemperature",
   "oledLuminance",
   "lightAmbient",
   "lightKey",
@@ -3840,6 +3895,9 @@ function applyPoseParamsDirect(pose) {
   if (Number.isFinite(pose.shineAngle)) {
     SHINE.angleDeg = Math.max(-90, Math.min(90, pose.shineAngle));
   }
+  if (Number.isFinite(pose.shineTemperature)) {
+    SHINE.temperature = clampShineTemperature(pose.shineTemperature);
+  }
   if (Number.isFinite(pose.oledLuminance)) {
     OLED.luminance = Math.max(0, Math.min(1, pose.oledLuminance));
     syncOledLuminance();
@@ -4541,11 +4599,17 @@ function serialiseParams(params, options = {}) {
         SHINE.range[1],
         SHINE.speed,
         SHINE.envLeft,
+        // v7.5.49 static-pose format: 22nd field, appended so every legacy
+        // index remains stable. Motion URLs carry this inside node poses.
+        SHINE.temperature,
       ]
         .map((v) => Number(v).toFixed(4))
         .join(",")
     );
   }
+  // Look-only and intentionally separate from glassfx/glassfxlook so motion
+  // pose authority can never be shadowed by a top-level temperature value.
+  params.set("glassview", SHINE.fresnelBoost.toFixed(4));
   params.set("envp", LIGHT.preset);
   params.set("envb", LIGHT.blur.toFixed(2));
   // v4.2, on, effectiveX, effectiveY, severity, sharpness,
@@ -5350,10 +5414,10 @@ function DevControls({ initialP }) {
       { collapsed: false }
     ),
 
-    // ---- v7.5.37 PREMIUM GLASS LAB. Progress, brightness, broad width,
-    // strip width and angle are all saved/interpolated pose channels. The
-    // remaining values define the shared look and ride copy URL / capture
-    // manifests through ?glassfx. ----
+    // ---- v7.5.49 PREMIUM GLASS LAB. Progress, brightness, broad width,
+    // strip width, angle and temperature are saved/interpolated pose channels.
+    // Fresnel boost is look-only; the remaining values define the shared look.
+    // Copy URLs preserve both without creating a second pose authority. ----
     "💎 premium glass lab": folder(
       {
         "reflection sweep": folder(
@@ -5433,6 +5497,26 @@ function DevControls({ initialP }) {
               label: "sweep angle °",
               onChange: (v) => {
                 SHINE.angleDeg = v;
+              },
+            },
+            shineTemperature: {
+              value: SHINE.temperature,
+              min: SHINE_TEMPERATURE_MIN,
+              max: SHINE_TEMPERATURE_MAX,
+              step: 100,
+              label: "sweep temperature K (SAVED IN POSE)",
+              onChange: (v) => {
+                SHINE.temperature = clampShineTemperature(v);
+              },
+            },
+            shineFresnelBoost: {
+              value: SHINE.fresnelBoost,
+              min: 0,
+              max: SHINE_FRESNEL_BOOST_MAX,
+              step: 0.05,
+              label: "view-angle reflection boost",
+              onChange: (v) => {
+                SHINE.fresnelBoost = clampShineFresnelBoost(v);
               },
             },
             shinePersistent: {
@@ -8328,8 +8412,9 @@ function DevGizmo() {
 //   ?bezel=env,rough,offset       v3.8.1 bezel dials
 //   ?oled=-0.5,0,1                OLED face-split, rim, luminance
 //   ?glass=rough,env,opac,cc,ccr  v3.9 front-glass material
-//   ?glassfx=...                   static-pose sweep/glint/environment
+//   ?glassfx=...                   static-pose sweep/glint/environment (+ K in v7.5.49)
 //   ?glassfxlook=...               motion URL look-only shine configuration
+//   ?glassview=0.6                 view-angle/Fresnel reflection boost (look-only)
 //   ?envp=studio   ?envb=0        reflected world + IBL blur
 //   ?crack=4.2,on,exX,exY,severity,sharpness,defaultX,defaultY,useDefault
 //   ?motion=<base64url-json>       self-contained slot-based motion path
@@ -8455,7 +8540,7 @@ function resolveRuntimeConfig() {
   const glassFxParam = params.get("glassfx");
   if (glassFxParam) {
     const q = glassFxParam.split(",").map((v) => parseFloat(v));
-    if ((q.length === 21 || q.length === 20) && q.every((v) => !isNaN(v))) {
+    if ((q.length === 22 || q.length === 21 || q.length === 20) && q.every((v) => !isNaN(v))) {
       SHINE.progress = q[0];
       SHINE.sweepStrength = q[1];
       SHINE.broadWidth = q[2];
@@ -8479,7 +8564,9 @@ function resolveRuntimeConfig() {
       ];
       SHINE.speed = Math.max(0.05, q[19]);
       // v7.5.20 field. Absent on pre-v7.5.20 links -> authored default.
-      if (q.length === 21) SHINE.envLeft = Math.max(0, Math.min(4, q[20]));
+      if (q.length >= 21) SHINE.envLeft = Math.max(0, Math.min(4, q[20]));
+      // v7.5.49 field. Appended at index 21; every older index is unchanged.
+      if (q.length === 22) SHINE.temperature = clampShineTemperature(q[21]);
     } else if (q.length === 17 && q.every((v) => !isNaN(v))) {
       SHINE.progress = q[0];
       SHINE.sweepStrength = q[1];
@@ -8547,6 +8634,7 @@ function resolveRuntimeConfig() {
     SHINE.broadWidth = SHINE_POSE_DEFAULTS.shineBroadWidth;
     SHINE.stripWidth = SHINE_POSE_DEFAULTS.shineStripWidth;
     SHINE.angleDeg = SHINE_POSE_DEFAULTS.shineAngle;
+    SHINE.temperature = SHINE_POSE_DEFAULTS.shineTemperature;
   }
 
   const glassFxLookParam = params.get("glassfxlook");
@@ -8572,6 +8660,11 @@ function resolveRuntimeConfig() {
       SHINE.speed = Math.max(0.05, q[14]);
       SHINE.envLeft = Math.max(0, Math.min(4, q[15]));
     }
+  }
+
+  const glassViewParam = parseFloat(params.get("glassview"));
+  if (!isNaN(glassViewParam)) {
+    SHINE.fresnelBoost = clampShineFresnelBoost(glassViewParam);
   }
 
   const envpParam = params.get("envp");
@@ -9442,6 +9535,8 @@ function IPhoneExploded({
   // ?snap=1&mp=0.5000 renders the same highlight as the editor preview.
   // ---------------------------------------------------------
   const shineMat = useMemo(() => {
+    const shineColour = new THREE.Color();
+    setShineTemperatureTint(shineColour, SHINE.temperature);
     const m = new THREE.ShaderMaterial({
       uniforms: {
         uCleanMix: { value: 1 },
@@ -9450,6 +9545,8 @@ function IPhoneExploded({
         uBroadWidth: { value: SHINE.broadWidth },
         uStripWidth: { value: SHINE.stripWidth },
         uAngle: { value: THREE.MathUtils.degToRad(SHINE.angleDeg) },
+        uShineColour: { value: shineColour },
+        uFresnelBoost: { value: SHINE.fresnelBoost },
         uPersistent: { value: SHINE.persistent },
         uGlint: { value: SHINE.glint ? 1 : 0 },
         uGlintStrength: { value: SHINE.glintStrength },
@@ -9460,10 +9557,14 @@ function IPhoneExploded({
       },
       vertexShader: `
         varying vec2 vUv;
+        varying vec3 vViewNormal;
+        varying vec3 vViewDir;
 
         void main() {
           vUv = uv;
           vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+          vViewNormal = normalize(normalMatrix * normal);
+          vViewDir = normalize(-mvPosition.xyz);
           gl_Position = projectionMatrix * mvPosition;
         }
       `,
@@ -9476,6 +9577,8 @@ function IPhoneExploded({
         uniform float uBroadWidth;
         uniform float uStripWidth;
         uniform float uAngle;
+        uniform vec3 uShineColour;
+        uniform float uFresnelBoost;
         uniform float uPersistent;
         uniform float uGlint;
         uniform float uGlintStrength;
@@ -9484,6 +9587,8 @@ function IPhoneExploded({
         uniform float uGlintSpread;
         uniform vec2 uGlintPoint;
         varying vec2 vUv;
+        varying vec3 vViewNormal;
+        varying vec3 vViewDir;
 
         float gaussian(float x, float width) {
           float q = x / max(width, 0.0001);
@@ -9528,11 +9633,16 @@ function IPhoneExploded({
           float glint = (core + halo + 0.24 * (rayH + rayV) + rayD)
                       * uGlint * uGlintStrength * glintEnvelope;
 
-          vec3 warmWhite = vec3(1.0, 0.975, 0.92);
-          vec3 coolWhite = vec3(0.76, 0.90, 1.0);
-          vec3 rgb = (warmWhite * (sweep + panel + glint)
-                    + coolWhite * (0.18 * broad * uSweepStrength))
-                   * launchGate;
+          // v7.5.49: colour is Kelvin-authored instead of hard-coded yellow.
+          // A restrained Fresnel term solves the desktop contrast problem at
+          // grazing view angles without increasing neutral pane opacity. abs()
+          // keeps the look stable across the pane's retained triangle winding.
+          float facing = abs(dot(normalize(vViewNormal), normalize(vViewDir)));
+          float fresnel = pow(clamp(1.0 - facing, 0.0, 1.0), 3.0);
+          float reflectionGain = 1.0 + max(uFresnelBoost, 0.0) * fresnel;
+          float reflection = (sweep + panel + glint
+                            + 0.18 * broad * uSweepStrength) * reflectionGain;
+          vec3 rgb = uShineColour * reflection * launchGate;
           float gate = clamp(uCleanMix, 0.0, 1.0);
           float intensity = max(max(rgb.r, rgb.g), rgb.b) * gate;
 
@@ -9711,6 +9821,8 @@ function IPhoneExploded({
       u.uBroadWidth.value = SHINE.broadWidth;
       u.uStripWidth.value = SHINE.stripWidth;
       u.uAngle.value = THREE.MathUtils.degToRad(SHINE.angleDeg);
+      setShineTemperatureTint(u.uShineColour.value, SHINE.temperature);
+      u.uFresnelBoost.value = SHINE.fresnelBoost;
       u.uPersistent.value = SHINE.persistent;
       u.uGlint.value = SHINE.glint ? 1 : 0;
       u.uGlintStrength.value = SHINE.glintStrength;
