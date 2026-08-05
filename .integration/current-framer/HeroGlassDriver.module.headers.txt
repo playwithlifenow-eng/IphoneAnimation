@@ -12,11 +12,12 @@ strict-transport-security: max-age=31536000; includeSubDomains; preload
 x-content-type-options: nosniff
 x-frame-options: deny
 x-xss-protection: 0
-x-cache: Miss from cloudfront
-via: 1.1 fcfb767b5ad15bbc6d9e5b12d89c5172.cloudfront.net (CloudFront)
+x-cache: Hit from cloudfront
+via: 1.1 d0db17ab565101172c4057aabc1a1086.cloudfront.net (CloudFront)
 x-amz-cf-pop: SFO53-P4
 alt-svc: h3=":443"; ma=86400
-x-amz-cf-id: 7mj9ZMkLcXqIridb370YWXwfUoqfXktVFNxqQFdw98WjgQkOttmJOw==
+x-amz-cf-id: 3Sp0zO1OO6XTD9NFiP-BWewIhU-zXYPHF3Rz23T1kh88kSXGzSCV5A==
+age: 187
 timing-allow-origin: *
-server-timing: cdn-upstream-layer;desc="REC",cdn-upstream-dns;dur=0,cdn-upstream-connect;dur=0,cdn-upstream-fbl;dur=81,cdn-cache-miss,cdn-pop;desc="SFO53-P4",cdn-rid;desc="7mj9ZMkLcXqIridb370YWXwfUoqfXktVFNxqQFdw98WjgQkOttmJOw==",cdn-downstream-fbl;dur=105
+server-timing: cdn-cache-hit,cdn-pop;desc="SFO53-P4",cdn-rid;desc="3Sp0zO1OO6XTD9NFiP-BWewIhU-zXYPHF3Rz23T1kh88kSXGzSCV5A==",cdn-hit-layer;desc="REC",cdn-downstream-fbl;dur=22
 
