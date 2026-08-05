@@ -14,8 +14,9 @@
     "three": "0.158.0"
   },
   "scripts": {
-    "start": "react-scripts start",
-    "build": "react-scripts build"
+    "start": "python3 scripts/materialize-mobile-headline-v7-5-51.py && react-scripts start",
+    "prebuild": "python3 scripts/materialize-mobile-headline-v7-5-51.py",
+    "build": "CI=false GENERATE_SOURCEMAP=false NODE_OPTIONS=--max-old-space-size=3072 react-scripts build"
   },
   "browserslist": [
     ">0.2%",
