@@ -2,7 +2,7 @@ HTTP/2 200
 server: CloudFront
 content-type: text/javascript; charset=utf-8
 content-length: 38702
-date: Wed, 05 Aug 2026 20:41:01 GMT
+date: Wed, 05 Aug 2026 20:42:20 GMT
 access-control-allow-methods: GET, HEAD, OPTIONS
 access-control-allow-origin: *
 access-control-expose-headers: Content-Range
@@ -13,10 +13,10 @@ x-content-type-options: nosniff
 x-frame-options: deny
 x-xss-protection: 0
 x-cache: Miss from cloudfront
-via: 1.1 f367850abc2242f11f7baa927d1ff32c.cloudfront.net (CloudFront)
-x-amz-cf-pop: PHX50-P2
+via: 1.1 fcfb767b5ad15bbc6d9e5b12d89c5172.cloudfront.net (CloudFront)
+x-amz-cf-pop: SFO53-P4
 alt-svc: h3=":443"; ma=86400
-x-amz-cf-id: oy4Fv1gUu9POgobj51Vnz1PokWEh8ERbP181GFK4ZGGL0cNKRsMXcw==
+x-amz-cf-id: 7mj9ZMkLcXqIridb370YWXwfUoqfXktVFNxqQFdw98WjgQkOttmJOw==
 timing-allow-origin: *
-server-timing: cdn-upstream-layer;desc="REC",cdn-upstream-dns;dur=0,cdn-upstream-connect;dur=0,cdn-upstream-fbl;dur=190,cdn-cache-miss,cdn-pop;desc="PHX50-P2",cdn-rid;desc="oy4Fv1gUu9POgobj51Vnz1PokWEh8ERbP181GFK4ZGGL0cNKRsMXcw==",cdn-downstream-fbl;dur=216
+server-timing: cdn-upstream-layer;desc="REC",cdn-upstream-dns;dur=0,cdn-upstream-connect;dur=0,cdn-upstream-fbl;dur=81,cdn-cache-miss,cdn-pop;desc="SFO53-P4",cdn-rid;desc="7mj9ZMkLcXqIridb370YWXwfUoqfXktVFNxqQFdw98WjgQkOttmJOw==",cdn-downstream-fbl;dur=105
 

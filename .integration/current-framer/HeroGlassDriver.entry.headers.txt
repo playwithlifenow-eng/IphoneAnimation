@@ -1,7 +1,7 @@
 HTTP/2 200 
 content-type: text/javascript; charset=utf-8
 content-length: 319
-date: Wed, 05 Aug 2026 20:41:01 GMT
+date: Wed, 05 Aug 2026 20:42:19 GMT
 x-xss-protection: 0
 access-control-allow-methods: GET, HEAD, OPTIONS
 access-control-allow-origin: *
@@ -12,8 +12,8 @@ strict-transport-security: max-age=31536000; includeSubDomains; preload
 x-content-type-options: nosniff
 x-frame-options: deny
 x-cache: Miss from cloudfront
-via: 1.1 7aff5b06b2db8bff6e9916567a40c91c.cloudfront.net (CloudFront)
-x-amz-cf-pop: PHX50-P2
+via: 1.1 31f2299ace8ebc27c9e8f771714b4bcc.cloudfront.net (CloudFront)
+x-amz-cf-pop: SFO53-P6
 alt-svc: h3=":443"; ma=86400
-x-amz-cf-id: iKDzQdqzNJP4wdXBHlPV6LhP5WzGdNXjcXUeiSeuOhc3WTpR4vkMiQ==
+x-amz-cf-id: mtpyQtMsxKDnvEES2IxwbWLNIN70U_KJjIxx2YgzZmdPaklC9Uu7_w==
 
