@@ -1,0 +1,54 @@
+name: Retrieve current Framer driver
+
+on:
+  push:
+    branches:
+      - feature/mobile-headline-v7-5-51
+
+permissions:
+  contents: write
+
+jobs:
+  retrieve:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Download exact live Framer module
+        run: |
+          mkdir -p .integration/current-framer
+          curl --fail --location --retry 3 --retry-all-errors \
+            --dump-header .integration/current-framer/HeroGlassDriver.headers.txt \
+            'https://framer.com/m/HeroGlassDriver-GDAUWy.js@C7PT6yqtgZi48yukqy0D' \
+            --output .integration/current-framer/HeroGlassDriver.compiled.js
+          sha256sum .integration/current-framer/HeroGlassDriver.compiled.js \
+            > .integration/current-framer/HeroGlassDriver.compiled.sha256
+          grep -aoE 'https://[^"[:space:]]+' .integration/current-framer/HeroGlassDriver.compiled.js \
+            | sort -u > .integration/current-framer/urls.txt || true
+          grep -aoE 'sourceMappingURL=[^[:space:]]+' .integration/current-framer/HeroGlassDriver.compiled.js \
+            > .integration/current-framer/source-map-reference.txt || true
+      - name: Download source map when exposed
+        run: |
+          ref="$(sed -n 's/.*sourceMappingURL=//p' .integration/current-framer/source-map-reference.txt | tail -1)"
+          if [ -z "$ref" ]; then
+            echo 'No source map reference exposed.'
+            exit 0
+          fi
+          case "$ref" in
+            http://*|https://*) map_url="$ref" ;;
+            *) map_url="https://framer.com/m/$ref" ;;
+          esac
+          curl --fail --location --retry 3 --retry-all-errors "$map_url" \
+            --output .integration/current-framer/HeroGlassDriver.compiled.js.map || true
+      - name: Commit retrieved authority snapshot
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .integration/current-framer
+          if git diff --cached --quiet; then
+            echo 'Retrieved module unchanged.'
+            exit 0
+          fi
+          git commit -m 'Snapshot exact current Framer HeroGlassDriver module'
+          git push
