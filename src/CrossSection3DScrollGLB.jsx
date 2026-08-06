@@ -18,7 +18,7 @@ import { Leva, useControls, button, folder } from "leva";
 
 gsap.registerPlugin(ScrollTrigger);
 
-const IGLASS_APP_VERSION = "7.5.50-physical-edge-map";
+const IGLASS_APP_VERSION = "7.5.51-mobile-headline-telemetry";
 
 
 // ============================================
@@ -10339,6 +10339,17 @@ function physicalSignature(physical) {
     }
     out += "|";
   }
+  const bezelSilhouette = physical.silhouette?.bezel;
+  out += bezelSilhouette
+    ? [
+        bezelSilhouette.topY,
+        bezelSilhouette.bottomY,
+        bezelSilhouette.leftX,
+        bezelSilhouette.rightX,
+      ]
+        .map((v) => Number(v).toFixed(4))
+        .join(",")
+    : "-";
   return out;
 }
 
@@ -10617,16 +10628,20 @@ function GlassEdgeReporter() {
       oled: projectFamilyEdges(DEV.oledSlabMesh, camera, ps),
       body: projectFamilyEdges(DEV.bodyChassisMesh, camera, ps),
       bodyAlt: projectFamilyEdges(DEV.bodyAltMesh, camera, ps),
-    };
-    // edgeDebug only: the true view-dependent silhouette, for identity work
-    // where the mid-Z rectangle model is known to be insufficient.
-    if (EDGE_DEBUG) {
-      physical.silhouette = {
-        glass: projectSilhouette(DEV.glassPaneMesh, camera, ps),
+      // v7.5.51 — production-safe semantic boundary required by the locked
+      // mobile H1→H2 bezel swap. Only the data is emitted in normal runtime;
+      // all visible SVG lines and labels remain strictly edgeDebug-gated.
+      silhouette: {
         bezel: projectSilhouette(DEV.bezelOuterMesh, camera, ps),
+      },
+    };
+    // edgeDebug adds the remaining diagnostic silhouettes used for calibration.
+    if (EDGE_DEBUG) {
+      Object.assign(physical.silhouette, {
+        glass: projectSilhouette(DEV.glassPaneMesh, camera, ps),
         oled: projectSilhouette(DEV.oledSlabMesh, camera, ps),
         body: projectSilhouette(DEV.bodyChassisMesh, camera, ps),
-      };
+      });
     }
     const physicalSig = physicalSignature(physical);
 
