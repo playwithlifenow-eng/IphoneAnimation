@@ -43,7 +43,8 @@ jobs:
         shell: bash
         run: |
           set +e
-          sed -i "s|const BASE = 'https://iphone-animation-git-diag-87a40c-playwithlifenow-8152s-projects.vercel.app';|const BASE = process.env.DIAG_BASE || 'https://iphone-animation-git-diag-87a40c-playwithlifenow-8152s-projects.vercel.app';|" .diagnostics/capture-bezel-evidence.mjs
+          mkdir -p .diagnostics/bezel-mask-evidence
+          sed -i "s#const BASE = 'https://iphone-animation-git-diag-87a40c-playwithlifenow-8152s-projects.vercel.app';#const BASE = process.env.DIAG_BASE || 'https://iphone-animation-git-diag-87a40c-playwithlifenow-8152s-projects.vercel.app';#" .diagnostics/capture-bezel-evidence.mjs
           DIAG_BASE='http://127.0.0.1:4173' node .diagnostics/capture-bezel-evidence.mjs 2>&1 | tee .diagnostics/bezel-mask-evidence/run.log
           CODE=${PIPESTATUS[0]}
           echo "$CODE" > .diagnostics/bezel-mask-evidence/exit-code.txt
