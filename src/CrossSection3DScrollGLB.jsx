@@ -1570,7 +1570,7 @@ const GLASS = {
   color: 0xa8b6b0,
   rough: 0.12,
   env: 1.4,
-  opacity: 0.18,
+  opacity: 0.10,
   clearcoat: 1.0,
   ccRough: 0.06,
 };
