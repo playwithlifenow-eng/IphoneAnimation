@@ -1,0 +1,9 @@
+file:///home/runner/work/IphoneAnimation/IphoneAnimation/.diagnostics/capture-bezel-evidence.mjs:86
+  if(!child) throw new Error(`No hero iframe for ${mode} ${p}`);
+                   ^
+
+Error: No hero iframe for raw 0.477
+    at capture (file:///home/runner/work/IphoneAnimation/IphoneAnimation/.diagnostics/capture-bezel-evidence.mjs:86:20)
+    at async file:///home/runner/work/IphoneAnimation/IphoneAnimation/.diagnostics/capture-bezel-evidence.mjs:103:13
+
+Node.js v22.23.1
