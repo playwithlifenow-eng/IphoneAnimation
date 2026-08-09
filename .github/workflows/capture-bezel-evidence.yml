@@ -18,31 +18,33 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Wait for diagnostic preview alias
-        shell: bash
-        run: |
-          set -euo pipefail
-          URL='https://iphone-animation-git-diag-87a40c-playwithlifenow-8152s-projects.vercel.app/bezel-mask-harness.html'
-          for i in $(seq 1 90); do
-            if curl -fsS --max-time 10 "$URL" | grep -q 'iGlass bezel mask diagnostic'; then
-              exit 0
-            fi
-            sleep 2
-          done
-          echo 'Preview alias did not become ready' >&2
-          exit 1
-
       - name: Install browser capture dependencies
         run: |
           npm install --no-save --package-lock=false playwright@1.54.2 pixelmatch@7.1.0 pngjs@7.0.0
           npx playwright install --with-deps chromium
+
+      - name: Build exact diagnostic branch and serve locally
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run build
+          npx --yes serve@14.2.4 -s build -l 4173 > /tmp/iglass-serve.log 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -fsS --max-time 5 'http://127.0.0.1:4173/bezel-mask-harness.html' | grep -q 'iGlass bezel mask diagnostic'; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/iglass-serve.log || true
+          exit 1
 
       - name: Capture all requested and intermediate frames
         id: capture
         shell: bash
         run: |
           set +e
-          node .diagnostics/capture-bezel-evidence.mjs 2>&1 | tee .diagnostics/bezel-mask-evidence/run.log
+          sed -i "s|const BASE = 'https://iphone-animation-git-diag-87a40c-playwithlifenow-8152s-projects.vercel.app';|const BASE = process.env.DIAG_BASE || 'https://iphone-animation-git-diag-87a40c-playwithlifenow-8152s-projects.vercel.app';|" .diagnostics/capture-bezel-evidence.mjs
+          DIAG_BASE='http://127.0.0.1:4173' node .diagnostics/capture-bezel-evidence.mjs 2>&1 | tee .diagnostics/bezel-mask-evidence/run.log
           CODE=${PIPESTATUS[0]}
           echo "$CODE" > .diagnostics/bezel-mask-evidence/exit-code.txt
           echo "code=$CODE" >> "$GITHUB_OUTPUT"
@@ -54,6 +56,7 @@ jobs:
           set -euo pipefail
           git config user.name 'iGlass diagnostic bot'
           git config user.email 'actions@users.noreply.github.com'
+          git checkout -- .diagnostics/capture-bezel-evidence.mjs
           git add .diagnostics/bezel-mask-evidence
           if git diff --cached --quiet; then
             echo 'No evidence changes to commit'
