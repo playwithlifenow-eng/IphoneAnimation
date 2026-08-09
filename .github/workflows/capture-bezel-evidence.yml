@@ -44,7 +44,20 @@ jobs:
         run: |
           set +e
           mkdir -p .diagnostics/bezel-mask-evidence
-          sed -i "s#const BASE = 'https://iphone-animation-git-diag-87a40c-playwithlifenow-8152s-projects.vercel.app';#const BASE = process.env.DIAG_BASE || 'https://iphone-animation-git-diag-87a40c-playwithlifenow-8152s-projects.vercel.app';#" .diagnostics/capture-bezel-evidence.mjs
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('.diagnostics/capture-bezel-evidence.mjs')
+          s = p.read_text()
+          s = s.replace(
+              "const BASE = 'https://iphone-animation-git-diag-87a40c-playwithlifenow-8152s-projects.vercel.app';",
+              "const BASE = process.env.DIAG_BASE || 'https://iphone-animation-git-diag-87a40c-playwithlifenow-8152s-projects.vercel.app';",
+          )
+          s = s.replace(
+              "child=page.frames().find(f=>f!==page.mainFrame() && /iphone-animation/.test(f.url()));",
+              "child=page.frames().find(f=>f!==page.mainFrame());",
+          )
+          p.write_text(s)
+          PY
           DIAG_BASE='http://127.0.0.1:4173' node .diagnostics/capture-bezel-evidence.mjs 2>&1 | tee .diagnostics/bezel-mask-evidence/run.log
           CODE=${PIPESTATUS[0]}
           echo "$CODE" > .diagnostics/bezel-mask-evidence/exit-code.txt
