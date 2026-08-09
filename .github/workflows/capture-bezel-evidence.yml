@@ -1,0 +1,71 @@
+name: Capture GPU bezel mask acceptance evidence
+
+on:
+  push:
+    branches:
+      - diagnostic/bezel-gpu-mask
+
+permissions:
+  contents: write
+
+jobs:
+  capture:
+    if: ${{ !contains(github.event.head_commit.message, '[bezel-evidence]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Wait for diagnostic preview alias
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL='https://iphone-animation-git-diag-87a40c-playwithlifenow-8152s-projects.vercel.app/bezel-mask-harness.html'
+          for i in $(seq 1 90); do
+            if curl -fsS --max-time 10 "$URL" | grep -q 'iGlass bezel mask diagnostic'; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo 'Preview alias did not become ready' >&2
+          exit 1
+
+      - name: Install browser capture dependencies
+        run: |
+          npm install --no-save --package-lock=false playwright@1.54.2 pixelmatch@7.1.0 pngjs@7.0.0
+          npx playwright install --with-deps chromium
+
+      - name: Capture all requested and intermediate frames
+        id: capture
+        shell: bash
+        run: |
+          set +e
+          node .diagnostics/capture-bezel-evidence.mjs 2>&1 | tee .diagnostics/bezel-mask-evidence/run.log
+          CODE=${PIPESTATUS[0]}
+          echo "$CODE" > .diagnostics/bezel-mask-evidence/exit-code.txt
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Commit empirical evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'iGlass diagnostic bot'
+          git config user.email 'actions@users.noreply.github.com'
+          git add .diagnostics/bezel-mask-evidence
+          if git diff --cached --quiet; then
+            echo 'No evidence changes to commit'
+          else
+            git commit -m 'Capture GPU bezel mask acceptance evidence [bezel-evidence]'
+            git push origin HEAD:${GITHUB_REF_NAME}
+          fi
+
+      - name: Enforce automated acceptance gates
+        if: always()
+        shell: bash
+        run: |
+          CODE='${{ steps.capture.outputs.code }}'
+          if [ -z "$CODE" ]; then CODE=1; fi
+          exit "$CODE"
