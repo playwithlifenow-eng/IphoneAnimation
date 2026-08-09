@@ -28,8 +28,8 @@ jobs:
         run: |
           set -euo pipefail
           DISABLE_ESLINT_PLUGIN=true npm run build
-          npx --yes serve@14.2.4 -s build -l 4173 > /tmp/iglass-serve.log 2>&1 &
-          for i in $(seq 1 60); do
+          python3 -m http.server 4173 --directory build > /tmp/iglass-serve.log 2>&1 &
+          for i in $(seq 1 30); do
             if curl -fsS --max-time 5 'http://127.0.0.1:4173/bezel-mask-harness.html' | grep -q 'iGlass bezel mask diagnostic'; then
               exit 0
             fi
