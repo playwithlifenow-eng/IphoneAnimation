@@ -8843,6 +8843,304 @@ const scrollState = {
   parentProgress: 0,
 };
 
+
+// ============================================
+// DEVELOPMENT-ONLY GPU BEZEL SEMANTIC MASK
+//
+// Opt in explicitly:
+//   ?bezelMaskDebug=1        normal Hero + magenta semantic overlay
+//   ?bezelMaskDebug=overlay  same as =1
+//   ?bezelMaskDebug=raw      raw white-on-black semantic ID mask
+//
+// The pass uses the REAL bezel meshes already classified by Scene. It does
+// not infer pixels from colour and never changes a production material. The
+// production scene is first rendered normally into an offscreen target so
+// its REAL depth buffer is authoritative; the colour buffer is then cleared
+// while depth is retained. A bezel-only depth pass establishes nearest-surface
+// self-occlusion, followed by a deterministic unlit white ID pass.
+//
+// When the query flag is absent this component is not mounted at all, so the
+// normal R3F render path, materials, camera, timing and performance are untouched.
+// ============================================
+const BEZEL_MASK_DEBUG = (() => {
+  if (typeof window === "undefined") return { enabled: false, mode: "overlay" };
+  const value = new URLSearchParams(window.location.search).get("bezelMaskDebug");
+  const enabled = value === "1" || value === "overlay" || value === "raw";
+  return { enabled, mode: value === "raw" ? "raw" : "overlay" };
+})();
+
+function BezelMaskDebugPass({ bezelMeshes }) {
+  const { gl, scene, camera } = useThree();
+  const maskLayerRef = useRef(null);
+  const originalLayerMasksRef = useRef([]);
+  const targetSizeRef = useRef(new THREE.Vector2());
+
+  const resources = useMemo(() => {
+    const target = new THREE.WebGLRenderTarget(1, 1, {
+      format: THREE.RGBAFormat,
+      type: THREE.UnsignedByteType,
+      depthBuffer: true,
+      stencilBuffer: false,
+      minFilter: THREE.NearestFilter,
+      magFilter: THREE.NearestFilter,
+      generateMipmaps: false,
+    });
+    target.texture.name = "iGlass bezel semantic ID mask";
+
+    const depthMaterial = new THREE.MeshBasicMaterial({
+      color: 0x000000,
+      colorWrite: false,
+      depthTest: true,
+      depthWrite: true,
+      side: THREE.FrontSide,
+      toneMapped: false,
+    });
+    depthMaterial.blending = THREE.NoBlending;
+
+    const idMaterial = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      depthTest: true,
+      depthWrite: false,
+      side: THREE.FrontSide,
+      toneMapped: false,
+    });
+    idMaterial.blending = THREE.NoBlending;
+
+    const compositeScene = new THREE.Scene();
+    const compositeCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+    const compositeMaterial = new THREE.ShaderMaterial({
+      uniforms: {
+        uMask: { value: target.texture },
+        uRaw: { value: BEZEL_MASK_DEBUG.mode === "raw" ? 1 : 0 },
+        uOverlayOpacity: { value: 0.82 },
+      },
+      vertexShader: `
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = vec4(position.xy, 0.0, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform sampler2D uMask;
+        uniform float uRaw;
+        uniform float uOverlayOpacity;
+        varying vec2 vUv;
+        void main() {
+          float id = texture2D(uMask, vUv).r;
+          if (uRaw > 0.5) {
+            gl_FragColor = vec4(vec3(id), 1.0);
+          } else {
+            gl_FragColor = vec4(1.0, 0.0, 0.72, id * uOverlayOpacity);
+          }
+        }
+      `,
+      transparent: BEZEL_MASK_DEBUG.mode !== "raw",
+      depthTest: false,
+      depthWrite: false,
+      toneMapped: false,
+    });
+    const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), compositeMaterial);
+    quad.frustumCulled = false;
+    compositeScene.add(quad);
+
+    return {
+      target,
+      depthMaterial,
+      idMaterial,
+      compositeScene,
+      compositeCamera,
+      compositeMaterial,
+      quad,
+    };
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!BEZEL_MASK_DEBUG.enabled || !Array.isArray(bezelMeshes)) return;
+
+    // Reserve a layer that no existing scene object uses. This lets the ID
+    // passes render the exact live bezel objects without hiding/reparenting
+    // anything from the production scene. Layer 0 remains enabled throughout.
+    let freeLayer = -1;
+    for (let layer = 30; layer >= 1; layer--) {
+      const bit = 1 << layer;
+      let occupied = false;
+      scene.traverse((object) => {
+        if ((object.layers.mask & bit) !== 0) occupied = true;
+      });
+      if (!occupied) {
+        freeLayer = layer;
+        break;
+      }
+    }
+
+    maskLayerRef.current = freeLayer;
+    originalLayerMasksRef.current = bezelMeshes.map((mesh) => [mesh, mesh.layers.mask]);
+    if (freeLayer >= 0) {
+      for (const mesh of bezelMeshes) mesh.layers.enable(freeLayer);
+    }
+
+    if (typeof window !== "undefined") {
+      window.__iglassBezelMaskAudit = {
+        status:
+          bezelMeshes.length === 0
+            ? "FAIL_NO_SEMANTIC_BEZEL_MESHES"
+            : freeLayer < 0
+            ? "FAIL_NO_FREE_RENDER_LAYER"
+            : "READY",
+        mode: BEZEL_MASK_DEBUG.mode,
+        meshCount: bezelMeshes.length,
+        meshNames: bezelMeshes.map((mesh) => mesh.name),
+        meshes: bezelMeshes.map((mesh) => ({
+          name: mesh.name,
+          uuid: mesh.uuid,
+          vertexCount: mesh.geometry?.attributes?.position?.count ?? 0,
+          triangleCount: mesh.geometry?.index
+            ? Math.floor(mesh.geometry.index.count / 3)
+            : Math.floor((mesh.geometry?.attributes?.position?.count ?? 0) / 3),
+          renderOrder: mesh.renderOrder,
+          visible: mesh.visible,
+          productionDepthTest: Array.isArray(mesh.material)
+            ? mesh.material.map((m) => m?.depthTest !== false)
+            : mesh.material?.depthTest !== false,
+          productionDepthWrite: Array.isArray(mesh.material)
+            ? mesh.material.map((m) => m?.depthWrite !== false)
+            : mesh.material?.depthWrite !== false,
+        })),
+        maskLayer: freeLayer,
+        progress: scrollState.parentProgress,
+        width: 0,
+        height: 0,
+        samples: 0,
+      };
+    }
+
+    return () => {
+      for (const [mesh, mask] of originalLayerMasksRef.current) {
+        mesh.layers.mask = mask;
+      }
+      originalLayerMasksRef.current = [];
+      maskLayerRef.current = null;
+      if (typeof window !== "undefined") delete window.__iglassBezelMaskAudit;
+    };
+  }, [scene, bezelMeshes]);
+
+  useEffect(() => {
+    return () => {
+      resources.target.dispose();
+      resources.depthMaterial.dispose();
+      resources.idMaterial.dispose();
+      resources.quad.geometry.dispose();
+      resources.compositeMaterial.dispose();
+    };
+  }, [resources]);
+
+  useFrame(() => {
+    const maskLayer = maskLayerRef.current;
+    if (maskLayer === null || maskLayer < 0 || bezelMeshes.length === 0) {
+      // Fail closed: never invent a proxy if semantic geometry is unavailable.
+      gl.setRenderTarget(null);
+      gl.render(scene, camera);
+      return;
+    }
+
+    const size = gl.getDrawingBufferSize(targetSizeRef.current);
+    if (resources.target.width !== size.x || resources.target.height !== size.y) {
+      resources.target.setSize(size.x, size.y);
+    }
+
+    // Match the default framebuffer's multisample count when WebGL2 supports
+    // multisampled render targets. This keeps edge coverage registered with
+    // the antialiased Hero instead of creating a lower-quality proxy edge.
+    const context = gl.getContext();
+    const samples = gl.capabilities.isWebGL2
+      ? Math.max(0, Number(context.getParameter(context.SAMPLES)) || 0)
+      : 0;
+    if (resources.target.samples !== samples) resources.target.samples = samples;
+
+    const previousTarget = gl.getRenderTarget();
+    const previousOverride = scene.overrideMaterial;
+    const previousCameraMask = camera.layers.mask;
+    const previousAutoClear = gl.autoClear;
+    const previousClearColor = gl.getClearColor(new THREE.Color()).clone();
+    const previousClearAlpha = gl.getClearAlpha();
+
+    // The ID/depth materials must use the same geometric depth bias as the
+    // production bezel, but no production material is mutated.
+    const polygonOffset = BEZEL.offset !== 0;
+    for (const material of [resources.depthMaterial, resources.idMaterial]) {
+      material.polygonOffset = polygonOffset;
+      material.polygonOffsetFactor = BEZEL.offset;
+      material.polygonOffsetUnits = BEZEL.offset;
+    }
+
+    try {
+      scene.overrideMaterial = null;
+      camera.layers.mask = previousCameraMask;
+      gl.setClearColor(0x000000, 1);
+
+      // 1) Exact live-scene depth pre-pass. Production materials decide what
+      // writes depth, so opaque chassis/OLED occlusion remains authoritative
+      // while transparent glass/coats retain their production depth behaviour.
+      gl.setRenderTarget(resources.target);
+      gl.autoClear = true;
+      gl.render(scene, camera);
+
+      // Throw away production colour while retaining the real depth buffer.
+      gl.autoClear = false;
+      gl.clear(true, false, false);
+
+      // 2) Bezel-only depth pass: nearest semantic bezel surface wins, so
+      // backside/self-overlapped bezel geometry cannot bleed into the ID pass.
+      camera.layers.set(maskLayer);
+      scene.overrideMaterial = resources.depthMaterial;
+      gl.render(scene, camera);
+
+      // 3) Deterministic semantic ID pass: same live meshes, camera, matrices,
+      // projection, viewport and target resolution. White means bezel only.
+      scene.overrideMaterial = resources.idMaterial;
+      gl.render(scene, camera);
+
+      // Restore the real scene before presenting the diagnostic.
+      scene.overrideMaterial = previousOverride;
+      camera.layers.mask = previousCameraMask;
+      gl.setRenderTarget(null);
+
+      if (BEZEL_MASK_DEBUG.mode === "raw") {
+        gl.autoClear = true;
+        gl.setClearColor(0x000000, 1);
+        gl.clear(true, true, true);
+        gl.autoClear = false;
+        gl.render(resources.compositeScene, resources.compositeCamera);
+      } else {
+        // Normal Hero first, then a direct GPU mask composite. No DOM contour.
+        gl.autoClear = true;
+        gl.setClearColor(previousClearColor, previousClearAlpha);
+        gl.render(scene, camera);
+        gl.autoClear = false;
+        gl.render(resources.compositeScene, resources.compositeCamera);
+      }
+
+      if (typeof window !== "undefined" && window.__iglassBezelMaskAudit) {
+        const audit = window.__iglassBezelMaskAudit;
+        audit.progress = scrollState.parentProgress;
+        audit.width = size.x;
+        audit.height = size.y;
+        audit.samples = samples;
+        audit.status = "READY";
+      }
+    } finally {
+      scene.overrideMaterial = previousOverride;
+      camera.layers.mask = previousCameraMask;
+      gl.setRenderTarget(previousTarget);
+      gl.autoClear = previousAutoClear;
+      gl.setClearColor(previousClearColor, previousClearAlpha);
+    }
+  }, 100);
+
+  return null;
+}
+
 function bondGlassToOLED() {
   const distance = Math.max(0, Number(DEV.explodeDistance) || 0);
   const z =
@@ -9948,6 +10246,9 @@ function IPhoneExploded({
 
   return (
     <group ref={stageGroupRef}>
+      {BEZEL_MASK_DEBUG.enabled && (
+        <BezelMaskDebugPass bezelMeshes={bezelMeshes} />
+      )}
       <group
         ref={modelGroupRef}
         onClick={(e) => {
@@ -11297,14 +11598,14 @@ function CrossSection3DScrollGLBScene(props) {
       }
     };
 
-    // v7.5.50 — DETERMINISTIC SCRUB HOOK, ?edgeDebug=1 ONLY.
-    // Calibration needs the SAME progress authority the runtime uses, sampled
-    // densely, without paying a GLB decode and a shader compile per sample.
-    // This exposes exactly the existing applyRuntimeProgress — it introduces no
-    // second clock, and outside edgeDebug the hook does not exist at all.
-    if (EDGE_DEBUG && typeof window !== "undefined") {
-      window.__iglassSetProgress = (value) =>
+    // DETERMINISTIC DIAGNOSTIC SCRUB HOOK. Edge-debug and bezel-mask-debug
+    // share the SAME runtime progress authority; neither introduces a second
+    // clock. Outside those explicit development modes the hook does not exist.
+    if ((EDGE_DEBUG || BEZEL_MASK_DEBUG.enabled) && typeof window !== "undefined") {
+      window.__iglassSetProgress = (value) => {
         applyRuntimeProgress(Math.max(0, Math.min(1, Number(value) || 0)));
+        if (RENDER_GOV.invalidate) RENDER_GOV.invalidate();
+      };
     }
 
     if (runtimeMotionPath && motionFreezeP !== null) {
