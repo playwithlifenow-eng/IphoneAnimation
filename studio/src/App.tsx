@@ -1014,6 +1014,29 @@ export default function App() {
               <Move size={15} />
               Path
             </button>
+            {doc.bindings.length > 0 && (
+              <div
+                className="toolbar-signals"
+                title={`Live inputs · Pointer ${Math.round(s.signals.pointerX * 100)}% / ${Math.round(s.signals.pointerY * 100)}%`}
+              >
+                <label>
+                  Scroll
+                  <input
+                    aria-label="Preview scroll progress"
+                    type="range"
+                    min={0}
+                    max={1}
+                    step={0.01}
+                    value={s.signals.scroll}
+                    onChange={(e) =>
+                      studio.session({
+                        signals: { ...s.signals, scroll: Number(e.target.value) },
+                      })
+                    }
+                  />
+                </label>
+              </div>
+            )}
             <div className="profile-switch">
               {doc.profiles.map((p) => (
                 <button
@@ -1070,31 +1093,6 @@ export default function App() {
                 Add position key
               </button>
               <small>{s.playhead.toFixed(2)}s</small>
-            </div>
-          )}
-          {doc.bindings.length > 0 && (
-            <div className="signal-strip">
-              <span>Live inputs</span>
-              <label>
-                Scroll
-                <input
-                  aria-label="Preview scroll progress"
-                  type="range"
-                  min={0}
-                  max={1}
-                  step={0.01}
-                  value={s.signals.scroll}
-                  onChange={(e) =>
-                    studio.session({
-                      signals: { ...s.signals, scroll: Number(e.target.value) },
-                    })
-                  }
-                />
-              </label>
-              <small>
-                Pointer {Math.round(s.signals.pointerX * 100)}% /{" "}
-                {Math.round(s.signals.pointerY * 100)}%
-              </small>
             </div>
           )}
           {s.error && (

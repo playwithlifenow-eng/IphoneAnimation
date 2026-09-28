@@ -377,6 +377,11 @@ button svg {
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
   background: #fbfcfa;
+  gap: 8px;
+  overflow-x: auto;
+}
+.canvas-toolbar > * {
+  flex-shrink: 0;
 }
 .tool-group {
   display: flex;
@@ -922,23 +927,20 @@ button svg {
   }
 }
 
-.signal-strip {
+.toolbar-signals {
   display: flex;
   align-items: center;
-  gap: 20px;
-  padding: 8px 18px;
-  border-bottom: 1px solid var(--border);
-  background: #f1f4e9;
-  font-size: 9px;
-  color: #849477;
+  font-size: 10px;
+  color: #647655;
 }
-.signal-strip label {
+.toolbar-signals label {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 6px;
 }
-.signal-strip small {
-  margin-left: auto;
+.toolbar-signals input {
+  width: 90px;
+  margin: 0;
 }
 .modal > label {
   display: block;

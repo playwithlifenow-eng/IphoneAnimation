@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import {
   Camera,
+  ChevronDown,
+  ChevronUp,
   Diamond,
   Pause,
   Play,
@@ -75,6 +77,20 @@ export function Timeline({
   onBatch,
   onSelect,
 }: TimelineProps) {
+  const [collapsed, setCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem("iglass.studio.timeline-collapsed") === "true";
+    } catch {
+      return false;
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem("iglass.studio.timeline-collapsed", String(collapsed));
+    } catch {
+      // The panel remains usable when browser preference storage is unavailable.
+    }
+  }, [collapsed]);
   const [property, setProperty] = useState("x");
   const [poseName, setPoseName] = useState("");
   const [keySelection, setKeySelection] = useState<{
@@ -277,7 +293,7 @@ export function Timeline({
       "Change interpolation",
     );
   return (
-    <section className="tl-panel" aria-label="Choreography timeline">
+    <section className={`tl-panel${collapsed ? " tl-collapsed" : ""}`} aria-label="Choreography timeline">
       <div className="tl-header">
         <div className="tl-heading">
           <span className="tl-label">Choreography</span>
@@ -321,7 +337,20 @@ export function Timeline({
             }
           />
         </div>
+        <button
+          type="button"
+          className="tl-collapse"
+          aria-label={collapsed ? "Expand choreography" : "Collapse choreography"}
+          aria-expanded={!collapsed}
+          aria-controls="choreography-content"
+          title={collapsed ? "Show timeline and keyframes" : "Hide timeline to enlarge the canvas"}
+          onClick={() => setCollapsed((value) => !value)}
+        >
+          {collapsed ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+          {collapsed ? "Expand" : "Collapse"}
+        </button>
       </div>
+      <div id="choreography-content" className="tl-content" hidden={collapsed}>
       <div className="tl-ruler-row">
         <div className="tl-ruler-title">
           PROPERTY{" "}
@@ -539,6 +568,7 @@ export function Timeline({
           ))}
         </div>
       )}
+      </div>
     </section>
   );
 }
