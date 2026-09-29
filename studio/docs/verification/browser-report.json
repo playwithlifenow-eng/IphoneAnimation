@@ -1,0 +1,31 @@
+{
+  "verifiedAt": "2026-09-28T12:05:50.862Z",
+  "checks": [
+    "Editor and original GLB load",
+    "Shared copy editing and undo/redo",
+    "Direct text manipulation",
+    "Pointer drag is one undoable transaction",
+    "Escape cancels pointer edits",
+    "Responsive profile overrides",
+    "Spatial path handles, keyboard nudges and one-step undo",
+    "Authored relationships, measured bounds and runtime connectors",
+    "3D appearance and keyframe authoring",
+    "Named pose capture",
+    "Immutable Takes and synchronised comparison",
+    "Signal ownership and controlled preview inputs",
+    "Feedback retains exact state and honest capture provenance",
+    "Asset import and insertion",
+    "SQLite save and reopen",
+    "Portable project includes GLB and imported assets",
+    "Deduplicated portable project imports and reopens with Takes",
+    "Four manifests and exported artifact hashes",
+    "Exported static runtime reopens independently without editor code",
+    "No browser console errors or uncaught exceptions"
+  ],
+  "errors": [],
+  "browser": "140.0.7339.186",
+  "viewport": {
+    "width": 1512,
+    "height": 982
+  }
+}

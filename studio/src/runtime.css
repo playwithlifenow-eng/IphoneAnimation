@@ -1,0 +1,92 @@
+.composition-page {
+  position: relative;
+  background: #f2f2e9;
+  overflow: hidden;
+  isolation: isolate;
+  color: #233a30;
+  font-family: Arial, sans-serif;
+}
+.render-entity {
+  transform-origin: center;
+  outline: 0 solid transparent;
+}
+.render-text {
+  width: 100%;
+  height: 100%;
+  white-space: pre-wrap;
+  outline: none;
+  overflow-wrap: break-word;
+}
+.render-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  color: inherit;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  font-size: inherit;
+}
+.render-media {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+}
+.media-empty {
+  height: 100%;
+  display: grid;
+  place-items: center;
+  background: #e0e4dc;
+  color: #6d796e;
+  font-size: 14px;
+}
+.render-component {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 10px;
+  font-size: 16px;
+  letter-spacing: -0.3px;
+}
+.render-component strong {
+  font-size: 25px;
+  font-weight: 500;
+}
+.render-component p {
+  margin: 0;
+  line-height: 1.5;
+  font-size: 14px;
+  opacity: 0.7;
+}
+.component-mark {
+  font-size: 25px;
+  margin-bottom: 10px;
+}
+.render-component small {
+  font-size: 10px;
+  opacity: 0.65;
+}
+.runtime-body {
+  margin: 0;
+  background: #f2f2e9;
+}
+.runtime-frame {
+  margin: 0 auto;
+  position: relative;
+  overflow: hidden;
+}
+.runtime-loading {
+  padding: 40px;
+  font-family: Arial, sans-serif;
+  color: #233a30;
+}
+
+.relationship-connectors {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: visible;
+}
