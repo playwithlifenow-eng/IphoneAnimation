@@ -1,0 +1,21 @@
+{
+  "checks": [
+    "Compact header and explicit Properties/Parent controls",
+    "Live Take previews, rename, preferred marker, delete/undo and persistent collapsible/resizable sidebar",
+    "Copy and variant deletion preserve placed text and undo correctly",
+    "Add section grows page; visible child insertion, grid and detach preserve geometry",
+    "No 10,000px boundary; content remains rendered; wheel pan and cursor-centred zoom",
+    "Undo reverses grouping and relationships; relationship removal is also undoable",
+    "Choreography controls share one row; collapsed playback remains usable",
+    "Shelf deletion/undo and real public Framer Copy Import compile, preview and insertion",
+    "Portable project embeds and restores imported component JavaScript",
+    "Save/reopen and independent runtime preserve extended page and bundled Framer component"
+  ],
+  "errors": [],
+  "browser": "153.0.8010.0",
+  "viewport": {
+    "width": 1536,
+    "height": 864
+  },
+  "externalFixture": "https://framer.com/m/Button-5TDo.js"
+}

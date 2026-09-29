@@ -60,6 +60,7 @@ const { unzipSync } = require("fflate");
     };
     await page.goto("http://127.0.0.1:5173");
     await page.waitForLoadState("networkidle");
+    await page.waitForFunction(async () => (await import("/src/store.ts")).studio.get().loaded);
     assert.equal(await page.title(), "iGlass Composition Studio");
     assert.equal(await page.locator("canvas").count(), 1);
     assert.equal(await page.locator("vite-error-overlay").count(), 0);
@@ -134,6 +135,7 @@ const { unzipSync } = require("fflate");
       78,
     );
     check("Escape cancels pointer edits");
+    await page.locator(".layer-select").filter({ hasText: "The main idea" }).click();
     await page.getByRole("button", { name: "Mobile", exact: true }).click();
     await page.getByLabel("X", { exact: true }).fill("37");
     await page.getByLabel("X", { exact: true }).blur();
@@ -366,6 +368,7 @@ const { unzipSync } = require("fflate");
     const saved = await doc();
     await page.reload();
     await page.waitForLoadState("networkidle");
+    await page.waitForFunction(async () => (await import("/src/store.ts")).studio.get().loaded);
     assert.deepEqual(await doc(), saved);
     check("SQLite save and reopen");
     await page.getByRole("button", { name: "Export", exact: true }).click();
@@ -406,6 +409,7 @@ const { unzipSync } = require("fflate");
     });
     await page.reload();
     await page.waitForLoadState("networkidle");
+    await page.waitForFunction(async () => (await import("/src/store.ts")).studio.get().loaded);
     assert.equal(
       (await doc()).entities.length,
       portable.document.entities.length,

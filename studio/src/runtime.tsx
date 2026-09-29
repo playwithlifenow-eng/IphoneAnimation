@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { PageRenderer } from "./PageRenderer";
 import { validateDocument, type StudioDocument } from "./model";
 import "./runtime.css";
+import { layoutDocument } from "./layout";
 function Runtime() {
   const [doc, setDoc] = useState<StudioDocument | null>(null);
   const [error, setError] = useState("");
@@ -41,7 +42,7 @@ function Runtime() {
   return (
     <main
       className="runtime-frame"
-      style={{ width: profile.width * zoom, height: profile.height * zoom }}
+      style={{ width: profile.width * zoom, height: layoutDocument(doc, profile.id, time).height * zoom }}
     >
       <div style={{ transform: `scale(${zoom})`, transformOrigin: "top left" }}>
         <PageRenderer document={doc} profileId={profile.id} time={time} />

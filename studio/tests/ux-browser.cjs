@@ -1,0 +1,132 @@
+const { chromium } = require("playwright");
+const assert = require("node:assert/strict");
+const { spawn } = require("node:child_process");
+const fs = require("node:fs");
+const path = require("node:path");
+const { unzipSync, strFromU8 } = require("fflate");
+const http = require("node:http");
+(async () => {
+  fs.mkdirSync("test-results", { recursive: true });
+  const checks = [], errors = [], dataDir = fs.mkdtempSync(path.resolve("test-results/ux-workspace-"));
+  const server = spawn(process.execPath, ["node_modules/vite/bin/vite.js", "--host", "127.0.0.1", "--port", "5187", "--strictPort"], { env: { ...process.env, STUDIO_DATA_DIR: dataDir }, stdio: ["ignore", "pipe", "pipe"] });
+  let browser, runtimeServer;
+  try {
+    await new Promise((resolve, reject) => { server.stdout.on("data", d => { if (d.toString().includes("Local:")) resolve(); }); server.stderr.on("data", d => process.stderr.write(d)); server.on("exit", code => reject(new Error("Server exited " + code))); });
+    browser = await chromium.launch({ headless: true, executablePath: process.env.STUDIO_BROWSER_EXECUTABLE || undefined, args: [...(process.env.STUDIO_BROWSER_EXECUTABLE ? ["--no-zygote", "--single-process"] : []), "--no-sandbox", "--disable-dev-shm-usage", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
+    const page = await browser.newPage({ viewport: { width: 1536, height: 864 }, acceptDownloads: true });
+    page.on("pageerror", e => errors.push(e.message));
+    const state = () => page.evaluate(async () => (await import("/src/store.ts")).studio.get());
+    const doc = async () => (await state()).workspace.document;
+    const button = name => page.getByRole("button", { name, exact: true });
+    const layer = name => page.locator(".layer-select").filter({ hasText: name });
+    const undo = () => page.getByLabel("Undo", { exact: true }).click();
+    const check = name => { checks.push(name); console.log("PASS " + name); };
+    await page.goto("http://127.0.0.1:5187");
+    await page.waitForFunction(() => !!document.querySelector("canvas"));
+    assert.equal(await page.locator("vite-error-overlay").count(), 0);
+    assert((await page.locator(".workspace-nav").boundingBox()).y < 50);
+    assert.equal(await page.getByLabel("Parent frame").count(), 1);
+    await page.screenshot({ path: "test-results/ux-desktop.png" });
+    check("Compact header and explicit Properties/Parent controls");
+
+    await button("Takes").click(); await button("Capture current Take").click(); await page.getByLabel("Take name", { exact: true }).fill("Hero composition"); await button("Capture Take").click();
+    await page.locator('.take-card .visual-thumbnail .composition-page').waitFor();
+    await page.waitForFunction(() => {
+      const scene = document.querySelector('.take-card .scene-view'), canvas = scene?.querySelector('canvas');
+      return canvas && Math.abs(canvas.clientWidth - scene.clientWidth) < 2 && !scene.querySelector(':scope > .scene-status');
+    });
+    const rename = page.getByLabel("Rename Hero composition"); await rename.fill("Hero preferred"); await rename.press("Enter");
+    await button("Mark preferred").click();
+    assert.equal((await state()).workspace.acceptedTakeId, (await state()).workspace.takes[0].id);
+    await page.screenshot({ path: "test-results/ux-takes.png" });
+    await page.getByLabel("Delete Hero preferred", { exact: true }).click(); assert.equal((await state()).workspace.takes.length, 0); await undo();
+    assert.equal((await state()).workspace.takes[0].name, "Hero preferred");
+    await page.getByLabel("Collapse library panel").click(); assert(await page.locator(".left-panel").isHidden());
+    const collapsedWidth = (await page.locator(".canvas-board").boundingBox()).width;
+    await page.reload(); await page.getByLabel("Expand library panel").waitFor(); assert(await page.locator(".left-panel").isHidden());
+    await page.getByLabel("Expand library panel").click(); assert((await page.locator(".canvas-board").boundingBox()).width < collapsedWidth);
+    const resize = await page.getByLabel("Resize library panel").boundingBox(); await page.mouse.move(resize.x + 2, resize.y + 80); await page.mouse.down(); await page.mouse.move(resize.x + 62, resize.y + 80); await page.mouse.up(); assert((await page.locator(".left-panel").boundingBox()).width >= 360);
+    check("Live Take previews, rename, preferred marker, delete/undo and persistent collapsible/resizable sidebar");
+
+    await button("Copy").click(); const atom = (await doc()).copy[0];
+    await page.locator(".copy-card").first().getByRole("button", { name: "Save variant", exact: true }).click();
+    const variants = (await doc()).copy[0].variants.length; await page.getByLabel(`Delete variant ${variants} of ${atom.name}`, { exact: true }).click(); assert.equal((await doc()).copy[0].variants.length, variants - 1); await undo();
+    await page.getByLabel(`Delete copy ${atom.name}`, { exact: true }).click(); assert(!(await doc()).copy.some(a => a.id === atom.id));
+    assert.equal((await doc()).entities.find(e => e.id === "headline").props.text, atom.text); await undo();
+    check("Copy and variant deletion preserve placed text and undo correctly");
+
+    await button("Compose").click(); await button("Add section below").click();
+    const section = (await doc()).entities.find(e => e.props.isSection); assert(section);
+    assert.equal((await page.locator('.canvas-board .composition-page').evaluate(e => parseFloat(e.style.height))), 1320);
+    await page.getByLabel("Layout direction").selectOption("grid"); await page.getByLabel("Grid columns", { exact: true }).fill("2");
+    await page.getByLabel("Fit frame height to children").check();
+    await button("+ Child text").click(); const child1 = (await state()).selection[0];
+    assert.equal((await doc()).entities.find(e => e.id === child1).parentId, section.id);
+    await layer(section.name).click(); await button("+ Child text").click(); const child2 = (await state()).selection[0];
+    const b1 = await page.locator(`[data-entity="${child1}"]`).boundingBox(), b2 = await page.locator(`[data-entity="${child2}"]`).boundingBox(); assert(b2.x > b1.x); assert.equal(b1.y, b2.y);
+    await button("Detach to page").click(); assert.equal((await doc()).entities.find(e => e.id === child2).parentId, undefined);
+    const detached = await page.locator(`[data-entity="${child2}"]`).boundingBox(); assert(Math.abs(detached.x - b2.x) < 1); assert(Math.abs(detached.y - b2.y) < 1);
+    await undo(); assert.equal((await doc()).entities.find(e => e.id === child2).parentId, section.id);
+    check("Add section grows page; visible child insertion, grid and detach preserve geometry");
+
+    await layer(section.name).click(); await page.getByLabel("Y", { exact: true }).fill("22000"); await page.getByLabel("Y", { exact: true }).blur();
+    assert((await page.locator('.canvas-board .composition-page').evaluate(e => parseFloat(e.style.height))) > 22000);
+    assert.equal(await page.locator('.canvas-board .composition-page').evaluate(e => getComputedStyle(e).overflow), "visible");
+    const board = await page.locator('.canvas-board').boundingBox(); await page.mouse.move(board.x + 50, board.y + 50);
+    const beforePan = await page.locator('.artboard-position').getAttribute('style'); await page.mouse.wheel(200, 300); await page.waitForTimeout(80); assert.notEqual(await page.locator('.artboard-position').getAttribute('style'), beforePan);
+    const beforeZoom = (await state()).zoom; await page.keyboard.down("Control"); await page.mouse.wheel(0, -100); await page.keyboard.up("Control"); await page.waitForTimeout(80); assert((await state()).zoom > beforeZoom);
+    await undo();
+    await page.screenshot({ path: "test-results/ux-sections.png" });
+    check("No 10,000px boundary; content remains rendered; wheel pan and cursor-centred zoom");
+
+    await layer("Eyebrow").click(); await layer("Composition note").click({ modifiers: ["Shift"] });
+    await page.getByLabel("Group selection", { exact: true }).click(); assert((await doc()).entities.find(e => e.id === "kicker").parentId); await undo(); assert(!(await doc()).entities.find(e => e.id === "kicker").parentId);
+    await layer("Eyebrow").click(); await layer("Composition note").click({ modifiers: ["Shift"] }); await button("Relations").click(); await button("Add relationship").click(); assert.equal((await doc()).relationships.length, 1); await undo(); assert.equal((await doc()).relationships.length, 0);
+    await page.getByLabel("Redo", { exact: true }).click(); const relation = (await doc()).relationships[0]; await page.getByLabel("Remove relationship " + relation.id, { exact: true }).click(); assert.equal((await doc()).relationships.length, 0); await undo(); assert.equal((await doc()).relationships.length, 1);
+    check("Undo reverses grouping and relationships; relationship removal is also undoable");
+
+    await page.getByLabel("Collapse choreography").click(); assert(await page.locator('#choreography-content').isHidden()); await page.getByLabel("Play animation").click(); await page.waitForTimeout(180); assert((await state()).playhead > 0); await page.getByLabel("Pause animation").click(); await page.getByLabel("Expand choreography").click();
+    const tools = await page.locator('.tl-tools').boundingBox(), transport = await page.locator('.tl-transport').boundingBox(); assert(Math.abs(tools.y - transport.y) < 10);
+    check("Choreography controls share one row; collapsed playback remains usable");
+
+    await button("Components").click(); await page.getByLabel("Delete component Proof card", { exact: true }).click(); assert((await doc()).hiddenComponents.includes("proof-card")); await undo(); assert(!(await doc()).hiddenComponents?.includes("proof-card"));
+    await page.getByLabel("Component name", { exact: true }).fill("Framer reference button"); await page.getByLabel("Framer Copy Import", { exact: true }).fill('import Button from "https://framer.com/m/Button-5TDo.js"');
+    await button("Import and preview").click();
+    await page.locator('.import-preview .imported-component[data-ready="true"], .import-preview [role="alert"]').first().waitFor({ timeout: 90000 });
+    assert.deepEqual(await page.locator('.import-preview [role="alert"]').allTextContents(), []);
+    await page.screenshot({ path: "test-results/ux-framer-import.png" });
+    await button("Add to shelf").click(); assert.equal((await doc()).components.length, 1);
+    const card = page.locator('.component-shelf-card').filter({ hasText: "Framer reference button" }); await card.getByRole("button", { name: "Insert", exact: true }).click();
+    const importedDoc = await doc();
+    const imported = importedDoc.entities.find(e => e.componentId === importedDoc.components[0].id);
+    assert(imported);
+    await page.locator(`.canvas-board [data-entity="${imported.id}"] .imported-component[data-ready="true"]`).waitFor();
+    assert.deepEqual(await page.locator(`.canvas-board [data-entity="${imported.id}"] [role="alert"]`).allTextContents(), []);
+    check("Shelf deletion/undo and real public Framer Copy Import compile, preview and insertion");
+
+    await page.evaluate(async () => (await import('/src/store.ts')).studio.save());
+    await page.reload(); await page.waitForFunction(async () => (await import('/src/store.ts')).studio.get().loaded);
+    assert.equal((await doc()).components[0].name, "Framer reference button");
+    await button("Export").click();
+    const portableDownload = page.waitForEvent('download');
+    await page.getByRole('button', { name: /Portable project/ }).click();
+    const portable = JSON.parse(fs.readFileSync(await (await portableDownload).path(), 'utf8'));
+    assert.equal(portable.componentBundles.length, 1);
+    const importedBundle = await page.evaluate(async workspace => (await import('/src/export.ts')).importProject(workspace), portable);
+    assert.equal(importedBundle.document.components[0].bundle, (await doc()).components[0].bundle);
+    check("Portable project embeds and restores imported component JavaScript");
+    const downloadPromise = page.waitForEvent('download');
+    await page.getByRole('button', { name: /Runtime package/ }).click();
+    const download = await downloadPromise; const zip = unzipSync(fs.readFileSync(await download.path()));
+    const exported = JSON.parse(strFromU8(zip['composition.json'])); assert(exported.components[0].bundle.startsWith('./media/')); assert(zip[exported.components[0].bundle.slice(2)]);
+    runtimeServer = http.createServer((req, res) => { const name = req.url.split('?')[0].replace(/^\//, '') || 'index.html'; const file = zip[name]; if (!file) { res.writeHead(404); return res.end(); } res.setHeader('Content-Type', name.endsWith('.js') ? 'text/javascript' : name.endsWith('.css') ? 'text/css' : name.endsWith('.json') ? 'application/json' : 'text/html'); res.end(file); });
+    await new Promise(r => runtimeServer.listen(0, '127.0.0.1', r));
+    const runtime = await browser.newPage({ viewport: { width: 1280, height: 900 } }); runtime.on('pageerror', e => errors.push(e.message)); await runtime.goto(`http://127.0.0.1:${runtimeServer.address().port}`);
+    await runtime.locator('.imported-component[data-ready="true"]').waitFor({ timeout: 30000 }); assert.equal(await runtime.locator('.component-status[role=alert]').count(), 0);
+    assert(await runtime.locator('.composition-page').evaluate(e => parseFloat(e.style.height)) > 760);
+    await runtime.screenshot({ path: 'test-results/ux-export.png' });
+    check("Save/reopen and independent runtime preserve extended page and bundled Framer component");
+    assert.deepEqual(errors, []);
+    fs.writeFileSync('test-results/ux-browser-report.json', JSON.stringify({ checks, errors, browser: browser.version(), viewport: { width: 1536, height: 864 }, externalFixture: 'https://framer.com/m/Button-5TDo.js' }, null, 2));
+  } finally { await browser?.close(); if (runtimeServer) await new Promise(r => runtimeServer.close(r)); server.kill(); }
+})().catch(e => { console.error(e); process.exitCode = 1; });

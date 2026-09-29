@@ -31,6 +31,17 @@ export interface CopyAtom {
   name: string;
   text: string;
   variants: string[];
+  role?: string;
+  section?: string;
+}
+export interface ComponentDefinition {
+  id: string;
+  name: string;
+  sourceUrl: string;
+  bundle: string;
+  importedAt: string;
+  defaults: Props;
+  controls?: Record<string, { title?: string; type?: string; options?: string[]; defaultValue?: Value }>;
 }
 export interface Asset {
   id: string;
@@ -91,6 +102,8 @@ export interface StudioDocument {
   poses: Pose[];
   bindings: Binding[];
   relationships: Relationship[];
+  components?: ComponentDefinition[];
+  hiddenComponents?: string[];
 }
 export interface Take {
   id: string;
@@ -98,6 +111,10 @@ export interface Take {
   createdAt: string;
   parentId?: string;
   document: StudioDocument;
+  profileId?: string;
+  playhead?: number;
+  signals?: Record<string, number>;
+  thumbnail?: string;
 }
 export interface Episode {
   id: string;
@@ -140,6 +157,10 @@ export type Command =
   | { type: "rename"; id: string; name: string }
   | { type: "reparent"; id: string; parentId?: string }
   | { type: "copy"; atom: CopyAtom }
+  | { type: "remove-copy"; id: string }
+  | { type: "component"; component: ComponentDefinition }
+  | { type: "hide-component"; id: string; hidden: boolean }
+  | { type: "reorder"; id: string; beforeId?: string }
   | { type: "asset"; asset: Asset }
   | { type: "track"; track: Track }
   | { type: "remove-track"; id: string }
@@ -217,7 +238,7 @@ export function validateDocument(input: unknown): StudioDocument {
         p.width < 200 ||
         p.width > 5000 ||
         p.height < 200 ||
-        p.height > 10000,
+        p.height > 10000000,
     )
   )
     throw new Error("Invalid profile dimensions.");
@@ -250,6 +271,11 @@ export function validateDocument(input: unknown): StudioDocument {
       seen.add(parent);
       parent = d.entities.find((x) => x.id === parent)?.parentId;
     }
+    if (e.parentId && !d.entities.some(p => p.id === e.parentId && p.kind === "frame")) throw new Error("Parent must be a frame.");
+  }
+  if (d.components !== undefined && (!Array.isArray(d.components) || !unique(d.components))) throw new Error("Invalid component library.");
+  for (const c of d.components ?? []) {
+    if (typeof c.name !== "string" || typeof c.bundle !== "string" || !/^\/assets\/component-[a-f0-9]{64}\.js$|^\.\/media\/component-[a-f0-9]{64}\.js$/.test(c.bundle) || !validProps(c.defaults)) throw new Error("Invalid component definition.");
   }
   const owners = new Set<string>();
   for (const t of d.tracks) {
@@ -374,11 +400,32 @@ export function applyCommand(
     case "reparent":
       entity(command.id).parentId = command.parentId;
       break;
-    case "copy":
-      d.copy = d.copy
-        .filter((a) => a.id !== command.atom.id)
-        .concat(clone(command.atom));
+    case "copy": {
+      const index = d.copy.findIndex(a => a.id === command.atom.id);
+      if (index < 0) d.copy.push(clone(command.atom));
+      else d.copy[index] = clone(command.atom);
       break;
+    }
+    case "remove-copy": {
+      const atom = d.copy.find(a => a.id === command.id);
+      if (!atom) return document;
+      for (const e of d.entities.filter(e => e.copyId === atom.id)) { e.props.text = atom.text; delete e.copyId; }
+      d.copy = d.copy.filter(a => a.id !== atom.id);
+      break;
+    }
+    case "component":
+      d.components = [...(d.components ?? []).filter(c => c.id !== command.component.id), clone(command.component)];
+      break;
+    case "hide-component":
+      d.hiddenComponents = [...(d.hiddenComponents ?? []).filter(id => id !== command.id), ...(command.hidden ? [command.id] : [])];
+      break;
+    case "reorder": {
+      const e = entity(command.id);
+      d.entities = d.entities.filter(a => a.id !== e.id);
+      const index = command.beforeId ? d.entities.findIndex(a => a.id === command.beforeId && a.parentId === e.parentId) : -1;
+      if (index < 0) d.entities.push(e); else d.entities.splice(index, 0, e);
+      break;
+    }
     case "asset":
       d.assets = d.assets
         .filter((a) => a.id !== command.asset.id)

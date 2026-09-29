@@ -423,6 +423,7 @@ export function SceneView({
     >
       <SceneBoundary key={`${url}:${attempt}`} onError={report} onRetry={retry}>
         <Canvas
+          resize={{ offsetSize: true }}
           frameloop="demand"
           dpr={[1, 1.75]}
           camera={{ position: [0, 0, 5], fov: 35, near: 0.01, far: 1000 }}

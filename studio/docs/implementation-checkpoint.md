@@ -1,5 +1,7 @@
 # Implementation checkpoint — 28 September 2026
 
+> Historical checkpoint. See [29 September workspace revision](feedback-2026-09-29.md) for the newer canvas, hierarchy, deletion, Take preview and Framer import implementation.
+
 **State:** runnable integrated alpha; broad V1 implementation is underway. This is a checkpoint against the master plan, not a competing execution plan or a claim that V1 acceptance is complete.
 
 ## Authority and isolation

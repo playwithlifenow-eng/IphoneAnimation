@@ -17,6 +17,8 @@ import {
   type Value,
 } from "./model";
 import { capabilityEnvelope } from "./capabilities";
+import { HierarchyControls } from "./WorkspacePanels";
+import { COPY_ROLES } from "./layout";
 import { COMPONENTS } from "./seed";
 import "./controls.css";
 
@@ -129,7 +131,7 @@ export function Inspector({
       <aside className="ic-inspector">
         <div className="ic-panel-title">
           <SlidersHorizontal size={15} />
-          <span>Inspector</span>
+          <span>Properties</span>
         </div>
         <div className="ic-empty">
           <Box size={27} />
@@ -281,7 +283,7 @@ export function Inspector({
     <aside className="ic-inspector" aria-label="Element inspector">
       <div className="ic-panel-title">
         <SlidersHorizontal size={15} />
-        <span>Inspector</span>
+        <span>Properties</span>
         <span className="ic-kind">{entity.kind}</span>
       </div>
       <div className="ic-entity-heading">
@@ -304,6 +306,7 @@ export function Inspector({
             : `${profileName} overrides`}
         </div>
       </div>
+      <HierarchyControls document={doc} entity={entity} />
       <div className="ic-tabs" role="tablist" aria-label="Inspector sections">
         <button
           type="button"
@@ -330,6 +333,32 @@ export function Inspector({
       <div className="ic-scroll">
         {tab === "design" ? (
           <>
+            {entity.kind === "text" && <Section title="Copy role"><select aria-label="Text role" value={str(values, "role", "")} onChange={e => { if (COPY_ROLES[e.target.value]) onPatch(COPY_ROLES[e.target.value].props); }}><option value="">Custom typography</option>{Object.entries(COPY_ROLES).map(([id, role]) => <option key={id} value={id}>{role.label}</option>)}</select></Section>}
+            {entity.parentId && <label className="ic-check"><input type="checkbox" aria-label="Fill parent width" checked={values.widthMode === "fill"} onChange={e => patch("widthMode", e.target.checked ? "fill" : "fixed")} />Fill vertical stack width</label>}
+            {entity.kind === "frame" && (
+              <Section title="Child layout">
+                <label className="ic-select-field">
+                  <span>Direction</span>
+                  <select
+                    aria-label="Layout direction"
+                    value={str(values, "layout", "free")}
+                    onChange={(event) => patch("layout", event.target.value)}
+                  >
+                    <option value="free">Free positioning</option>
+                    <option value="row">Horizontal stack</option>
+                    <option value="column">Vertical stack</option>
+                    <option value="grid">Grid</option>
+                  </select>
+                </label>
+                {number("gap", "Gap", 16, 0, 1000, 1, "px")}
+                {str(values, "layout") === "grid" && number("columns", "Grid columns", 2, 1, 12, 1)}
+                <label className="ic-check"><input type="checkbox" aria-label="Fit frame height to children" checked={values.autoHeight === true} onChange={e => patch("autoHeight", e.target.checked)} />Fit height to children</label>
+                <p className="ic-help">
+                  Stack layout arranges the frame’s direct children. Their saved
+                  X/Y positions are used when returning to free layout.
+                </p>
+              </Section>
+            )}
             <Section title="Transform">
               <div className="ic-field-grid">
                 {number("x", "X", 0, undefined, undefined, 1, "px")}
@@ -533,27 +562,11 @@ export function Inspector({
                 {number("padding", "Padding", 0, 0, 1000, 1, "px")}
               </div>
             </Section>
-            {entity.kind === "frame" && (
-              <Section title="Child layout">
-                <label className="ic-select-field">
-                  <span>Direction</span>
-                  <select
-                    aria-label="Layout direction"
-                    value={str(values, "layout", "free")}
-                    onChange={(event) => patch("layout", event.target.value)}
-                  >
-                    <option value="free">Free positioning</option>
-                    <option value="row">Horizontal stack</option>
-                    <option value="column">Vertical stack</option>
-                  </select>
-                </label>
-                {number("gap", "Gap", 16, 0, 1000, 1, "px")}
-                <p className="ic-help">
-                  Stack layout arranges the frame’s direct children. Their saved
-                  X/Y positions are used when returning to free layout.
-                </p>
-              </Section>
-            )}
+            {doc.components?.find(c => c.id === entity.componentId) && <Section title="Component properties">
+              {Object.entries(doc.components.find(c => c.id === entity.componentId)?.controls ?? {}).map(([key, control]) => <label key={key} className="ic-text-field"><span>{control.title ?? key}</span>{Array.isArray(control.options) ? <select aria-label={`Component ${control.title ?? key}`} value={String(values["prop:" + key] ?? control.defaultValue ?? "")} onChange={e => patch("prop:" + key, e.target.value)}>{control.options.map(option => <option key={option}>{option}</option>)}</select> : control.type === "boolean" ? <input type="checkbox" aria-label={`Component ${control.title ?? key}`} checked={Boolean(values["prop:" + key] ?? control.defaultValue)} onChange={e => patch("prop:" + key, e.target.checked)} /> : <input aria-label={`Component ${control.title ?? key}`} type={control.type === "number" ? "number" : "text"} value={String(values["prop:" + key] ?? control.defaultValue ?? "")} onChange={e => patch("prop:" + key, control.type === "number" ? Number(e.target.value) : e.target.value)} />}</label>)}
+              <label className="ic-text-field"><span>Additional props · JSON</span><textarea aria-label="Component props JSON" key={entity.id} defaultValue={str(values, "componentPropsJson", "{}")} onBlur={e => { try { const props = JSON.parse(e.target.value); if (!props || Array.isArray(props) || typeof props !== "object") throw new Error("Use a JSON object"); onPatch({ componentPropsJson: JSON.stringify(props) }); e.target.setCustomValidity(""); } catch { e.target.setCustomValidity("Enter a valid JSON object"); e.target.reportValidity(); } }} /></label>
+              <p className="ic-help">Use Interact in the toolbar to test clicks inside this component. Move and resize it with Select.</p>
+            </Section>}
             {component && (
               <Section title="Component contract">
                 <div className="ic-capabilities">

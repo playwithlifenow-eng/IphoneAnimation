@@ -113,14 +113,31 @@ export async function portableWorkspace(workspace: Workspace) {
     converted.set(asset.url, packed.url);
   }
   for (const d of docs) remapAssets(d, converted);
-  return { ...copy, embeddedAssets: [...bundle.values()] };
+  const componentBundles = [];
+  for (const url of new Set(docs.flatMap(d => (d.components ?? []).map(c => c.bundle)))) {
+    const r = await fetch(url); if (!r.ok) throw new Error("Cannot package imported component.");
+    const bytes = new Uint8Array(await r.arrayBuffer());
+    const hash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))).map(x => x.toString(16).padStart(2, "0")).join("");
+    let binary = ""; for (const byte of bytes) binary += String.fromCharCode(byte);
+    componentBundles.push({ hash, data: btoa(binary) });
+  }
+  return { ...copy, embeddedAssets: [...bundle.values()], componentBundles };
 }
 export async function importProject(input: unknown): Promise<Workspace> {
   const copy = validateWorkspace(input) as Workspace & {
     embeddedAssets?: EmbeddedAsset[];
+    componentBundles?: { hash: string; data: string }[];
   };
   const bundle = copy.embeddedAssets;
   delete copy.embeddedAssets;
+  const componentBundles = copy.componentBundles; delete copy.componentBundles;
+  if (componentBundles !== undefined) {
+    if (!Array.isArray(componentBundles)) throw new Error("Invalid component bundle list.");
+    for (const bundle of componentBundles) {
+      const r = await fetch("/api/components/bundle", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(bundle) });
+      const result = await r.json(); if (!r.ok) throw new Error(result.error);
+    }
+  }
   const upload = async (a: EmbeddedAsset) => {
     if (
       typeof a.name !== "string" ||
@@ -207,6 +224,12 @@ export async function exportRuntime(document: StudioDocument) {
     map.set(asset.url, `./${path}`);
   }
   remapAssets(doc, map);
+  for (const c of doc.components ?? []) {
+    const r = await fetch(c.bundle); if (!r.ok) throw new Error(`Missing component: ${c.name}`);
+    const bytes = new Uint8Array(await r.arrayBuffer());
+    const hash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))).map(x => x.toString(16).padStart(2, "0")).join("");
+    const path = `media/component-${hash}.js`; files[path] = bytes; c.bundle = `./${path}`;
+  }
   files["composition.json"] = strToU8(JSON.stringify(doc, null, 2));
   const digest = async (bytes: Uint8Array) =>
     Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)))

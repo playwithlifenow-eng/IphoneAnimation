@@ -15,6 +15,8 @@ import {
   type StudioDocument,
 } from "./model";
 import { measurePage, type BoundsProbe } from "./probes";
+import { layoutDocument } from "./layout";
+import { ImportedComponent } from "./ImportedComponent";
 import { SceneView } from "./SceneView";
 import "./runtime.css";
 interface PageProps {
@@ -74,21 +76,18 @@ export function PageRenderer({
   useLayoutEffect(() => {
     if (hasConnectors) setBoxes(measurePage(pageRef.current));
   }, [d, profileId, time, signals, hasConnectors]);
+  const layout = layoutDocument(d, profile.id, time, signals);
   const render = (e: Entity) => {
     const p = evaluateEntity(d, e, profile.id, time, signals);
     if (p.visible === false) return null;
-    const parent = d.entities.find((x) => x.id === e.parentId);
-    const parentValues = parent
-      ? evaluateEntity(d, parent, profile.id, time, signals)
-      : null;
-    const flow = parentValues && str(parentValues, "layout", "free") !== "free";
+    const box = layout.boxes.get(e.id)!;
     const selected = selection.includes(e.id);
     const style: CSSProperties = {
-      position: flow ? "relative" : "absolute",
-      left: flow ? undefined : num(p, "x"),
-      top: flow ? undefined : num(p, "y"),
-      width: num(p, "width", 200),
-      height: num(p, "height", 100),
+      position: "absolute",
+      left: box.x,
+      top: box.y,
+      width: box.width,
+      height: box.height,
       transform: `rotate(${num(p, "rotation")}deg)`,
       opacity: num(p, "opacity", 1),
       color: str(p, "color", "#22382c"),
@@ -105,9 +104,7 @@ export function PageRenderer({
       flexShrink: 0,
     };
     if (e.kind === "frame") {
-      style.display = "flex";
-      style.flexDirection = str(p, "layout") === "row" ? "row" : "column";
-      style.gap = num(p, "gap", 16);
+      style.padding = 0;
       style.overflow = str(
         p,
         "overflow",
@@ -115,9 +112,10 @@ export function PageRenderer({
       ) as CSSProperties["overflow"];
     }
     let content: React.ReactNode = null;
+    const TextTag = (["h1", "h2", "h3"].includes(str(p, "role")) ? str(p, "role") : "div") as "h1" | "h2" | "h3" | "div";
     if (e.kind === "text")
       content = (
-        <div
+        <TextTag
           className="render-text"
           contentEditable={editor && selected}
           suppressContentEditableWarning
@@ -141,7 +139,7 @@ export function PageRenderer({
           }}
         >
           {str(p, "text")}
-        </div>
+        </TextTag>
       );
     if (e.kind === "button")
       content = (
@@ -216,6 +214,8 @@ export function PageRenderer({
           )}
         </div>
       );
+    const definition = d.components?.find(c => c.id === e.componentId);
+    if (e.kind === "component" && definition) content = <ImportedComponent definition={definition} values={p} interactive={!editor || sceneInteractive} />;
     return (
       <div
         key={e.id}
@@ -253,9 +253,9 @@ export function PageRenderer({
   return (
     <div
       ref={pageRef}
-      className="composition-page"
+      className={`composition-page${editor ? " editor-page" : ""}`}
       data-profile={profile.id}
-      style={{ width: profile.width, height: profile.height }}
+      style={{ width: profile.width, height: layout.height }}
       onPointerMove={(ev) => {
         if (!d.bindings.length) return;
         const r = ev.currentTarget.getBoundingClientRect();
@@ -272,7 +272,7 @@ export function PageRenderer({
         <svg
           className="relationship-connectors"
           width={profile.width}
-          height={profile.height}
+          height={layout.height}
           aria-label="Composition connectors"
         >
           {d.relationships

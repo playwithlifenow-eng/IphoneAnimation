@@ -324,6 +324,84 @@ export function Timeline({
             <span> / {doc.duration.toFixed(2)}s</span>
           </output>
         </div>
+      <div className="tl-tools" hidden={collapsed}>
+        <div className="tl-add-key">
+          <select
+            aria-label="Animate property"
+            disabled={!entity}
+            value={property}
+            onChange={(event) => setProperty(event.target.value)}
+          >
+            {properties.map((item) => (
+              <option key={item} value={item}>
+                {LABELS[item] ?? item}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            className="tl-action"
+            disabled={!canAddKey}
+            title={
+              entity && !canAddKey
+                ? "Release the signal binding before adding a key"
+                : "Add or update a keyframe at the playhead"
+            }
+            onClick={addKey}
+          >
+            <Plus size={12} />
+            Add key
+          </button>
+        </div>
+        {selectedTrack && selectedKey ? (
+          <div className="tl-key-editor">
+            <NumberField
+              label="Key time"
+              value={selectedKey.time}
+              min={0}
+              max={doc.duration}
+              step={0.01}
+              suffix="s"
+              onChange={(time) => changeKey({ time })}
+            />
+            <NumberField
+              label="Key value"
+              value={selectedKey.value}
+              step={0.1}
+              onChange={(value) => changeKey({ value })}
+            />
+            <button
+              type="button"
+              aria-label="Delete selected keyframe"
+              title="Delete selected keyframe"
+              onClick={deleteKey}
+            >
+              <Trash2 size={13} />
+            </button>
+          </div>
+        ) : null}
+        <div className="tl-record">
+          <input
+            aria-label="Pose name"
+            placeholder="Name this pose…"
+            value={poseName}
+            disabled={!entity}
+            onChange={(event) => setPoseName(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") recordPose();
+            }}
+          />
+          <button
+            type="button"
+            className="tl-action"
+            disabled={!entity}
+            onClick={recordPose}
+          >
+            <Camera size={13} />
+            Record pose
+          </button>
+        </div>
+      </div>
         <div className="tl-duration">
           <NumberField
             label="Duration"
@@ -467,90 +545,6 @@ export function Timeline({
             );
           })
         )}
-      </div>
-      <div className="tl-tools">
-        <div className="tl-add-key">
-          <select
-            aria-label="Animate property"
-            disabled={!entity}
-            value={property}
-            onChange={(event) => setProperty(event.target.value)}
-          >
-            {properties.map((item) => (
-              <option key={item} value={item}>
-                {LABELS[item] ?? item}
-              </option>
-            ))}
-          </select>
-          <button
-            type="button"
-            className="tl-action"
-            disabled={!canAddKey}
-            title={
-              entity && !canAddKey
-                ? "Release the signal binding before adding a key"
-                : "Add or update a keyframe at the playhead"
-            }
-            onClick={addKey}
-          >
-            <Plus size={12} />
-            Add key
-          </button>
-        </div>
-        {selectedTrack && selectedKey ? (
-          <div className="tl-key-editor">
-            <NumberField
-              label="Key time"
-              value={selectedKey.time}
-              min={0}
-              max={doc.duration}
-              step={0.01}
-              suffix="s"
-              onChange={(time) => changeKey({ time })}
-            />
-            <NumberField
-              label="Key value"
-              value={selectedKey.value}
-              step={0.1}
-              onChange={(value) => changeKey({ value })}
-            />
-            <button
-              type="button"
-              aria-label="Delete selected keyframe"
-              title="Delete selected keyframe"
-              onClick={deleteKey}
-            >
-              <Trash2 size={13} />
-            </button>
-          </div>
-        ) : (
-          <span className="tl-hint">
-            {entity
-              ? "Select a diamond to edit its time and value."
-              : "Select an element to begin."}
-          </span>
-        )}
-        <div className="tl-record">
-          <input
-            aria-label="Pose name"
-            placeholder="Name this pose…"
-            value={poseName}
-            disabled={!entity}
-            onChange={(event) => setPoseName(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") recordPose();
-            }}
-          />
-          <button
-            type="button"
-            className="tl-action"
-            disabled={!entity}
-            onClick={recordPose}
-          >
-            <Camera size={13} />
-            Record pose
-          </button>
-        </div>
       </div>
       {poses.length > 0 && (
         <div className="tl-poses">

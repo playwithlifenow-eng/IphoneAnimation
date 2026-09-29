@@ -1,0 +1,20 @@
+{
+  "date": "2026-09-29",
+  "branch": "studio/ux-canvas-v2",
+  "build": {
+    "schemaVersion": 1,
+    "sourceHash": "ff2a4354d881f98541844ececd84703f446778dfab2e754183a5639604489567",
+    "builtAt": "2026-09-29T13:36:41.925Z",
+    "implementation": "iglass-studio/0.1.0"
+  },
+  "logicTests": 25,
+  "existingBrowserChecks": 20,
+  "uxBrowserChecks": 10,
+  "adapterSHA256": "4a00ec1db1e65b7c1d903803c4b3675d6536ac2c7cf466f818baacd6d8ae3b14",
+  "scope": "All changes inside studio; original Hero files unchanged",
+  "limitations": [
+    "Framer compatibility verified with one public component fixture, not every component",
+    "Static unrotated reparenting; animated coordinate conversion remains unsupported",
+    "Three/R3F renderer chunk remains about 1 MB uncompressed"
+  ]
+}

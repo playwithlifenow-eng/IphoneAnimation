@@ -48,7 +48,10 @@ import {
   duplicateSelection,
   groupSelection,
   ungroupSelection,
+  addSection,
 } from "./operations";
+import { TakeShelf, CopyShelf, ComponentShelf, LayerTree } from "./WorkspacePanels";
+import { layoutDocument } from "./layout";
 import { PageRenderer } from "./PageRenderer";
 import { Inspector } from "./Inspector";
 import { Timeline } from "./Timeline";
@@ -113,9 +116,28 @@ export default function App() {
   const [compare, setCompare] = useState<Take | null>(null);
   const [filter, setFilter] = useState("");
   const [busy, setBusy] = useState(false);
-  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [pan, setPan] = useState({ x: 80, y: 60 });
+  const [leftCollapsed, setLeftCollapsed] = useState(() => localStorage.getItem("studio.sidebar-collapsed") === "true");
+  const [leftWidth, setLeftWidth] = useState(() => Math.max(260, Math.min(480, Number(localStorage.getItem("studio.sidebar-width")) || 310)));
+  const [rightCollapsed, setRightCollapsed] = useState(false);
+  useEffect(() => { localStorage.setItem("studio.sidebar-collapsed", String(leftCollapsed)); }, [leftCollapsed]);
+  useEffect(() => { localStorage.setItem("studio.sidebar-width", String(leftWidth)); }, [leftWidth]);
+  const pageLayout = layoutDocument(doc, s.profileId, s.playhead, s.signals);
   const boardRef = useRef<HTMLDivElement>(null);
   const uploadRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    const board = boardRef.current; if (!board) return;
+    const wheel = (event: WheelEvent) => {
+      event.preventDefault();
+      if (event.ctrlKey || event.metaKey) {
+        const oldZoom = studio.get().zoom, nextZoom = Math.max(.03, Math.min(4, oldZoom * Math.exp(-event.deltaY * .002)));
+        const rect = board.getBoundingClientRect(), x = event.clientX - rect.left, y = event.clientY - rect.top;
+        setPan(p => ({ x: x - (x - p.x) * nextZoom / oldZoom, y: y - (y - p.y) * nextZoom / oldZoom }));
+        studio.session({ zoom: nextZoom });
+      } else setPan(p => ({ x: p.x - (event.shiftKey ? event.deltaY : event.deltaX), y: p.y - (event.shiftKey ? event.deltaX : event.deltaY) }));
+    };
+    board.addEventListener("wheel", wheel, { passive: false }); return () => board.removeEventListener("wheel", wheel);
+  }, []);
   const importRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     void studio.load();
@@ -148,11 +170,13 @@ export default function App() {
       );
       if (ev.key === "Escape") {
         studio.cancelGesture();
+        if (!modal && !compare) studio.select([]);
         setModal("");
         setCompare(null);
         return;
       }
       if (editing || modal || compare) return;
+      if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "y") { ev.preventDefault(); studio.redo(); }
       if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "z") {
         ev.preventDefault();
         ev.shiftKey ? studio.redo() : studio.undo();
@@ -290,11 +314,13 @@ export default function App() {
   const add = (kind: Kind, componentId?: string) => {
     const e = makeEntity(kind, doc.entities.length % 4);
     if (kind === "component") {
-      const c = COMPONENTS.find((c) => c.id === componentId) ?? COMPONENTS[0];
+      const c = [...COMPONENTS, ...(doc.components ?? [])].find((c) => c.id === componentId) ?? COMPONENTS[0];
       e.componentId = c.id;
       e.name = c.name;
       Object.assign(e.props, c.defaults, { width: 320, height: 200 });
     }
+    const viewport = boardRef.current;
+    if (viewport) { e.props.x = Math.round((viewport.clientWidth / 2 - pan.x) / s.zoom - Number(e.props.width) / 2); e.props.y = Math.round((viewport.clientHeight / 2 - pan.y) / s.zoom - Number(e.props.height) / 2); }
     studio.execute({ type: "insert", entities: [e] }, `Insert ${e.name}`);
     studio.select([e.id]);
   };
@@ -308,19 +334,18 @@ export default function App() {
     studio.select(result.selection);
   };
   const fit = () => {
-    if (boardRef.current) {
-      studio.session({
-        zoom: Math.max(
-          0.2,
-          Math.min(
-            0.9,
-            (boardRef.current.clientWidth - 100) / profile.width,
-            (boardRef.current.clientHeight - 90) / profile.height,
-          ),
-        ),
-      });
-      setPan({ x: 0, y: 0 });
-    }
+    if (!boardRef.current) return;
+    const b = pageLayout.bounds;
+    const zoom = Math.max(.03, Math.min(.9, (boardRef.current.clientWidth - 100) / b.width, (boardRef.current.clientHeight - 90) / b.height));
+    studio.session({ zoom });
+    setPan({ x: (boardRef.current.clientWidth - b.width * zoom) / 2 - b.x * zoom, y: (boardRef.current.clientHeight - b.height * zoom) / 2 - b.y * zoom });
+  };
+  const insertSection = () => {
+    const section = addSection(doc);
+    studio.execute({ type: "insert", entities: [section] }, "Add section below");
+    studio.select([section.id]); setLeftTab("layers"); studio.session({ tab: "compose" });
+    const y = Number(section.overrides[s.profileId]?.y ?? section.props.y);
+    setPan(p => ({ ...p, y: 65 - y * s.zoom }));
   };
   useEffect(() => {
     if (s.loaded) fit();
@@ -364,7 +389,9 @@ export default function App() {
       return;
     }
     const origin = { x: ev.clientX, y: ev.clientY };
-    const targets = selected.map((id) => ({
+    const selectedRoots = selected.filter(id => { let parent = doc.entities.find(e => e.id === id)?.parentId; while (parent) { if (selected.includes(parent)) return false; parent = doc.entities.find(e => e.id === parent)?.parentId; } return true; });
+    if (!resize && selectedRoots.some(id => { const item = doc.entities.find(e => e.id === id)!; const p = doc.entities.find(e => e.id === item.parentId); return p && str(evaluateEntity(doc, p, s.profileId, s.playhead), "layout", "free") !== "free"; })) { studio.fail("This parent arranges its children. Use Move layer up/down in Properties, or change the parent layout to Free positioning."); return; }
+    const targets = selectedRoots.map((id) => ({
       entity: doc.entities.find((x) => x.id === id)!,
       values: evaluateEntity(
         doc,
@@ -547,164 +574,12 @@ export default function App() {
     studio.take("Reflective look");
   };
   const leftContent = () => {
-    if (s.tab === "copy")
-      return (
-        <>
-          <div className="panel-heading">
-            Copy workspace{" "}
-            <button
-              aria-label="Add copy"
-              onClick={() =>
-                command({
-                  type: "copy",
-                  atom: {
-                    id: uid("copy"),
-                    name: "New fragment",
-                    text: "Your next idea.",
-                    variants: [],
-                  },
-                })
-              }
-            >
-              <Plus size={16} />
-            </button>
-          </div>
-          <p className="panel-hint">
-            Shared fragments. Every linked instance stays in sync.
-          </p>
-          {doc.copy.map((a) => (
-            <article className="copy-card" key={a.id}>
-              <input
-                aria-label="Fragment name"
-                value={a.name}
-                onChange={(ev) =>
-                  command({
-                    type: "copy",
-                    atom: { ...a, name: ev.target.value },
-                  })
-                }
-              />
-              <textarea
-                aria-label={a.name + " copy"}
-                value={a.text}
-                onChange={(ev) =>
-                  command({
-                    type: "copy",
-                    atom: { ...a, text: ev.target.value },
-                  })
-                }
-              />
-              <div className="row">
-                <button
-                  onClick={() => {
-                    const e = makeEntity("text");
-                    e.copyId = a.id;
-                    e.name = a.name;
-                    studio.execute({ type: "insert", entities: [e] });
-                    studio.select([e.id]);
-                  }}
-                >
-                  Insert ↗
-                </button>
-                <button
-                  onClick={() =>
-                    command({
-                      type: "copy",
-                      atom: { ...a, variants: [...a.variants, a.text] },
-                    })
-                  }
-                >
-                  Save variant
-                </button>
-              </div>
-              {a.variants.map((v, i) => (
-                <button
-                  className="variant"
-                  key={i}
-                  onClick={() =>
-                    command({ type: "copy", atom: { ...a, text: v } })
-                  }
-                >
-                  {v}
-                </button>
-              ))}
-            </article>
-          ))}
-        </>
-      );
-    if (s.tab === "components")
-      return (
-        <>
-          <div className="panel-heading">
-            Component shelf <Grid2X2 size={16} />
-          </div>
-          <p className="panel-hint">
-            Versioned building blocks for this composition.
-          </p>
-          {COMPONENTS.map((c) => (
-            <button
-              className="component-card"
-              key={c.id}
-              onClick={() => add("component", c.id)}
-            >
-              <div className={"component-preview " + c.id}>
-                <span>
-                  {c.id === "stat-card"
-                    ? "12 months"
-                    : c.id === "hero-reference"
-                      ? "◇"
-                      : "＋"}
-                </span>
-              </div>
-              <strong>
-                {c.name}
-                <Plus size={13} />
-              </strong>
-              <p>{c.description}</p>
-              <small>{c.capabilities.join(" · ")}</small>
-            </button>
-          ))}
-          <div className="capability-note">
-            Custom code components use explicit adapters. Arbitrary source
-            import is not enabled.
-          </div>
-        </>
-      );
+    if (s.tab === "copy") return <CopyShelf document={doc} filter={filter} />;
+    if (s.tab === "components") return <ComponentShelf document={doc} insert={id => add("component", id)} />;
     if (s.tab === "takes")
       return (
         <>
-          <div className="panel-heading">
-            Takes & discovery <GitBranch size={16} />
-          </div>
-          <button className="wide-action" onClick={() => setModal("take")}>
-            <Plus size={15} /> Capture current Take
-          </button>
-          <button className="wide-action subtle" onClick={createVariant}>
-            <Sparkles size={15} /> Explore reflective look
-          </button>
-          {s.workspace.takes.length === 0 && (
-            <p className="panel-hint">
-              Capture a Take to preserve this direction and compare
-              alternatives.
-            </p>
-          )}
-          {s.workspace.takes.map((t) => (
-            <article className="take-card" key={t.id}>
-              <strong>
-                {t.name}
-                {s.workspace.acceptedTakeId === t.id && <Check size={14} />}
-              </strong>
-              <small>
-                {new Date(t.createdAt).toLocaleTimeString()} ·{" "}
-                {t.document.entities.length} elements
-              </small>
-              <div className="row">
-                <button onClick={() => setCompare(t)}>Compare</button>
-                <button onClick={() => studio.restore(t)}>Restore</button>
-                <button onClick={() => studio.acceptTake(t.id)}>Accept</button>
-              </div>
-            </article>
-          ))}
+          <TakeShelf takes={s.workspace.takes} preferred={s.workspace.acceptedTakeId} onCompare={setCompare} onCapture={() => setModal("take")} onExplore={createVariant} />
           <div className="panel-heading divider">
             Feedback history <MessageSquare size={15} />
           </div>
@@ -780,61 +655,8 @@ export default function App() {
                 {profile.width} × {profile.height}
               </small>
             </div>
-            {doc.entities
-              .filter(
-                (e) =>
-                  (s.tab !== "looks" || e.kind === "scene") &&
-                  e.name.toLowerCase().includes(filter.toLowerCase()),
-              )
-              .map((e) => {
-                const Icon = kindIcon[e.kind];
-                return (
-                  <div
-                    className={
-                      "layer " + (s.selection.includes(e.id) ? "active" : "")
-                    }
-                    key={e.id}
-                    style={{ paddingLeft: e.parentId ? 30 : 14 }}
-                  >
-                    <button
-                      className="layer-select"
-                      onClick={(ev) =>
-                        studio.select(
-                          ev.shiftKey
-                            ? [...new Set([...s.selection, e.id])]
-                            : [e.id],
-                        )
-                      }
-                    >
-                      <Icon size={14} />
-                      <span>{e.name}</span>
-                    </button>
-                    <button
-                      className="eye-button"
-                      aria-label={"Toggle " + e.name}
-                      onClick={() =>
-                        command({
-                          type: "patch",
-                          id: e.id,
-                          scope,
-                          values: {
-                            visible:
-                              evaluateEntity(doc, e, s.profileId, s.playhead)
-                                .visible === false,
-                          },
-                        })
-                      }
-                    >
-                      {evaluateEntity(doc, e, s.profileId, s.playhead)
-                        .visible === false ? (
-                        <EyeOff size={12} />
-                      ) : (
-                        <Eye size={12} />
-                      )}
-                    </button>
-                  </div>
-                );
-              })}
+            <button className="wide-action" onClick={insertSection}><Plus size={14} />Add section below</button>
+            <LayerTree document={doc} selection={s.selection} filter={filter} scenesOnly={s.tab === "looks"} />
             <div className="insert-grid">
               {(
                 ["text", "frame", "button", "scene", "image", "line"] as Kind[]
@@ -882,19 +704,6 @@ export default function App() {
             ))}
           </>
         )}
-        <div className="sidebar-bottom">
-          <span className="tiny-label">WORKING CONTEXT</span>
-          <p>
-            {s.profileId === "desktop"
-              ? "Base composition"
-              : "Mobile art direction"}
-          </p>
-          <small>
-            {s.profileId === "desktop"
-              ? "Edits apply to the base."
-              : "Edits create explicit overrides."}
-          </small>
-        </div>
       </>
     );
   };
@@ -926,6 +735,29 @@ export default function App() {
         <button className="export-button" onClick={() => setModal("export")}>
           Export <ArrowUpRight size={14} />
         </button>
+        <div className="history-controls">
+          <button
+            aria-label="Undo"
+            title={s.undoLabel ? `Undo ${s.undoLabel} · Ctrl+Z` : "Undo · Ctrl+Z"}
+            disabled={!s.canUndo}
+            onClick={() => studio.undo()}
+          >
+            <Undo2 size={16} /> Undo
+          </button>
+          <button
+            aria-label="Redo"
+            title={s.redoLabel ? `Redo ${s.redoLabel} · Ctrl+Shift+Z` : "Redo · Ctrl+Shift+Z"}
+            disabled={!s.canRedo}
+            onClick={() => studio.redo()}
+          >
+            <Redo2 size={16} /> Redo
+          </button>
+          <span className="nav-separator" />
+          <button onClick={() => setModal("help")}>
+            <CircleHelp size={16} />
+          </button>
+          <div className="avatar">M</div>
+        </div>
       </header>
       <nav className="workspace-nav">
         <div className="tabs">
@@ -935,6 +767,7 @@ export default function App() {
               key={id}
               onClick={() => {
                 studio.session({ tab: id });
+                setLeftCollapsed(false);
                 if (id === "looks") {
                   const scene = doc.entities.find((e) => e.kind === "scene");
                   if (scene) studio.select([scene.id]);
@@ -948,41 +781,8 @@ export default function App() {
             </button>
           ))}
         </div>
-        <div className="history-controls">
-          <button
-            aria-label="Undo"
-            disabled={!s.canUndo}
-            onClick={() => studio.undo()}
-          >
-            <Undo2 size={16} />
-          </button>
-          <button
-            aria-label="Redo"
-            disabled={!s.canRedo}
-            onClick={() => studio.redo()}
-          >
-            <Redo2 size={16} />
-          </button>
-          <span className="nav-separator" />
-          <button onClick={() => setModal("help")}>
-            <CircleHelp size={16} />
-          </button>
-          <div className="avatar">M</div>
-        </div>
-      </nav>
-      <div className="workspace">
-        <aside className="left-panel">
-          <input
-            className="search"
-            placeholder="Find an element…"
-            aria-label="Find element"
-            value={filter}
-            onChange={(ev) => setFilter(ev.target.value)}
-          />
-          <div className="left-scroll">{leftContent()}</div>
-        </aside>
-        <main className="center">
           <div className="canvas-toolbar">
+            <button aria-label={leftCollapsed ? "Expand library panel" : "Collapse library panel"} title="Toggle library panel" onClick={() => setLeftCollapsed(v => !v)}><PanelLeft size={16} /></button>
             <div className="tool-group">
               <button
                 aria-label="Select tool"
@@ -1037,6 +837,7 @@ export default function App() {
                 </label>
               </div>
             )}
+            <button className={tool === "interact" ? "active" : ""} title="Use buttons and controls inside imported components" onClick={() => setTool(tool === "interact" ? "select" : "interact")}>Interact</button>
             <div className="profile-switch">
               {doc.profiles.map((p) => (
                 <button
@@ -1052,6 +853,7 @@ export default function App() {
                   {p.name}
                 </button>
               ))}
+              <span className="scope-badge" title="Desktop edits set shared base values; mobile edits override them.">{scope === "base" ? "Base" : "Override"}</span>
               <button
                 aria-label="Edit responsive profile"
                 onClick={() => setModal("profile")}
@@ -1063,7 +865,7 @@ export default function App() {
               <button
                 aria-label="Zoom out"
                 onClick={() =>
-                  studio.session({ zoom: Math.max(0.15, s.zoom - 0.1) })
+                  studio.session({ zoom: Math.max(0.03, s.zoom / 1.2) })
                 }
               >
                 −
@@ -1072,13 +874,28 @@ export default function App() {
               <button
                 aria-label="Zoom in"
                 onClick={() =>
-                  studio.session({ zoom: Math.min(2, s.zoom + 0.1) })
+                  studio.session({ zoom: Math.min(4, s.zoom * 1.2) })
                 }
               >
                 +
               </button>
             </div>
+            <button aria-label={rightCollapsed ? "Show properties" : "Hide properties"} onClick={() => setRightCollapsed(v => !v)}><SlidersHorizontal size={15} />Properties</button>
           </div>
+      </nav>
+      <div className="workspace" style={{ gridTemplateColumns: `${leftCollapsed ? 0 : leftWidth}px minmax(0, 1fr) ${rightCollapsed ? 0 : 280}px` }}>
+        <aside className="left-panel" hidden={leftCollapsed}>
+          <input
+            className="search"
+            placeholder="Find an element…"
+            aria-label="Find element"
+            value={filter}
+            onChange={(ev) => setFilter(ev.target.value)}
+          />
+          <div className="left-scroll">{leftContent()}</div>
+          <div className="sidebar-resizer" role="separator" aria-label="Resize library panel" aria-orientation="vertical" tabIndex={0} onKeyDown={e => { if (e.key === "ArrowRight" || e.key === "ArrowLeft") { e.preventDefault(); setLeftWidth(w => Math.max(260, Math.min(480, w + (e.key === "ArrowRight" ? 20 : -20)))); } }} onPointerDown={e => { const x=e.clientX, width=leftWidth, el=e.currentTarget; el.setPointerCapture(e.pointerId); const move=(ev: PointerEvent)=>setLeftWidth(Math.max(260,Math.min(480,width+ev.clientX-x))); const end=()=>{el.removeEventListener("pointermove",move);el.removeEventListener("pointerup",end);el.removeEventListener("pointercancel",end)};el.addEventListener("pointermove",move);el.addEventListener("pointerup",end);el.addEventListener("pointercancel",end); }} />
+        </aside>
+        <main className="center">
           {tool === "path" && (
             <div className="path-strip">
               <span>
@@ -1127,14 +944,14 @@ export default function App() {
                 };
                 el.addEventListener("pointermove", move);
                 el.addEventListener("pointerup", end);
-              } else if (ev.target === ev.currentTarget) studio.select([]);
+              } else if (!(ev.target as HTMLElement).closest("[data-entity],button,input,select")) studio.select([]);
             }}
           >
             <div
               className="artboard-position"
               style={{
                 width: profile.width * s.zoom,
-                height: profile.height * s.zoom,
+                height: pageLayout.height * s.zoom,
                 transform: `translate(${pan.x}px,${pan.y}px)`,
               }}
             >
@@ -1143,7 +960,7 @@ export default function App() {
                   01 <b>{profile.name}</b>
                 </span>
                 <span>
-                  {profile.width} × {profile.height}
+                  {profile.width} × {pageLayout.height} · auto height
                 </span>
               </div>
               <div
@@ -1160,7 +977,7 @@ export default function App() {
                   signals={s.signals}
                   onSignalsChange={(signals) => studio.session({ signals })}
                   editor
-                  sceneInteractive={tool === "orbit"}
+                  sceneInteractive={tool === "orbit" || tool === "interact"}
                   onPointerDown={startGesture}
                   onText={textEdit}
                   onSceneChange={(e, p) => patch(p, e)}
@@ -1192,7 +1009,7 @@ export default function App() {
                   ? "Drag the selected model to orbit"
                   : tool === "path"
                     ? "Drag path points · arrows nudge · Delete removes · Esc cancels"
-                    : "Drag to move · Double-click text to edit · Shift snaps · Esc cancels"}
+                    : "Wheel pans · Ctrl+wheel zooms · Shift-click selects · Esc deselects"}
             </div>
           </div>
           <div className="selection-bar">
@@ -1204,13 +1021,13 @@ export default function App() {
                 : "Nothing selected"}
             </span>
             <div>
-              <button aria-label="Align left" onClick={() => align("left")}>
+              <button aria-label="Align left" title="Align selected elements to their left edge" onClick={() => align("left")}>
                 <AlignLeft size={14} />
               </button>
-              <button aria-label="Align center" onClick={() => align("center")}>
+              <button aria-label="Align center" title="Align selected elements to a shared centre" onClick={() => align("center")}>
                 <AlignCenter size={14} />
               </button>
-              <button aria-label="Align right" onClick={() => align("right")}>
+              <button aria-label="Align right" title="Align selected elements to their right edge" onClick={() => align("right")}>
                 <AlignRight size={14} />
               </button>
               <button
@@ -1268,7 +1085,7 @@ export default function App() {
             onSelect={(id) => studio.select([id])}
           />
         </main>
-        <aside className="right-panel">
+        <aside className="right-panel" hidden={rightCollapsed}>
           <Inspector
             document={doc}
             entity={entity}
@@ -1536,16 +1353,16 @@ export default function App() {
                   />
                 </label>
                 <label>
-                  Height
+                  Minimum page height · content extends automatically
                   <input
                     aria-label="Profile height"
                     type="number"
                     min={200}
-                    max={10000}
+                    max={10000000}
                     value={profile.height}
                     onChange={(e) => {
                       const height = Number(e.target.value);
-                      if (height >= 200 && height <= 10000)
+                      if (height >= 200 && height <= 10000000)
                         command(
                           { type: "profile", profile: { ...profile, height } },
                           "Resize profile",
@@ -1614,7 +1431,7 @@ export default function App() {
                   className="compare-stage"
                   style={{
                     width: profile.width * 0.42,
-                    height: profile.height * 0.42,
+                    height: layoutDocument(d, s.profileId, s.playhead, s.signals).height * 0.42,
                   }}
                 >
                   <div

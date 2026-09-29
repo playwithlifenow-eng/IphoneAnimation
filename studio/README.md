@@ -19,16 +19,18 @@ The service is intended for a local, single-user workspace. Keep its default loo
 
 ## Working now
 
-- Pan/zoom composition board, real DOM page, selection, direct text editing, move/resize, multi-selection, alignment, grouping/ungrouping, duplication and deletion.
-- Shared copy fragments and variants; typography; frames and horizontal/vertical stacks; imported images, SVG and video; known component cards.
+- Unbounded pan/zoom canvas with content-driven page height, Add section below, real DOM page, selection, direct text editing, move/resize, multi-selection, alignment, grouping/ungrouping, duplication and deletion.
+- Shared copy fragments and variants with deletion; H1/H2/H3/body/microcopy/CTA roles; visible parent/child controls; free frames, horizontal/vertical stacks and grids; imported images, SVG and video.
 - Original GLB plus imported GLBs, object transforms, camera distance/FOV, ambient/key lighting, global material parameters, and direct orbit manipulation.
 - Desktop/mobile art direction, explicit overrides and reset, editable profile dimensions.
 - Named poses, numeric keyframes, linear/smooth/hold interpolation, timeline playback and scrubbing; draggable page-level position paths with keyboard nudging and transactional undo.
 - Explicit property owners; pointer/scroll bindings; controlled scroll preview; signal inputs retained in feedback.
 - Undo/redo, transient gesture preview/cancel, SQLite persistence, browser recovery, stale-write protection.
-- Immutable Takes, restoration, accepted reference, synchronised A/B views, authored-value differences and one bounded look preset.
+- Takes with immediate rendered previews, inline renaming, deletion, Open for editing and Mark preferred; synchronised A/B views, authored-value differences and one bounded look preset.
 - Evaluate: original reaction, exact document, profile, playhead, signals, selection, bounded command history, measured DOM boxes, environment and explicit capture limitations. Episodes can be searched and exported.
 - Authored frame alignment/clearance relationships, measured pass/fail/unknown readings, and composition connectors retained in exported output.
+- Framer Copy Import adaptation: bundled components, live sandboxed previews, editable props, removable shelf entries and portable/runtime export.
+- Wider resizable/collapsible library, collapsible Properties, compact top toolbar and a one-row choreography control strip.
 - Capability envelopes distinguish supported, limited and unavailable operations.
 - Project JSON, portable media-inclusive project, independent static runtime ZIP, four manifests and artifact SHA-256 digests.
 
@@ -42,7 +44,7 @@ This is implementation progress toward the broad V1, **not the completed V1 acce
 - Stronger acceptance/decision history, protected four-manifest Take bundles, richer Discovery Deck locks and comparison modes.
 - Still/video capture and replay fidelity beyond document plus controlled time/input. Pixel and original-video capture are explicitly unavailable.
 - Responsive runtime selection beyond the initial desktop/mobile rule; target-device quality profiling; comprehensive reduced-motion alternatives.
-- Actual Framer delivery fixture and host verification, when that specific task needs access.
+- Framer host delivery verification and broader third-party component compatibility; the Copy Import adapter is available now.
 
 Agents, islands, recombination, evolutionary search, contextual knowledge and promotion remain specified in the master plan. They are not running autonomously in this alpha.
 
@@ -62,7 +64,7 @@ The default local store is `.studio-data/studio.sqlite`; imported assets live in
 
 Each save uses an expected server version. A competing save is rejected. On reopening, a recovery made against an older server version is retained separately instead of replacing newer server work; Export → Conflict recovery downloads it. Do not discard the browser recovery until it has been exported or reconciled.
 
-A project JSON retains media references. A portable project stores each referenced image/video/SVG/GLB once in a content-addressed asset bundle shared by the working document, Takes and episodes. Import verifies asset hashes and restores local asset files before opening the document. Fonts and CSS background URLs remain external. Supported single-asset imports are capped at 25 MB; the local JSON request limit is 40 MB.
+A project JSON retains media references. A portable project stores bundled imported component JavaScript and each referenced image/video/SVG/GLB once in a content-addressed asset bundle shared by the working document, Takes and episodes. Import verifies asset hashes and restores local asset files before opening the document. Fonts and CSS background URLs remain external. Supported single-asset imports are capped at 25 MB; the local JSON request limit is 40 MB.
 
 ## Runtime delivery
 
@@ -77,8 +79,21 @@ npm test
 npm run build
 npx playwright install chromium
 npm run test:browser
+npm run test:ux
 ```
 
 The browser script starts its own isolated Vite/SQLite fixture and verifies actual UI actions plus an independent HTTP runtime export. It writes screenshots and a report to `test-results/`. `STUDIO_BROWSER_EXECUTABLE` can supply a compatible headless Chromium where browser downloads are unavailable.
 
 See [the implementation checkpoint](docs/implementation-checkpoint.md) for the exact validation record and next executable work.
+
+## Canvas, versions and Framer components
+
+The workspace pans in every direction. Wheel pans; Ctrl/Cmd+wheel zooms around the pointer; Fit shows the composition bounds. Content below the original page automatically extends the page and exported runtime. Profile height is only a minimum. Content outside the page width remains available on the pasteboard; exported pages retain their responsive width.
+
+Compose → Add section below inserts another page-width frame. Select any layer to see its Parent in Properties. Frames expose Child text/frame/button and free, stack or grid layout. Drag a layer onto a frame in the layer tree to nest it, or use Detach to page. Static, unrotated reparenting preserves desktop/mobile positions; flow layout then positions children. Animated/rotated reparenting is explicitly rejected rather than silently changing motion.
+
+Undo/Redo are visible at the top and support Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z and Ctrl+Y. Relationship creation/removal, grouping, deletion and Take metadata changes can be undone. Open for editing loads a saved Take; Mark preferred only marks the reference. Properties replaces the old Inspector label. Base values means shared desktop values; other profiles create overrides.
+
+Components → Import from Framer accepts a component menu’s Copy Import statement or `https://framer.com/m/…js` URL. Preview it, add it to the shelf, then insert it. Select Interact to use its controls. Primitive property controls and an optional JSON props object are editable in Properties. Bundled JavaScript is preserved in portable projects and standalone exports.
+
+Compatibility depends on the component: imported internals remain opaque, and Framer CMS/project context, editor APIs, arbitrary external module hosts and host navigation are not recreated. External images/fonts/data may still need their original hosts. This is not a promise that every Framer component behaves identically outside Framer. The new browser suite uses a public Framer button as a real import fixture, so that check needs network access.

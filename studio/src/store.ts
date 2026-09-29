@@ -28,6 +28,8 @@ interface State {
   preview: StudioDocument | null;
   canUndo: boolean;
   canRedo: boolean;
+  undoLabel?: string;
+  redoLabel?: string;
   events: EventRecord[];
 }
 let state: State = {
@@ -52,6 +54,7 @@ interface HistoryEntry {
   document: StudioDocument;
   parentId?: string;
   workspace?: Workspace;
+  label?: string;
 }
 const historyEntry = (whole = false): HistoryEntry => ({
   document: clone(state.workspace.document),
@@ -106,7 +109,7 @@ function event(label: string, type: string) {
 }
 function replaceDocument(next: StudioDocument, label: string, type: string) {
   if (next === state.workspace.document) return;
-  past.push(historyEntry());
+  past.push({ ...historyEntry(), label });
   past = past.slice(-100);
   future = [];
   update({
@@ -116,6 +119,8 @@ function replaceDocument(next: StudioDocument, label: string, type: string) {
     ),
     canUndo: past.length > 0,
     canRedo: false,
+    undoLabel: label,
+    redoLabel: undefined,
     error: "",
     preview: null,
   });
@@ -282,7 +287,7 @@ export const studio = {
     }
     const previous = past.pop();
     if (!previous) return;
-    future.push(historyEntry(!!previous.workspace));
+    future.push({ ...historyEntry(!!previous.workspace), label: previous.label });
     update({
       workspace: {
         ...(previous.workspace ?? state.workspace),
@@ -294,6 +299,10 @@ export const studio = {
       },
       canUndo: past.length > 0,
       canRedo: true,
+      undoLabel: past.at(-1)?.label,
+      redoLabel: previous.label,
+      selection: state.selection.filter(id => previous.document.entities.some(e => e.id === id)),
+      error: "",
       events: event("Undo", "undo"),
     });
     scheduleSave();
@@ -305,7 +314,7 @@ export const studio = {
     }
     const next = future.pop();
     if (!next) return;
-    past.push(historyEntry(!!next.workspace));
+    past.push({ ...historyEntry(!!next.workspace), label: next.label });
     update({
       workspace: {
         ...(next.workspace ?? state.workspace),
@@ -317,6 +326,10 @@ export const studio = {
       },
       canUndo: true,
       canRedo: future.length > 0,
+      undoLabel: next.label,
+      redoLabel: future.at(-1)?.label,
+      selection: state.selection.filter(id => next.document.entities.some(e => e.id === id)),
+      error: "",
       events: event("Redo", "redo"),
     });
     scheduleSave();
@@ -371,13 +384,29 @@ export const studio = {
     gestureBase = null;
     update({ preview: null });
   },
-  take(name: string) {
+  editWorkspace(next: Workspace, label: string) {
+    this.cancelGesture();
+    past.push({ ...historyEntry(true), label });
+    past = past.slice(-100); future = [];
+    update({ workspace: next, canUndo: true, canRedo: false, undoLabel: label, redoLabel: undefined, error: "", events: event(label, "workspace") });
+    scheduleSave();
+  },
+  renameTake(id: string, name: string) {
+    this.editWorkspace({ ...state.workspace, takes: state.workspace.takes.map(t => t.id === id ? { ...t, name: name.trim() || t.name } : t) }, "Rename saved version");
+  },
+  deleteTake(id: string) {
+    const deleted = state.workspace.takes.find(t => t.id === id);
+    if (!deleted) return;
+    this.editWorkspace({ ...state.workspace, takes: state.workspace.takes.filter(t => t.id !== id).map(t => t.parentId === id ? { ...t, parentId: deleted.parentId } : t), acceptedTakeId: state.workspace.acceptedTakeId === id ? undefined : state.workspace.acceptedTakeId, workingParentTakeId: state.workspace.workingParentTakeId === id ? deleted.parentId : state.workspace.workingParentTakeId }, "Delete saved version");
+  },
+  take(name: string, thumbnail?: string) {
     const take: Take = {
       id: uid("take"),
       name: name.trim() || `Take ${state.workspace.takes.length + 1}`,
       createdAt: new Date().toISOString(),
       parentId: state.workspace.workingParentTakeId,
       document: clone(state.workspace.document),
+      profileId: state.profileId, playhead: state.playhead, signals: clone(state.signals), thumbnail,
     };
     update({
       workspace: {
@@ -399,13 +428,19 @@ export const studio = {
       `Restore ${take.name}`,
       "restore",
     );
-    update({ workspace: { ...state.workspace, workingParentTakeId: take.id } });
+    update({
+      workspace: { ...state.workspace, workingParentTakeId: take.id },
+      profileId: take.document.profiles.some(p => p.id === take.profileId) ? take.profileId! : state.profileId,
+      playhead: Math.min(take.playhead ?? 0, take.document.duration),
+      signals: clone(take.signals ?? state.signals),
+      playing: false,
+      selection: state.selection.filter(id => take.document.entities.some(e => e.id === id)),
+    });
     scheduleSave();
   },
   acceptTake(id: string) {
     if (!state.workspace.takes.some((t) => t.id === id)) return;
-    update({ workspace: { ...state.workspace, acceptedTakeId: id } });
-    scheduleSave();
+    this.editWorkspace({ ...state.workspace, acceptedTakeId: state.workspace.acceptedTakeId === id ? undefined : id }, "Change preferred version");
   },
   episode(
     note: string,

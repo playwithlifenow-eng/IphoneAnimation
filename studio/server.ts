@@ -1,3 +1,4 @@
+import { bundleComponent, parseComponentUrl } from "./component-import";
 import { sourceIdentity } from "./build-identity";
 import { DatabaseSync } from "node:sqlite";
 import { createHash } from "node:crypto";
@@ -35,13 +36,38 @@ export async function middleware(
   next: () => void,
 ) {
   const path = (req.url ?? "").split("?")[0];
-  if (!path.startsWith("/api/") && !path.startsWith("/assets/user-"))
+  if (!path.startsWith("/api/") && !path.startsWith("/assets/user-") && !path.startsWith("/assets/component-"))
     return next();
   try {
     if (req.method !== "GET" && req.headers.origin) {
       const origin = new URL(req.headers.origin);
       if (origin.host !== req.headers.host)
         return json(res, 403, { error: "Origin mismatch." });
+    }
+    if (path === "/api/components/import" && req.method === "POST") {
+      const data = await body(req);
+      const sourceUrl = parseComponentUrl(String(data.source ?? ""));
+      const bytes = await bundleComponent(sourceUrl);
+      const hash = createHash("sha256").update(bytes).digest("hex");
+      const name = `component-${hash}.js`;
+      writeFileSync(resolve(dir, "assets", name), bytes);
+      return json(res, 201, { sourceUrl, bundle: `/assets/${name}`, hash });
+    }
+    if (path === "/api/components/bundle" && req.method === "POST") {
+      const data = await body(req);
+      const bytes = Buffer.from(data.data, "base64");
+      if (bytes.length > 20 * 1024 * 1024) throw new Error("Component exceeds 20 MB.");
+      const hash = createHash("sha256").update(bytes).digest("hex");
+      if (hash !== data.hash) throw new Error("Component bundle hash mismatch.");
+      const name = `component-${hash}.js`;
+      writeFileSync(resolve(dir, "assets", name), bytes);
+      return json(res, 201, { bundle: `/assets/${name}` });
+    }
+    if (/^\/assets\/component-[a-f0-9]{64}\.js$/.test(path) && req.method === "GET") {
+      const file = resolve(dir, "assets", basename(path));
+      if (!existsSync(file)) return json(res, 404, { error: "Component bundle missing. Re-import the component." });
+      res.writeHead(200, { "Content-Type": "text/javascript", "Access-Control-Allow-Origin": "*", "X-Content-Type-Options": "nosniff" });
+      res.end(readFileSync(file)); return;
     }
     if (path === "/api/workspace" && req.method === "GET") {
       const row = db.prepare("SELECT * FROM workspace WHERE id=1").get() as

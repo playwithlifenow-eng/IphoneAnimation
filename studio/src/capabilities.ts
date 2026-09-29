@@ -31,7 +31,7 @@ const byKind: Record<Kind, Omit<CapabilityEnvelope, "version">> = {
   },
   frame: {
     adapter: "dom.frame",
-    supported: ["Hierarchy", "Free/row/column layout", "Gap and padding"],
+    supported: ["Visible parenting and children", "Free/row/column/grid layout", "Gap and padding", "Auto frame height"],
     limited: ["Grouping static, unrotated elements"],
     unavailable: ["Constraint solver"],
   },
@@ -82,13 +82,19 @@ const byKind: Record<Kind, Omit<CapabilityEnvelope, "version">> = {
   },
   component: {
     adapter: "builtin.component",
-    supported: ["Registered built-ins", "Text and appearance"],
-    limited: ["Known local adapters only"],
-    unavailable: ["Arbitrary code import"],
+    supported: ["Registered built-ins", "Text and appearance", "Shelf removal"],
+    limited: ["Known local adapters"],
+    unavailable: ["Native editing of component internals"],
   },
 };
 export function capabilityEnvelope(entity: Entity): CapabilityEnvelope {
   const item = byKind[entity.kind];
+  if (entity.kind === "component" && entity.componentId && !["proof-card", "stat-card", "hero-reference"].includes(entity.componentId)) return {
+    adapter: "framer.import", version: 1,
+    supported: [...common, "Bundled Copy Import", "Live preview", "Property controls and JSON props", "Portable and runtime export"],
+    limited: ["Sandboxed iframe", "Framer-dependent behavior varies by component", "External images, fonts and data may require their hosts"],
+    unavailable: ["Native editing of component internals", "Framer CMS and project context"],
+  };
   if (entity.componentId === "hero-reference")
     return {
       adapter: "reference.hero",
