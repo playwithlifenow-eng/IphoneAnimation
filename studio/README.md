@@ -17,12 +17,22 @@ Open `http://127.0.0.1:5173`. `npm run build` also prepares the independent runt
 
 The service is intended for a local, single-user workspace. Keep its default loopback binding. It is not a hosted multi-user service.
 
+## Workspace controls (0.3.0)
+
+The graphite workspace has a single 44px header. Workspace tabs live in the left panel; feedback/help and the version are under the question-mark menu. Panel buttons in the header hide/show Layers and Inspector. Drag their dividers to resize, or focus a divider and use arrow keys. Choreography has its own resize divider and Collapse/Expand button. These preferences survive reloads independently of your composition.
+
+Drag a numeric property label to scrub; Shift adjusts coarsely, Alt finely. Release commits one undo record; Escape cancels. Numeric entry remains available. A profile tag and animation diamond can appear together; the profile tag restores inheritance in one undoable action. Solid diamonds mean a key at this position; hollow diamonds mean animation between keys. Click a diamond to seek its owning clock. Signal pills identify the effective signal owner and open its controls.
+
+Shortcuts: **V** select, **H** pan, **R** turntable (rotate the model), **C** camera orbit (change viewpoint), **P** motion path, **Space** play/pause. Camera yaw/pitch orbit around the scene origin; distance and FOV stay separate. The existing **Key this moment / Offset animation** policy is unchanged.
+
+For an already installed Windows checkout, stop the current Studio server before updating. After pulling `studio/broad-v1`, run `npm run build` then `npm run dev` from `studio`. This release changes no dependency versions, so reinstalling is unnecessary. If an install is needed later, first stop any Studio Vite process holding Rollup's native module. The separately installed `IG START POSE` launcher is not maintained in this repository and has not been modified by this update.
+
 ## Working now
 
 - Pan/zoom composition board, real DOM page, selection, direct text editing, move/resize, multi-selection, alignment, grouping/ungrouping, duplication and deletion.
 - Flowing sections, on-canvas insertion, reordering, fixed/viewport/authored-content height, and pinned scroll travel; free positioning or stacks inside sections.
 - Shared copy fragments and variants; typography; frames and horizontal/vertical stacks; imported images, SVG and video; known component cards.
-- Original GLB plus imported GLBs, object transforms, camera distance/FOV, ambient/key lighting, global material parameters, and direct rotation with adjustable sensitivity. Selection tests actual mesh geometry, passes through empty viewport space, and supports Alt-click overlap cycling.
+- Original GLB plus imported GLBs, object transforms, camera orbit/distance/FOV, ambient/key lighting, global material parameters, and direct rotation with adjustable sensitivity. Selection tests actual mesh geometry, passes through empty viewport space, and supports Alt-click overlap cycling.
 - Desktop/mobile art direction, explicit overrides and reset, editable profile dimensions.
 - Named poses, numeric keyframes, linear/smooth/hold interpolation, timeline playback and scrubbing; draggable page/freeform-section position paths with keyboard nudging and transactional undo.
 - Time or scroll choreography with page/section scope and percentage scrubbing; Reveal/Move/Rotate/Scale actions with editable amount, timing and stagger.

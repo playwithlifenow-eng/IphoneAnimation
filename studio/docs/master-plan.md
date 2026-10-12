@@ -1,6 +1,6 @@
 # iGlass Composition Studio — authoritative master build plan
 
-**Decision edition: 28 September 2026**  
+**Decision edition: 28 September 2026 · workspace revision: 12 October 2026**
 **Status: adopted specification and execution plan. Broad integrated V1 is BUILD_NOW.**
 
 This consolidated plan replaces the previous execution sequence and the separate strategy reassessment. It preserves the established authoring, runtime, creative, evidence, experimental, knowledge, island, recombination and promotion architecture. Superseded one-instrument release gates and calendar allocations have been removed. No other document is needed to decide which build strategy is operative.
@@ -318,11 +318,21 @@ Meaningful actions such as Reveal, Move, Rotate and Scale generate ordinary prop
 
 Recovery copies are independent per writer. A server version conflict must preserve both versions, and failure of both persistence routes must be reported as unsaved. Recovery UI provides identifiable copies and an explicit path to reopen them. No failure message may claim an unverified recovery save.
 
+### 4.6.2 Operative workspace design
+
+Use one compact 44px header for project/save state, selection, pan, model turntable, camera orbit, paths, responsive profile, zoom, undo/redo, panel visibility, Takes and export. Put workspace navigation in the left panel rather than a second full-width navigation row. A contextual strip may show rotation sensitivity or live input preview only when relevant. Feedback and help stay accessible through the project-actions menu.
+
+Use neutral graphite surfaces, readable 12–13px labels and values, 32px inputs, and clearly distinguished selection, animation, signal and responsive accents. Keep the authored page palette independent of editor chrome. Avoid hover-only essentials or colour-only ownership information. Both side panels resize and collapse; choreography resizes and collapses while retaining its scope, driver and explicit edit mode. Save workspace preferences separately from the composition document.
+
+Numeric labels support live scrubbing, keyboard entry, coarse/fine adjustment, one-step undo and cancellation. Display responsive scope independently of the effective driver: a profile-specific animation may show both a profile tag and a keyframe diamond. Solid/hollow diamonds distinguish a key at the current position from animation between keys. A signal badge describes the actual owner; it must not imply additive animation/signal composition. Inherit-base removes that property's local static/track/signal overrides in one undoable command batch. Key navigation seeks the property's owning clock.
+
+Model turntable changes object rotation; camera orbit changes viewpoint around its target. Field of view remains a separate lens control. The initial camera orbit targets the scene origin; arbitrary target handles and richer camera paths remain part of the wider V1 work. Scroll choreography shows percentages and explicit page/section scope, with pin distance exposed only for pinned sections. Section insertion remains available through both Layers and on-canvas seams.
+
 ### 4.7 V1 integration and acceptable roughness
 
 Reuse existing Hero/Pose machinery through a pinned adapter; connect Copy Atomiser to shared copy records; accept separately built complex components through versioned manifests. Keep external specialist tools external where appropriate, and import their assets or supported outputs. Component code is application-owned and versioned; a project file does not silently execute arbitrary code.
 
-Panel styling, simple catalogue organisation, plain feedback forms, a limited timeline and manual variants may initially be rough. Lost edits, conflicting owners, inert controls, failed cancel/undo, hidden missing assets and unsupported export claims are defects. A surface is implemented only when it changes and preserves the intended result.
+Simple catalogue organisation, plain feedback forms, a limited timeline and manual variants may initially be rough. Workspace layout and control legibility follow §4.6.2; decorative polish remains adaptable through use. Lost edits, conflicting owners, inert controls, failed cancel/undo, hidden missing assets and unsupported export claims are defects. A surface is implemented only when it changes and preserves the intended result.
 
 Provide a scene-independent DOM fixture, a mixed DOM/3D fixture and an imported/existing-component fixture from the start. A legacy component can accurately declare partial capabilities; it need not be rewritten to participate. General workflow/agent engines and knowledge graphs remain separate from the composition board; reference cards and links can share the workspace without becoming the runtime.
 

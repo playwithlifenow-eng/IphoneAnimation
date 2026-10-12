@@ -1,6 +1,7 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   Box,
+  Diamond,
   ChevronDown,
   Link2,
   RotateCcw,
@@ -9,6 +10,7 @@ import {
 import type { InspectorProps } from "./contracts";
 import {
   evaluateEntity,
+  clockTime,
   num,
   ownerOf,
   str,
@@ -16,6 +18,8 @@ import {
   type Props,
   type Value,
 } from "./model";
+import { studio } from "./store";
+import { effectiveTrack } from "./editing";
 import { capabilityEnvelope } from "./capabilities";
 import { COMPONENTS } from "./seed";
 import "./controls.css";
@@ -31,6 +35,7 @@ export function NumberField({
   suffix,
   disabled = false,
   owner,
+  badges,
 }: {
   label: string;
   value: number;
@@ -41,7 +46,10 @@ export function NumberField({
   suffix?: string;
   disabled?: boolean;
   owner?: string;
+  badges?: ReactNode;
 }) {
+  const drag = useRef<{ x: number; value: number; pointerId: number; moved: boolean } | null>(null);
+  useEffect(() => () => { if (drag.current) studio.cancelGesture(); }, []);
   const [draft, setDraft] = useState(String(Number(value.toFixed(4))));
   useEffect(() => setDraft(String(Number(value.toFixed(4)))), [value]);
   const commit = (raw: string) => {
@@ -54,10 +62,40 @@ export function NumberField({
     onChange(next);
   };
   return (
-    <label className={`ic-number ${disabled ? "ic-disabled" : ""}`}>
+    <div className={`ic-number ${disabled ? "ic-disabled" : ""}`}>
       <span className="ic-field-label">
-        {label}
-        {owner && owner !== "base" && (
+        <button type="button" className="ic-scrub-label" aria-label={`Scrub ${label}`} disabled={disabled}
+          title="Drag to adjust · Shift for coarse · Alt for fine · Escape cancels"
+          onPointerDown={e => {
+            if (e.button !== 0 || disabled) return;
+            e.preventDefault(); e.currentTarget.focus(); e.currentTarget.setPointerCapture(e.pointerId);
+            studio.beginGesture(); drag.current = { x: e.clientX, value, pointerId: e.pointerId, moved: false };
+          }}
+          onPointerMove={e => {
+            const start = drag.current;
+            if (!start || !studio.hasGesture()) return;
+            const delta = e.clientX - start.x;
+            if (!start.moved && Math.abs(delta) < 3) return;
+            start.moved = true;
+            const next = start.value + delta * step * (e.shiftKey ? 10 : e.altKey ? .1 : 1);
+            onChange(Number(Math.max(min ?? -Infinity, Math.min(max ?? Infinity, next)).toFixed(4)));
+          }}
+          onPointerUp={e => {
+            const start = drag.current; drag.current = null;
+            if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
+            studio.commitGesture();
+            if (start && !start.moved) e.currentTarget.closest(".ic-number")?.querySelector("input")?.focus();
+          }}
+          onPointerCancel={() => { drag.current = null; studio.cancelGesture(); }}
+          onLostPointerCapture={() => { if (drag.current) { drag.current = null; studio.cancelGesture(); } }}
+          onKeyDown={e => {
+            if (e.key === "Escape" && drag.current) { e.stopPropagation(); drag.current = null; studio.cancelGesture(); }
+            if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+              e.preventDefault(); onChange(Math.max(min ?? -Infinity, Math.min(max ?? Infinity, value + (e.key === "ArrowLeft" ? -1 : 1) * step * (e.shiftKey ? 10 : 1))));
+            }
+          }}>{label}</button>
+        {badges}
+        {!badges && owner && owner !== "base" && (
           <span
             className={`ic-owner ic-owner-${owner}`}
             title={`Value controlled by ${owner}`}
@@ -80,7 +118,7 @@ export function NumberField({
         />
         {suffix && <small>{suffix}</small>}
       </span>
-    </label>
+    </div>
   );
 }
 
@@ -112,6 +150,8 @@ export function Inspector({
   signals,
   onCommand,
   onPatch,
+  onBatch,
+  onSeekTrack,
 }: InspectorProps) {
   const [tab, setTab] = useState<"design" | "motion">("design");
   const [signalProperty, setSignalProperty] = useState("rotateY");
@@ -173,6 +213,8 @@ export function Inspector({
           "offsetZ",
           "scale",
           "cameraZ",
+          "cameraYaw",
+          "cameraPitch",
           "fov",
           "x",
           "y",
@@ -191,28 +233,26 @@ export function Inspector({
           ...(isText ? ["fontSize", "letterSpacing"] : []),
         ];
   const patch = (key: string, value: Value) => onPatch({ [key]: value });
-  const number = (
-    key: string,
-    label: string,
-    fallback = 0,
-    min?: number,
-    max?: number,
-    step = 1,
-    suffix?: string,
-  ) => (
-    <NumberField
-      key={key}
-      label={label}
-      value={num(values, key, fallback)}
-      min={min}
-      max={max}
-      step={step}
-      suffix={suffix}
-      owner={ownerOf(doc, entity, key, profileId)}
-      disabled={false}
-      onChange={(value) => patch(key, value)}
-    />
-  );
+  const number = (key: string, label: string, fallback = 0, min?: number, max?: number, step = 1, suffix?: string) => {
+    const owner = ownerOf(doc, entity, key, profileId);
+    const track = owner === "track" ? effectiveTrack(doc, entity, key, profileId) : undefined;
+    const binding = owner === "signal" ? (doc.bindings.find(b => b.entityId === entity.id && b.property === key && b.profileId === profileId) ?? doc.bindings.find(b => b.entityId === entity.id && b.property === key && b.profileId === "base")) : undefined;
+    const at = track ? clockTime(doc, track.clockId, playhead, signals) : 0;
+    const keyed = track?.keys.some(k => Math.abs(k.time - at) < .0001);
+    const overridden = scope !== "base" && (Object.hasOwn(entity.overrides[scope] ?? {}, key) || doc.tracks.some(t => t.entityId === entity.id && t.property === key && t.profileId === scope) || doc.bindings.some(b => b.entityId === entity.id && b.property === key && b.profileId === scope));
+    return <NumberField key={key} label={label} value={num(values, key, fallback)} min={min} max={max} step={step} suffix={suffix}
+      onChange={value => patch(key, value)} badges={<span className="property-badges">
+        {overridden && <button type="button" className="property-scope" aria-label={`Inherit base ${label}`} title={`Reset ${label}: remove this profile’s value, animation and signal overrides; inherit base`}
+          onClick={() => onBatch([
+            { type: "reset-override", id: entity.id, scope, property: key },
+            ...doc.tracks.filter(t => t.entityId === entity.id && t.property === key && t.profileId === scope).map(t => ({ type: "remove-track" as const, id: t.id })),
+            ...doc.bindings.filter(b => b.entityId === entity.id && b.property === key && b.profileId === scope).map(b => ({ type: "remove-binding" as const, id: b.id })),
+          ], `Inherit base ${label}`)}>{profileName.slice(0, 3).toUpperCase()}</button>}
+        {track && <button type="button" className={`property-key ${keyed ? "at-key" : ""}`} aria-label={`Go to nearest ${label} key`} title={keyed ? "Key at this position" : "Animated · go to nearest key"}
+          onClick={() => { const key = [...track.keys].sort((a,b) => Math.abs(a.time-at)-Math.abs(b.time-at))[0]; if(key) onSeekTrack(key.time, track.clockId ?? "page"); }}><Diamond size={13} fill={keyed ? "currentColor" : "none"} /></button>}
+        {binding && <button type="button" className="property-signal" title={`Driven by ${binding.source}; edits offset its mapping`} aria-label={`${label} driven by ${binding.source}`} onClick={() => setTab("motion")}>~ {binding.source}</button>}
+      </span>} />;
+  };
   const text = (key: string, label: string, fallback = "") => (
     <label className="ic-text-field">
       <span>{label}</span>
@@ -321,7 +361,7 @@ export function Inspector({
           className={tab === "motion" ? "active" : ""}
           onClick={() => setTab("motion")}
         >
-          Behaviour
+          Animation & signals
           {ownedTracks.length + ownedBindings.length > 0 && (
             <small>{ownedTracks.length + ownedBindings.length}</small>
           )}
@@ -526,6 +566,8 @@ export function Inspector({
                 </Section>
                 <Section title="Camera">
                   <div className="ic-field-grid">
+                    {number("cameraYaw", "Camera yaw", 0, undefined, undefined, 0.5, "°")}
+                    {number("cameraPitch", "Camera pitch", 0, -85, 85, 0.5, "°")}
                     {number("cameraZ", "Camera distance", 5, 0.2, 100, 0.1)}
                     {number("fov", "Field of view", 35, 10, 100, 1, "°")}
                   </div>

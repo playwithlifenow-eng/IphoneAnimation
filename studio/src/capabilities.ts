@@ -1,5 +1,5 @@
 import type { Entity, Kind } from "./model";
-export const INSTRUMENT_VERSION = "iglass-studio/0.2.0";
+export const INSTRUMENT_VERSION = "iglass-studio/0.3.0";
 export interface CapabilityEnvelope {
   adapter: string;
   version: 1;
@@ -66,7 +66,7 @@ const byKind: Record<Kind, Omit<CapabilityEnvelope, "version">> = {
     supported: [
       "GLB insertion",
       "Object pose",
-      "Camera distance/FOV",
+      "Camera orbit, distance and FOV",
       "Lighting",
       "Global roughness/metalness",
     ],

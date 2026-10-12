@@ -32,6 +32,7 @@ interface PageProps {
   signals?: Record<string, number>;
   onSignalsChange?: (signals: Record<string, number>) => void;
   sceneInteractive?: boolean;
+  sceneNavigation?: "model" | "camera";
   navigationTool?: boolean;
   orbitSensitivity?: number;
   viewportHeight?: number;
@@ -55,6 +56,7 @@ export function PageRenderer({
   signals: controlledSignals,
   onSignalsChange,
   sceneInteractive = false,
+  sceneNavigation = "model",
   navigationTool = false,
   orbitSensitivity,
   viewportHeight,
@@ -243,6 +245,7 @@ export function PageRenderer({
           onOrbitHandler={registerOrbit}
           values={p}
           interactive={editor && sceneInteractive && selected}
+          navigation={sceneNavigation}
           onChange={(patch) => onSceneChange?.(e, patch)}
         /></Suspense>
       );

@@ -70,6 +70,7 @@ const { unzipSync } = require("fflate");
     );
     await page.screenshot({ path: "test-results/desktop.png" });
     check("Editor and original GLB load");
+    await require("./browser-workspace.cjs").run({ page, state, doc, check });
     await page
       .getByLabel("Element text", { exact: true })
       .fill("A sharper\npoint of view.");
@@ -134,14 +135,14 @@ const { unzipSync } = require("fflate");
       78,
     );
     check("Escape cancels pointer edits");
-    await page.getByRole("button", { name: "Mobile", exact: true }).click();
+    await page.getByLabel("Responsive profile", { exact: true }).selectOption("mobile");
     await page.getByLabel("X", { exact: true }).fill("37");
     await page.getByLabel("X", { exact: true }).blur();
     let entity = (await doc()).entities.find((e) => e.id === "headline");
     assert.equal(entity.props.x, 78);
     assert.equal(entity.overrides.mobile.x, 37);
     await page.screenshot({ path: "test-results/mobile.png" });
-    await page.getByRole("button", { name: "Desktop", exact: true }).click();
+    await page.getByLabel("Responsive profile", { exact: true }).selectOption("desktop");
     assert.equal(
       await page.getByLabel("X", { exact: true }).inputValue(),
       "78",
@@ -303,7 +304,7 @@ const { unzipSync } = require("fflate");
     await page.keyboard.press("Escape");
     check("Immutable Takes and synchronised comparison");
 
-    await page.getByRole("tab", { name: "Behaviour", exact: false }).click();
+    await page.getByRole("tab", { name: "Animation & signals", exact: false }).click();
     await page
       .getByLabel("Signal property", { exact: true })
       .selectOption("rotateX");
@@ -326,7 +327,8 @@ const { unzipSync } = require("fflate");
       false,
     );
     check("Signal ownership and controlled preview inputs");
-    await page.getByRole("button", { name: "Evaluate", exact: true }).click();
+    await page.getByLabel("Project actions", { exact: true }).click();
+    await page.getByRole("button", { name: "Evaluate / feedback", exact: true }).click();
     await page
       .getByLabel("Feedback", { exact: true })
       .fill("Keep this framing; soften the light.");

@@ -44,6 +44,9 @@ import {
   Group,
   Ungroup,
   Save,
+  PanelRight,
+  Camera,
+  Rotate3D,
 } from "lucide-react";
 import {
   duplicateSelection,
@@ -84,6 +87,7 @@ import {
   exportRuntime,
   importProject,
 } from "./export";
+import { ResizeHandle, usePreference } from "./WorkspaceControls";
 const tabs = [
   ["compose", "Compose"],
   ["copy", "Copy"],
@@ -115,6 +119,10 @@ export default function App() {
   const clock = clocksOf(doc).find(c => c.id === s.clockId) ?? clocksOf(doc)[0];
   const position = clockTime(doc, clock.id, s.playhead, signals);
   const scope = s.profileId === "desktop" ? "base" : s.profileId;
+  const [leftOpen, setLeftOpen] = usePreference<boolean>("iglass.ui.left-open", true);
+  const [rightOpen, setRightOpen] = usePreference<boolean>("iglass.ui.right-open", true);
+  const [leftWidth, setLeftWidth] = usePreference<number>("iglass.ui.left-width", 224);
+  const [rightWidth, setRightWidth] = usePreference<number>("iglass.ui.right-width", 300);
   const [leftTab, setLeftTab] = useState("layers");
   const [tool, setTool] = useState("select");
   const [orbitSensitivity, setOrbitSensitivity] = useState(() => { try { return Number(localStorage.getItem("iglass.orbit-sensitivity")) || 0.8; } catch { return 0.8; } });
@@ -201,6 +209,10 @@ export default function App() {
         );
         studio.select([]);
       }
+      if (!ev.ctrlKey && !ev.metaKey && !ev.altKey) {
+        const shortcut = { v: "select", h: "hand", r: "orbit", c: "camera", p: "path" }[ev.key.toLowerCase()];
+        if (shortcut) { ev.preventDefault(); setTool(shortcut); }
+      }
       if (ev.key === " ") {
         ev.preventDefault();
         studio.session({ playing: !studio.get().playing });
@@ -226,6 +238,7 @@ export default function App() {
   }, [modal, compare]);
   useEffect(() => {
     if (!modal) return;
+    document.querySelector(".project-menu")?.removeAttribute("open");
     const focusable = () =>
       Array.from(
         document.querySelectorAll<HTMLElement>(
@@ -273,14 +286,16 @@ export default function App() {
       studio.fail(String(e));
     }
   };
-  const command = (c: Command, label?: string) => studio.execute(c, label);
+  const command = (c: Command, label?: string) => studio.hasGesture() ? studio.previewCommands([c]) : studio.execute(c, label);
+  const batch = (commands: Command[], label: string) => studio.hasGesture() ? studio.previewCommands(commands) : studio.batch(commands, label);
   const patch = (values: Props, target = entity) => {
     if (!target) return;
+    target = s.workspace.document.entities.find(e => e.id === target!.id) ?? target;
     try {
       const commands = values.layout !== undefined
         ? layoutChangeCommands(s.workspace.document, target, String(values.layout), s.profileId, s.playhead, signals)
         : editProperties(s.workspace.document, target, values, s.profileId, s.playhead, signals, s.editMode, clock.id);
-      studio.batch(commands, "Adjust " + target.name);
+      batch(commands, "Adjust " + target.name);
     }
     catch (error) { studio.fail(error instanceof Error ? error.message : String(error)); }
   };
@@ -901,33 +916,46 @@ export default function App() {
   return (
     <div className="app">
       <header className="topbar">
-        <div className="brand">
-          <span className="brand-symbol">i</span>
-          <b>iGlass</b>
-          <span>STUDIO</span>
+        <div className="project-control">
+          <span className="brand-symbol" title="Pose Studio 0.3.0">i</span>
+          <input aria-label="Project name" value={doc.name} onChange={ev => command({ type: "document-name", name: ev.target.value })} />
+          <span className="saved" title={s.status}><span />{s.status}</span>
         </div>
-        <div className="document-name">
-          <span className="crumb">Projects /</span>
-          <input
-            aria-label="Project name"
-            value={doc.name}
-            onChange={(ev) =>
-              command({ type: "document-name", name: ev.target.value })
-            }
-          />
-          <ChevronDown size={13} />
+        <div className="tool-group" aria-label="Canvas tools">
+          <button aria-label="Select tool" title="Select / move · V" className={tool === "select" ? "active" : ""} onClick={() => setTool("select")}><MousePointer2 size={17} /></button>
+          <button aria-label="Pan tool" title="Pan workspace · H · two-finger scroll" className={tool === "hand" ? "active" : ""} onClick={() => setTool("hand")}><Hand size={17} /></button>
+          <button aria-label="Turntable tool" title="Turntable · R · rotate the model" className={tool === "orbit" ? "active" : ""} onClick={() => setTool("orbit")}><Rotate3D size={17} /></button>
+          <button aria-label="Camera orbit tool" title="Camera orbit · C · change viewpoint" className={tool === "camera" ? "active" : ""} onClick={() => setTool("camera")}><Camera size={17} /></button>
+          <button aria-label="Edit motion path" title="Motion path · P" className={tool === "path" ? "active" : ""} onClick={() => setTool(tool === "path" ? "select" : "path")}><Move size={17} /></button>
         </div>
-        <span className="saved">
-          <span /> {s.status}
-        </span>
-        <button className="header-action" onClick={() => setModal("evaluate")}>
-          <MessageSquare size={14} /> Evaluate
-        </button>
-        <button className="export-button" onClick={() => setModal("export")}>
-          Export <ArrowUpRight size={14} />
-        </button>
+        <div className="profile-switch">
+          <select aria-label="Responsive profile" value={s.profileId} onChange={e => studio.session({ profileId: e.target.value })}>
+            {doc.profiles.map(p => <option key={p.id} value={p.id}>{p.name} · {p.width}px</option>)}
+          </select>
+          <button aria-label="Edit responsive profile" title="Responsive profile settings" onClick={() => setModal("profile")}><SlidersHorizontal size={15} /></button>
+        </div>
+        <div className="zoom-controls">
+          <button aria-label="Zoom out" onClick={() => studio.session({ zoom: Math.max(.15, s.zoom - .1) })}>−</button>
+          <button aria-label="Fit composition" title="Fit composition in canvas" onClick={fit}>{Math.round(s.zoom * 100)}%</button>
+          <button aria-label="Zoom in" onClick={() => studio.session({ zoom: Math.min(2, s.zoom + .1) })}>+</button>
+        </div>
+        <div className="history-controls">
+          <button aria-label="Undo" title="Undo" disabled={!s.canUndo} onClick={() => studio.undo()}><Undo2 size={16} /></button>
+          <button aria-label="Redo" title="Redo" disabled={!s.canRedo} onClick={() => studio.redo()}><Redo2 size={16} /></button>
+        </div>
+        <div className="panel-controls">
+          <button aria-label="Toggle layers panel" title="Show / hide workspace panel" aria-pressed={leftOpen} onClick={() => setLeftOpen(!leftOpen)}><PanelLeft size={16} /></button>
+          <button aria-label="Toggle inspector panel" title="Show / hide inspector" aria-pressed={rightOpen} onClick={() => setRightOpen(!rightOpen)}><PanelRight size={16} /></button>
+        </div>
+        <details className="project-menu">
+          <summary aria-label="Project actions" title="Feedback, help and version"><CircleHelp size={17} /></summary>
+          <div><strong>Pose Studio 0.3.0</strong><button onClick={() => setModal("evaluate")}><MessageSquare size={14} />Evaluate / feedback</button><button onClick={() => setModal("help")}>Help & shortcuts</button></div>
+        </details>
+        <button className="header-action" aria-label="Open Takes" title="Takes" onClick={() => { studio.session({ tab: "takes" }); setLeftOpen(true); }}><GitBranch size={16} /></button>
+        <button className="export-button" onClick={() => setModal("export")}>Export <ArrowUpRight size={14} /></button>
       </header>
-      <nav className="workspace-nav">
+      <div className="workspace" style={{ gridTemplateColumns: `${leftOpen ? Math.max(180, Math.min(360, leftWidth)) : 0}px ${leftOpen ? 6 : 0}px minmax(0, 1fr) ${rightOpen ? 6 : 0}px ${rightOpen ? Math.max(260, Math.min(440, rightWidth)) : 0}px` }}>
+        <aside className="left-panel" hidden={!leftOpen} aria-label="Workspace navigation">
         <div className="tabs">
           {tabs.map(([id, label]) => (
             <button
@@ -948,30 +976,7 @@ export default function App() {
             </button>
           ))}
         </div>
-        <div className="history-controls">
-          <button
-            aria-label="Undo"
-            disabled={!s.canUndo}
-            onClick={() => studio.undo()}
-          >
-            <Undo2 size={16} />
-          </button>
-          <button
-            aria-label="Redo"
-            disabled={!s.canRedo}
-            onClick={() => studio.redo()}
-          >
-            <Redo2 size={16} />
-          </button>
-          <span className="nav-separator" />
-          <button onClick={() => setModal("help")}>
-            <CircleHelp size={16} />
-          </button>
-          <div className="avatar">M</div>
-        </div>
-      </nav>
-      <div className="workspace">
-        <aside className="left-panel">
+
           <input
             className="search"
             placeholder="Find an element…"
@@ -981,40 +986,9 @@ export default function App() {
           />
           <div className="left-scroll">{leftContent()}</div>
         </aside>
+        {leftOpen ? <ResizeHandle label="Resize layers panel" value={leftWidth} min={180} max={360} onChange={setLeftWidth} /> : <div />}
         <main className="center">
-          <div className="canvas-toolbar">
-            <div className="tool-group">
-              <button
-                aria-label="Select tool" title="Select / move · Alt-click cycles overlapping elements"
-                className={tool === "select" ? "active" : ""}
-                onClick={() => setTool("select")}
-              >
-                <MousePointer2 size={16} />
-              </button>
-              <button
-                aria-label="Pan tool" title="Pan workspace · two-finger scroll also pans"
-                className={tool === "hand" ? "active" : ""}
-                onClick={() => setTool("hand")}
-              >
-                <Hand size={16} />
-              </button>
-              <button
-                aria-label="Orbit scene tool" title="Rotate model · drag selected model · arrows for precision"
-                className={tool === "orbit" ? "active" : ""}
-                onClick={() => setTool("orbit")}
-              >
-                <Box size={16} />
-              </button>
-            </div>
-            <button
-              aria-label="Edit motion path"
-              className={tool === "path" ? "active" : ""}
-              onClick={() => setTool(tool === "path" ? "select" : "path")}
-            >
-              <Move size={15} />
-              Path
-            </button>
-            {tool === "orbit" && <label className="orbit-speed">Rotate speed<input aria-label="Orbit sensitivity" type="range" min="0.1" max="2" step="0.1" value={orbitSensitivity} onChange={e => setOrbitSensitivity(Number(e.target.value))} /></label>}
+          {(tool === "orbit" || tool === "camera" || doc.bindings.length > 0 || clocksOf(doc).some(c => c.source === "scroll")) && <div className="canvas-context">            {(tool === "orbit" || tool === "camera") && <label className="orbit-speed">Drag speed<input aria-label="Rotation sensitivity" type="range" min="0.1" max="2" step="0.1" value={orbitSensitivity} onChange={e => setOrbitSensitivity(Number(e.target.value))} /></label>}
             {(doc.bindings.length > 0 || clocksOf(doc).some(c => c.source === "scroll")) && (
               <div
                 className="toolbar-signals"
@@ -1039,48 +1013,7 @@ export default function App() {
                 {layout.sections.length > 0 && <label className="scroll-follow"><input type="checkbox" checked={followScroll} onChange={e => setFollowScroll(e.target.checked)} />Follow scroll</label>}
               </div>
             )}
-            <div className="profile-switch">
-              {doc.profiles.map((p) => (
-                <button
-                  className={p.id === s.profileId ? "active" : ""}
-                  key={p.id}
-                  onClick={() => studio.session({ profileId: p.id })}
-                >
-                  {p.id === "mobile" ? (
-                    <Smartphone size={13} />
-                  ) : (
-                    <Monitor size={14} />
-                  )}{" "}
-                  {p.name}
-                </button>
-              ))}
-              <button
-                aria-label="Edit responsive profile"
-                onClick={() => setModal("profile")}
-              >
-                <SlidersHorizontal size={12} />
-              </button>
-            </div>
-            <div className="zoom-controls">
-              <button
-                aria-label="Zoom out"
-                onClick={() =>
-                  studio.session({ zoom: Math.max(0.15, s.zoom - 0.1) })
-                }
-              >
-                −
-              </button>
-              <button onClick={fit}>{Math.round(s.zoom * 100)}%</button>
-              <button
-                aria-label="Zoom in"
-                onClick={() =>
-                  studio.session({ zoom: Math.min(2, s.zoom + 0.1) })
-                }
-              >
-                +
-              </button>
-            </div>
-          </div>
+</div>}
           {tool === "path" && (
             <div className="path-strip">
               <span>
@@ -1094,7 +1027,7 @@ export default function App() {
                 <Plus size={12} />
                 Add position key
               </button>
-              <small>{s.playhead.toFixed(2)}s</small>
+              <small>{clock.source === "scroll" ? `${(position / doc.duration * 100).toFixed(1)}%` : `${position.toFixed(2)}s`}</small>
             </div>
           )}
           {s.error && (
@@ -1162,7 +1095,8 @@ export default function App() {
                   signals={signals}
                   onSignalsChange={(signals) => studio.session({ signals })}
                   editor
-                  sceneInteractive={tool === "orbit"}
+                  sceneInteractive={tool === "orbit" || tool === "camera"}
+                  sceneNavigation={tool === "camera" ? "camera" : "model"}
                   navigationTool={tool === "hand"}
                   orbitSensitivity={orbitSensitivity}
                   onBackground={() => studio.select([])}
@@ -1188,7 +1122,7 @@ export default function App() {
                     onPreview={(commands) => studio.previewCommands(commands)}
                     onCommit={() => studio.commitGesture()}
                     onCancel={() => studio.cancelGesture()}
-                    onBatch={(commands, label) => studio.batch(commands, label)}
+                    onBatch={batch}
                     onError={(message) => studio.fail(message)}
                   />
                 )}
@@ -1198,7 +1132,8 @@ export default function App() {
               {tool === "hand"
                 ? "Drag to pan the workspace"
                 : tool === "orbit"
-                  ? "Drag the selected model to orbit"
+                  ? "Turntable · drag the selected model to rotate it"
+                  : tool === "camera" ? "Camera orbit · drag the selected model to change viewpoint"
                   : tool === "path"
                     ? "Drag path points · arrows nudge · Delete removes · Esc cancels"
                     : "Drag to move · Alt-click selects behind · Double-click text · Esc cancels / deselects"}
@@ -1272,11 +1207,12 @@ export default function App() {
             onSeek={time => seek(time)}
             onPlay={() => seek(position >= doc.duration ? 0 : position, !s.playing)}
             onCommand={command}
-            onBatch={(commands, label) => studio.batch(commands, label)}
+            onBatch={batch}
             onSelect={(id) => studio.select([id])}
           />
         </main>
-        <aside className="right-panel">
+        {rightOpen ? <ResizeHandle label="Resize inspector panel" value={rightWidth} min={260} max={440} direction={-1} onChange={setRightWidth} /> : <div />}
+        <aside className="right-panel" hidden={!rightOpen}>
           <Inspector
             document={doc}
             entity={entity}
@@ -1285,6 +1221,11 @@ export default function App() {
             signals={signals}
             onCommand={command}
             onPatch={patch}
+            onBatch={batch}
+            onSeekTrack={(time, clockId) => {
+              const source = clocksOf(doc).find(c => c.id === clockId);
+              studio.session({ clockId, playing: false, ...(source?.source === "scroll" ? { signals: { ...signals, scroll: scrollAtClock(doc, s.profileId, clockId, time / doc.duration) } } : { playhead: time }) });
+            }}
           />
         </aside>
       </div>
@@ -1577,7 +1518,7 @@ export default function App() {
                 <p>
                   Shift-click for multiple selection. Drag the corner to resize.
                   Ctrl/Cmd Z to undo, D to duplicate, S to save. Escape cancels
-                  a gesture, then clears selection. Space plays the selected clock. Two-finger scroll pans; pinch zooms.
+                  a gesture, then clears selection. V selects, H pans, R turns the model, C orbits the camera, P edits paths. Space plays the selected clock. Two-finger scroll pans; pinch zooms. Drag inspector labels to scrub; Shift is coarse and Alt is fine.
                 </p>
                 <p>
                   Import a GLB, image or video from Assets. Capture Takes before

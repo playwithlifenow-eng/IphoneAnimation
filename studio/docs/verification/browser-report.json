@@ -1,7 +1,10 @@
 {
-  "verifiedAt": "2026-10-12T12:41:13.214Z",
+  "verifiedAt": "2026-10-12T17:50:37.721Z",
   "checks": [
     "Editor and original GLB load",
+    "1366×768 compact header, panel collapse persistence and pointer/keyboard panel resizing",
+    "Numeric scrubbing is live, one undoable change, and cancellable with Escape",
+    "Responsive animation badges coexist; inherit-base is reversible and keys navigate their clock",
     "Shared copy editing and undo/redo",
     "Direct text manipulation",
     "Pointer drag is one undoable transaction",
@@ -16,6 +19,7 @@
     "Feedback retains exact state and honest capture provenance",
     "Asset import and insertion",
     "Tracked canvas dragging, whole-curve offsets, undo and Escape deselection",
+    "Camera orbit edits viewpoint without changing model tracks or field of view",
     "Real GLB mesh picking, transparent-space pass-through, background deselection and adjustable orbit",
     "Timeline key editing respects clock scope and forks mobile tracks without changing base",
     "Collapsible choreography, undoable legacy section conversion and scroll-driven Reveal action",

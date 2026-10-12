@@ -109,11 +109,13 @@ function RendererSetup({
   const { camera, gl, scene, invalidate } = useThree();
   const fov = bounded(values, "fov", 35, 10, 100);
   const cameraZ = bounded(values, "cameraZ", 5, 0.2, 100);
+  const yaw = MathUtils.degToRad(finite(values, "cameraYaw", 0));
+  const pitch = MathUtils.degToRad(bounded(values, "cameraPitch", 0, -85, 85));
   const exposure = bounded(values, "exposure", 1, 0, 10);
 
   useEffect(() => {
     const perspective = camera as PerspectiveCamera;
-    perspective.position.set(0, 0, cameraZ);
+    perspective.position.set(cameraZ * Math.sin(yaw) * Math.cos(pitch), cameraZ * Math.sin(pitch), cameraZ * Math.cos(yaw) * Math.cos(pitch));
     perspective.lookAt(0, 0, 0);
     perspective.fov = fov;
     perspective.near = 0.01;
@@ -121,7 +123,7 @@ function RendererSetup({
     perspective.updateProjectionMatrix();
     gl.toneMappingExposure = exposure;
     invalidate();
-  }, [camera, gl, cameraZ, fov, exposure, invalidate]);
+  }, [camera, gl, cameraZ, yaw, pitch, fov, exposure, invalidate]);
 
   useEffect(() => {
     // Real image-based reflections, generated locally; no external HDR dependency.
@@ -322,6 +324,7 @@ export function SceneView({
   entity,
   values,
   interactive = false,
+  navigation = "model",
   onChange,
   onStatus,
   onHitTest,
@@ -360,6 +363,8 @@ export function SceneView({
   );
   const available = canRenderWebGL();
   const canDrag = interactive && !!onChange;
+  const xProperty = navigation === "camera" ? "cameraPitch" : "rotateX";
+  const yProperty = navigation === "camera" ? "cameraYaw" : "rotateY";
   const effectiveValues = dragValues ? { ...values, ...dragValues } : values;
 
   useEffect(() => {
@@ -377,10 +382,10 @@ export function SceneView({
       el.focus();
       el.setPointerCapture(event.pointerId);
       drag.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY,
-        rotateX: finite(values, "rotateX", 0), rotateY: finite(values, "rotateY", 0), patch: {} };
+        rotateX: finite(values, xProperty, 0), rotateY: finite(values, yProperty, 0), patch: {} };
     } : null);
     return () => onOrbitHandler?.(entity.id, null);
-  }, [entity.id, canDrag, values, onOrbitHandler]);
+  }, [entity.id, canDrag, values, onOrbitHandler, xProperty, yProperty]);
 
   const retry = useCallback(() => {
     useLoader.clear(GLTFLoader, url);
@@ -411,8 +416,8 @@ export function SceneView({
         if (!start || start.pointerId !== event.pointerId) return;
         event.stopPropagation();
         start.patch = {
-          rotateX: start.rotateX + (event.clientY - start.y) * orbitSensitivity,
-          rotateY: start.rotateY + (event.clientX - start.x) * orbitSensitivity,
+          [xProperty]: navigation === "camera" ? MathUtils.clamp(start.rotateX + (event.clientY - start.y) * orbitSensitivity, -85, 85) : start.rotateX + (event.clientY - start.y) * orbitSensitivity,
+          [yProperty]: start.rotateY + (event.clientX - start.x) * orbitSensitivity,
         };
         setDragValues(start.patch);
       }}
@@ -449,11 +454,11 @@ export function SceneView({
         const delta = event.shiftKey ? 15 : 5;
         const horizontal =
           event.key === "ArrowLeft" || event.key === "ArrowRight";
-        const property = horizontal ? "rotateY" : "rotateX";
+        const property = horizontal ? yProperty : xProperty;
         const direction =
           event.key === "ArrowLeft" || event.key === "ArrowUp" ? -1 : 1;
         onChange?.({
-          [property]: finite(values, property, 0) + delta * direction,
+          [property]: navigation === "camera" && !horizontal ? MathUtils.clamp(finite(values, property, 0) + delta * direction, -85, 85) : finite(values, property, 0) + delta * direction,
         });
       }}
     >

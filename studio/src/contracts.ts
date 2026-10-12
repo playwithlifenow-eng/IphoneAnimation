@@ -3,6 +3,7 @@ export interface SceneViewProps {
   entity: Entity;
   values: Props;
   interactive?: boolean;
+  navigation?: "model" | "camera";
   onChange?: (patch: Props) => void;
   onStatus?: (status: string) => void;
   orbitSensitivity?: number;
@@ -17,6 +18,8 @@ export interface InspectorProps {
   signals?: Record<string, number>;
   onCommand: (command: Command, label?: string) => void;
   onPatch: (values: Props) => void;
+  onBatch: (commands: Command[], label: string) => void;
+  onSeekTrack: (time: number, clockId: string) => void;
 }
 export interface TimelineProps {
   document: StudioDocument;

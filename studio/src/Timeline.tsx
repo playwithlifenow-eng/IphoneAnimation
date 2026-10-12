@@ -1,3 +1,4 @@
+import { ResizeHandle, usePreference } from "./WorkspaceControls";
 import { editProperties } from "./editing";
 import { useEffect, useState } from "react";
 import {
@@ -45,6 +46,8 @@ const LABELS: Record<string, string> = {
   offsetZ: "Offset Z",
   scale: "Model scale",
   cameraZ: "Camera distance",
+  cameraYaw: "Camera yaw",
+  cameraPitch: "Camera pitch",
   fov: "Field of view",
   fontSize: "Font size",
   letterSpacing: "Tracking",
@@ -67,6 +70,8 @@ const POSE_KEYS = [
   "offsetZ",
   "scale",
   "cameraZ",
+  "cameraYaw",
+  "cameraPitch",
   "fov",
 ];
 
@@ -91,6 +96,7 @@ export function Timeline({
   const position = clockTime(doc, clock.id, playhead, signals);
   const scroll = clock.source === "scroll";
   const format = (time: number) => scroll ? `${Math.round(time / doc.duration * 100)}%` : `${time.toFixed(2)}s`;
+  const [panelHeight, setPanelHeight] = usePreference<number>("iglass.ui.timeline-height", 240);
   const [collapsed, setCollapsed] = useState(() => {
     try {
       return localStorage.getItem("iglass.studio.timeline-collapsed") === "true";
@@ -134,6 +140,8 @@ export function Timeline({
           "offsetZ",
           "scale",
           "cameraZ",
+  "cameraYaw",
+  "cameraPitch",
           "fov",
           "x",
           "y",
@@ -272,7 +280,8 @@ export function Timeline({
       "Change interpolation",
     );
   return (
-    <section className={`tl-panel${collapsed ? " tl-collapsed" : ""}`} aria-label="Choreography timeline">
+    <section className={`tl-panel${collapsed ? " tl-collapsed" : ""}`} aria-label="Choreography timeline" style={{ height: collapsed ? undefined : Math.max(150, Math.min(500, panelHeight)) }}>
+      {!collapsed && <ResizeHandle label="Resize choreography" axis="y" direction={-1} value={panelHeight} min={150} max={500} onChange={setPanelHeight} />}
       <div className="tl-header">
         <div className="tl-heading">
           <span className="tl-label">Choreography</span>
@@ -550,7 +559,7 @@ export function Timeline({
               type="button"
               key={pose.id}
               onClick={() => recallPose(pose.values)}
-              title={`Apply saved transforms at the current playhead. Signal mappings are offset when needed. Recorded at ${pose.time.toFixed(2)}s.`}
+              title={`Apply saved transforms at the current playhead. Signal mappings are offset when needed. Saved pose snapshot.`}
             >
               <Camera size={11} />
               {pose.name}
