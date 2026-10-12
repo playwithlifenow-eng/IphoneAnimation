@@ -5,6 +5,9 @@ export interface SceneViewProps {
   interactive?: boolean;
   onChange?: (patch: Props) => void;
   onStatus?: (status: string) => void;
+  orbitSensitivity?: number;
+  onOrbitHandler?: (id: string, handler: ((event: PointerEvent) => void) | null) => void;
+  onHitTest?: (id: string, hit: ((x: number, y: number) => boolean) | null) => void;
 }
 export interface InspectorProps {
   document: StudioDocument;
@@ -27,4 +30,8 @@ export interface TimelineProps {
   onCommand: (command: Command, label?: string) => void;
   onBatch: (commands: Command[], label: string) => void;
   onSelect: (id: string) => void;
+  clockId?: string;
+  onClockSelect?: (id: string) => void;
+  editMode?: "key" | "offset";
+  onEditMode?: (mode: "key" | "offset") => void;
 }

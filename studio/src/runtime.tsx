@@ -3,11 +3,13 @@ import { createRoot } from "react-dom/client";
 import { PageRenderer } from "./PageRenderer";
 import { validateDocument, type StudioDocument } from "./model";
 import "./runtime.css";
+import { pageLayout } from "./composition";
 function Runtime() {
   const [doc, setDoc] = useState<StudioDocument | null>(null);
   const [error, setError] = useState("");
   const [time, setTime] = useState(0);
-  const [width, setWidth] = useState(innerWidth);
+  const [size, setSize] = useState({ width: innerWidth, height: innerHeight });
+  const width = size.width;
   useEffect(() => {
     fetch("./composition.json")
       .then((r) => {
@@ -16,9 +18,9 @@ function Runtime() {
       })
       .then((d) => setDoc(validateDocument(d)))
       .catch((e) => setError(e.message));
-    const size = () => setWidth(innerWidth);
-    addEventListener("resize", size);
-    return () => removeEventListener("resize", size);
+    const resize = () => setSize({ width: innerWidth, height: innerHeight });
+    addEventListener("resize", resize);
+    return () => removeEventListener("resize", resize);
   }, []);
   useEffect(() => {
     if (!doc || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
@@ -38,13 +40,15 @@ function Runtime() {
     doc.profiles.find((p) => p.id === (width < 700 ? "mobile" : "desktop")) ??
     doc.profiles[0];
   const zoom = Math.min(1, width / profile.width);
+  const viewportHeight = size.height / zoom;
+  const layout = pageLayout(doc, profile.id, viewportHeight);
   return (
     <main
       className="runtime-frame"
-      style={{ width: profile.width * zoom, height: profile.height * zoom }}
+      style={{ width: profile.width * zoom, height: layout.height * zoom }}
     >
       <div style={{ transform: `scale(${zoom})`, transformOrigin: "top left" }}>
-        <PageRenderer document={doc} profileId={profile.id} time={time} />
+        <PageRenderer document={doc} profileId={profile.id} time={time} viewportHeight={viewportHeight} />
       </div>
     </main>
   );

@@ -1,6 +1,9 @@
+import { INSTRUMENT_VERSION } from "./capabilities";
+import { readRecoveries, writeRecovery } from "./recovery";
 import { useSyncExternalStore } from "react";
 import {
   applyCommand,
+  entityClockId,
   clone,
   uid,
   validateWorkspace,
@@ -15,6 +18,8 @@ import {
 import { seedDocument } from "./seed";
 interface State {
   signals: Record<string, number>;
+  clockId: string;
+  editMode: "key" | "offset";
   workspace: Workspace;
   selection: string[];
   profileId: string;
@@ -32,6 +37,8 @@ interface State {
 }
 let state: State = {
   signals: { pointerX: 0.5, pointerY: 0.5, scroll: 0 },
+  clockId: "page",
+  editMode: "key",
   workspace: { version: 1, document: seedDocument(), takes: [], episodes: [] },
   selection: ["headline"],
   profileId: "desktop",
@@ -70,22 +77,11 @@ const update = (patch: Partial<State>) => {
   state = { ...state, ...patch };
   emit();
 };
-function backup() {
-  try {
-    localStorage.setItem(
-      "iglass-studio-recovery",
-      JSON.stringify({
-        workspace: state.workspace,
-        at: Date.now(),
-        serverVersion,
-      }),
-    );
-  } catch {
-    update({
-      error:
-        "Browser recovery storage is full. Export your project; server saving remains available.",
-    });
-  }
+const writerId = uid("writer");
+function backup(): boolean {
+  const saved = writeRecovery(writerId, state.workspace, serverVersion);
+  if (!saved) update({ error: "Browser recovery storage is unavailable or full. Export your project; server saving remains available." });
+  return saved;
 }
 function scheduleSave() {
   if (!state.loaded) return;
@@ -148,7 +144,7 @@ function save(): Promise<void> {
       } catch (error) {
         pending = false;
         update({
-          status: "Recovery copy saved",
+          status: backup() ? "Recovery copy saved" : "Unsaved · export your project",
           error: error instanceof Error ? error.message : String(error),
         });
       }
@@ -167,15 +163,8 @@ export const studio = {
     };
   },
   async load() {
-    let local: {
-      workspace: Workspace;
-      at: number;
-      serverVersion?: number;
-    } | null = null;
-    try {
-      const raw = localStorage.getItem("iglass-studio-recovery");
-      if (raw) local = JSON.parse(raw);
-    } catch {}
+    const copies = readRecoveries();
+    const local = copies[0];
     try {
       const r = await fetch("/api/workspace");
       if (!r.ok) throw new Error("Local project service unavailable.");
@@ -187,16 +176,12 @@ export const studio = {
       let recovered = false;
       let conflict = false;
       if (local && local.at > (data.updatedAt ?? 0)) {
-        if (local.serverVersion === serverVersion) {
+        if (local.serverVersion === serverVersion && copies.filter(c => c.at > (data.updatedAt ?? 0) && JSON.stringify(c.workspace) !== JSON.stringify(workspace)).length === 1) {
           workspace = validateWorkspace(local.workspace);
           recovered = true;
         } else if (
           JSON.stringify(local.workspace) !== JSON.stringify(workspace)
         ) {
-          localStorage.setItem(
-            "iglass-studio-conflicted-recovery",
-            JSON.stringify(local.workspace),
-          );
           conflict = true;
         }
       }
@@ -221,7 +206,7 @@ export const studio = {
       }
       update({
         loaded: true,
-        status: "Browser recovery only",
+        status: local ? "Browser recovery only" : "Unsaved · project service unavailable",
         error: error instanceof Error ? error.message : String(error),
       });
     }
@@ -252,6 +237,7 @@ export const studio = {
   },
   select(ids: string[]) {
     update({
+      ...(ids[0] && ids[0] !== state.selection[0] ? { clockId: entityClockId(state.workspace.document, state.workspace.document.entities.find(e => e.id === ids[0])) } : {}),
       selection: ids.filter((id) =>
         state.workspace.document.entities.some((e) => e.id === id),
       ),
@@ -262,7 +248,7 @@ export const studio = {
     patch: Partial<
       Pick<
         State,
-        "profileId" | "playhead" | "playing" | "tab" | "zoom" | "signals"
+        "profileId" | "playhead" | "playing" | "tab" | "zoom" | "signals" | "clockId" | "editMode"
       >
     >,
   ) {
@@ -321,6 +307,7 @@ export const studio = {
     });
     scheduleSave();
   },
+  hasGesture: () => gestureBase !== null,
   beginGesture() {
     gestureBase = clone(state.workspace.document);
     update({ playing: false });
@@ -431,7 +418,7 @@ export const studio = {
         userAgent: navigator.userAgent,
         viewport: [innerWidth, innerHeight],
         dpr: devicePixelRatio,
-        implementation: "iglass-studio/0.1.0",
+        implementation: INSTRUMENT_VERSION,
         capture: "targeted-dom-geometry",
         timeOrigin: performance.timeOrigin,
       },

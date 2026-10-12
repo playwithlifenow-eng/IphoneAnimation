@@ -323,7 +323,7 @@ const { unzipSync } = require("fflate");
     );
     assert.equal(
       await page.getByLabel("Rotate X", { exact: true }).isDisabled(),
-      true,
+      false,
     );
     check("Signal ownership and controlled preview inputs");
     await page.getByRole("button", { name: "Evaluate", exact: true }).click();
@@ -360,6 +360,7 @@ const { unzipSync } = require("fflate");
           .length === 2,
     );
     check("Asset import and insertion");
+    await require("./browser-improvements.cjs").editor({ page, state, doc, check });
     await page.evaluate(async () => {
       await (await import("/src/store.ts")).studio.save();
     });
@@ -494,6 +495,7 @@ const { unzipSync } = require("fflate");
     assert.equal(await runtime.locator(".topbar").count(), 0);
     await runtime.screenshot({ path: "test-results/runtime.png" });
     check("Exported static runtime reopens independently without editor code");
+    await require("./browser-improvements.cjs").runtime({ runtime, check });
     assert.deepEqual(errors, []);
     check("No browser console errors or uncaught exceptions");
     fs.writeFileSync(

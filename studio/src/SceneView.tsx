@@ -18,6 +18,8 @@ import {
   MeshStandardMaterial,
   PerspectiveCamera,
   PMREMGenerator,
+  Raycaster,
+  Vector2,
   SRGBColorSpace,
   Vector3,
   type Material,
@@ -162,13 +164,15 @@ function Product({
   url,
   values,
   report,
+  registerHit,
 }: {
+  registerHit?: (hit: ((x: number, y: number) => boolean) | null) => void;
   url: string;
   values: Props;
   report: (message: string) => void;
 }) {
   const gltf = useLoader(GLTFLoader, url);
-  const { size, invalidate } = useThree();
+  const { size, invalidate, camera, gl } = useThree();
   const aspect = Math.max(0.1, size.width / Math.max(1, size.height));
   const product = useMemo(() => {
     // The loader cache owns textures and geometry. Each instance owns its cloned
@@ -219,6 +223,32 @@ function Product({
       meshCount,
     };
   }, [gltf]);
+
+  useEffect(() => {
+    const ray = new Raycaster();
+    const pointer = new Vector2();
+    registerHit?.((x, y) => {
+      const rect = gl.domElement.getBoundingClientRect();
+      if (!rect.width || !rect.height || x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) return false;
+      let matrix = new DOMMatrix();
+      for (let el: HTMLElement | null = gl.domElement; el; el = el.parentElement) {
+        const transform = getComputedStyle(el).transform;
+        if (transform !== "none") matrix = new DOMMatrix(transform).multiply(matrix);
+      }
+      const inverse = new DOMMatrix([matrix.a, matrix.b, matrix.c, matrix.d, 0, 0]).inverse();
+      const local = new DOMPoint(x - rect.left - rect.width / 2, y - rect.top - rect.height / 2).matrixTransform(inverse);
+      pointer.set(local.x / gl.domElement.clientWidth * 2, -local.y / gl.domElement.clientHeight * 2);
+      camera.updateMatrixWorld();
+      product.object.updateWorldMatrix(true, true);
+      ray.setFromCamera(pointer, camera);
+      return ray.intersectObject(product.object, true).some(hit => {
+        let node = hit.object;
+        while (node) { if (!node.visible) return false; node = node.parent!; }
+        return true;
+      });
+    });
+    return () => registerHit?.(null);
+  }, [product, camera, gl, registerHit]);
 
   useEffect(
     () => () => {
@@ -294,13 +324,18 @@ export function SceneView({
   interactive = false,
   onChange,
   onStatus,
+  onHitTest,
+  onOrbitHandler,
+  orbitSensitivity = 0.8,
 }: SceneViewProps) {
+  const registerHit = useCallback((hit: ((x: number, y: number) => boolean) | null) => onHitTest?.(entity.id, hit), [entity.id, onHitTest]);
   const url = str(values, "modelUrl", DEFAULT_MODEL) || DEFAULT_MODEL;
   const enabled = values.visible !== false && values.active !== false;
   const [status, setStatus] = useState("Loading 3D model…");
   const [contextError, setContextError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [dragValues, setDragValues] = useState<Props | null>(null);
+  const viewportRef = useRef<HTMLDivElement>(null);
   const drag = useRef<{
     pointerId: number;
     x: number;
@@ -335,6 +370,18 @@ export function SceneView({
     else if (!available) report("WebGL is unavailable in this browser.");
   }, [url, enabled, available, attempt, report]);
 
+  useEffect(() => {
+    onOrbitHandler?.(entity.id, canDrag ? event => {
+      const el = viewportRef.current;
+      if (!el || event.button !== 0 || drag.current) return;
+      el.focus();
+      el.setPointerCapture(event.pointerId);
+      drag.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY,
+        rotateX: finite(values, "rotateX", 0), rotateY: finite(values, "rotateY", 0), patch: {} };
+    } : null);
+    return () => onOrbitHandler?.(entity.id, null);
+  }, [entity.id, canDrag, values, onOrbitHandler]);
+
   const retry = useCallback(() => {
     useLoader.clear(GLTFLoader, url);
     setAttempt((value) => value + 1);
@@ -355,29 +402,17 @@ export function SceneView({
 
   return (
     <div
+      ref={viewportRef}
       className={`scene-view${canDrag ? " scene-interactive" : ""}`}
       aria-label={`${entity.name} 3D preview`}
       tabIndex={canDrag ? 0 : undefined}
-      onPointerDown={(event) => {
-        if (!canDrag || event.button !== 0 || drag.current) return;
-        event.stopPropagation();
-        event.currentTarget.setPointerCapture(event.pointerId);
-        drag.current = {
-          pointerId: event.pointerId,
-          x: event.clientX,
-          y: event.clientY,
-          rotateX: finite(values, "rotateX", 0),
-          rotateY: finite(values, "rotateY", 0),
-          patch: {},
-        };
-      }}
       onPointerMove={(event) => {
         const start = drag.current;
         if (!start || start.pointerId !== event.pointerId) return;
         event.stopPropagation();
         start.patch = {
-          rotateX: start.rotateX + (event.clientY - start.y) * 0.4,
-          rotateY: start.rotateY + (event.clientX - start.x) * 0.4,
+          rotateX: start.rotateX + (event.clientY - start.y) * orbitSensitivity,
+          rotateY: start.rotateY + (event.clientX - start.x) * orbitSensitivity,
         };
         setDragValues(start.patch);
       }}
@@ -396,7 +431,8 @@ export function SceneView({
         setDragValues(null);
       }}
       onKeyDown={(event) => {
-        if (event.key === "Escape") {
+        if (event.key === "Escape" && drag.current) {
+          event.stopPropagation();
           drag.current = null;
           setDragValues(null);
           return;
@@ -424,6 +460,7 @@ export function SceneView({
       <SceneBoundary key={`${url}:${attempt}`} onError={report} onRetry={retry}>
         <Canvas
           frameloop="demand"
+          resize={{ offsetSize: true }}
           dpr={[1, 1.75]}
           camera={{ position: [0, 0, 5], fov: 35, near: 0.01, far: 1000 }}
           gl={{
@@ -456,7 +493,7 @@ export function SceneView({
             intensity={bounded(effectiveValues, "key", 3, 0, 40)}
           />
           <Suspense fallback={<Loading report={report} />}>
-            <Product url={url} values={effectiveValues} report={report} />
+            <Product url={url} values={effectiveValues} report={report} registerHit={registerHit} />
           </Suspense>
         </Canvas>
         {status.startsWith("Loading") && (

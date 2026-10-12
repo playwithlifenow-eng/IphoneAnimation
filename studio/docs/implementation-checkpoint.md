@@ -1,47 +1,40 @@
-# Implementation checkpoint — 28 September 2026
+# Implementation checkpoint — 12 October 2026
 
-**State:** runnable integrated alpha; broad V1 implementation is underway. This is a checkpoint against the master plan, not a competing execution plan or a claim that V1 acceptance is complete.
+**State:** integrated alpha 0.2.0. The broad V1 remains BUILD_NOW under `docs/master-plan.md`; the full V1 acceptance gate and later evolutionary systems remain in that plan.
 
-## Authority and isolation
+## Scope and isolation
 
-- `docs/master-plan.md` is the consolidated authoritative specification. The broad integrated V1 is BUILD_NOW; superseded instrument-first release gates were removed.
-- Branch: `studio/broad-v1` in `playwithlifenow-eng/IphoneAnimation`.
-- Local commits are preserved. GitHub push was blocked by automatic approval review pending explicit authorisation to share this code, plan and assets with the repository. No remote branch publication is claimed.
-- Source baseline: `ef3850a8d74619c99ac79eb833eeb31e86ef8dad`.
-- All implementation changes are inside `studio/`. No existing Hero source, dependency, host or deployment configuration was changed.
-- The copied GLB matches the repository asset byte-for-byte: SHA-256 `ed566096636bfc871e85c2df95dee48ee1a684f44db5356be06c0702ff78b635`.
+Changes are confined to `studio/`. The existing Hero application, original GLB and production configuration are unchanged. Publication targets `studio/broad-v1` only. The implementation builds on the reviewed remote tree at `2288f03c6db7d808969034775d48455d23a6cd03`.
 
-## Delivered machinery
+## Implemented
 
-A single semantic document and command system connect Compose, Copy, Components, Scene & look, the choreography timeline, responsive profiles, and Takes/Evaluate. These are functioning surfaces rather than independent mockups. The renderer and evaluator are shared with standalone output.
-
-The common editing path includes transient pointer previews, one-record gesture commit, cancellation, undo/redo, scoped property ownership, stale revision checks, local SQLite persistence and conflict-aware recovery. Grouping preserves static element positions across every profile. Duplication retains descendant relationships and motion bindings. Named pose recall is one command transaction. Take branching records the restored ancestor, and importing a project can be undone with its previous Takes intact.
-
-Path editing now supports page-level position handles, keyboard nudges and one-transaction drag/undo. Responsive track edits retain inherited keys. Authored frame relationships provide alignment/clearance readings and centre-to-centre connectors through the shared renderer.
-
-The minimum feedback path retains original text, an exact document snapshot, selected profile, controlled time and signal inputs, selected IDs, a bounded command buffer, measured DOM boxes in page coordinates, relationship readings and environment. It does not fabricate stills, video, scene geometry or perceptual scores. Capability envelopes state current limits.
-
-Portable project export deduplicates media across elements, Takes and episodes; re-import validates hashes and restores local assets. Runtime export packages media references, uses the shared renderer, excludes editor/store code, and emits four manifests with artifact hashes. A source identity check rejects stale runtime builds. Actual Framer compatibility remains unverified.
+- Mesh-aware selection with transparent viewport pass-through, Alt-click overlap cycling, background/Escape deselection and distinct move/pan/rotate tools. Rotation sensitivity is adjustable. WebGL viewport measurement ignores workspace transforms, preventing double application of canvas zoom.
+- First-class sections in normal page flow, insertion seams, reordering, local freeform/stack layout, fixed/viewport/authored-content heights, and separate pinned scroll travel. First insertion wraps a legacy page in one undoable conversion. Stack-to-free conversion retains the visible arrangement. Elements can move between sections while retaining local values and existing clocks.
+- Page/section clocks driven by time or scroll. Scroll choreography displays percentages and uses the same evaluator for DOM and 3D. Editor scroll preview and exported sticky sections share range calculations. Percentage timing survives changes to the global time duration.
+- Canvas, inspector and rotation share one edit policy: key the owning clock's current moment or offset all keys. Mobile edits fork inherited curves. Signal edits offset the numeric mapping. Gestures preview, commit once, cancel and undo. Static properties stay static until keyed or assigned an action.
+- Reveal, Move, Rotate and Scale actions with amount, timing and stagger. Generated tracks remain runtime authority. Manual key edits mark the descriptor customized, preventing parameter regeneration from silently replacing detailed edits.
+- Paths continue working for page elements and direct children of freeform sections, including scroll-clock sampling. Existing Takes, named poses, responsive overrides, relationships, feedback and portable export remain integrated.
+- Independent browser recovery slots per writer, identifiable downloadable copies, server-version conflict protection and truthful status when both browser and server persistence fail.
+- Collapsible choreography and the compact canvas toolbar remain available. Two-finger scroll pans; pinch zooms. Follow scroll keeps the relevant page region in view.
+- Version 1 documents migrate to version 2 on validation. Takes and episodes migrate with the workspace. Implementation/instrument manifests use version 0.2.0, with source and artifact hashes.
 
 ## Verification
 
-- TypeScript and Vite production build pass.
-- **18 invariant/transaction/geometry tests pass**, covering revisions, immutable states, owner precedence/conflicts, interpolation, grouping, duplication, deletion, gesture cancellation/history, Take restoration/lineage, whole-project import undo, overlapping saves, stale recovery, coordinated paths, inherited-track preservation, and missing geometry evidence.
-- **20 browser checks pass**, including deduplicated portable project re-import with Takes, path gestures, relationships and an independent exported runtime. These were exercised in headless Chromium with software WebGL. See `verification/browser-report.json` for the exact assertions and browser version; screenshots are in the same directory.
-- Tested editor viewport: 1512 × 982. Both desktop and mobile composition profiles were edited. This does not certify a touch-only editor or target-device GPU performance.
-- The default agent-browser daemon could not bind its socket in this execution environment. Direct Playwright used an installed headless Chromium binary and exercised the same app. No production systems were used as a workaround.
-- Vite reports a large shared renderer chunk (~996 kB uncompressed, ~279 kB gzip), primarily Three/R3F. No performance budget pass is claimed; splitting and target-device measurement remain work.
+**27 automated tests and 26 browser checks pass**, along with TypeScript and the production build. `npm test`, `npm run build` and `npm run test:browser` exercise the integrated code. The checked-in `verification/browser-report.json` is the exact browser assertion record; `verification/tested-build.json` identifies the tested source. Screenshots in the same directory show the tested editor and independent exports.
 
-## Next executable work within BUILD_NOW
+The invariant suite covers migration, section preservation/reordering, scoped DOM/3D clocks, percentage preservation, independent duplicated section clocks, mobile curve forks, stack conversion, action ownership, nested section paths, gesture history, Takes, recovery separation and double-save failure. The browser fixture covers real GLB pixel/mesh selection, direct tracked dragging, offsets, sensitivity, background deselection, section conversion/undo, scroll actions, scoped key editing, mobile forks, two real conflicting tabs, save/reopen, media-inclusive imports and standalone runtime playback/pinning at desktop and mobile sizes.
 
-1. Extend paths into coordinated pose/cue editing, nested coordinate spaces and 3D camera paths. Keep explicit units and reversible edits. Extend measured cases to a DOM-only layout and a non-Hero composition.
-2. Extend connector routing/style and scene-space probes while preserving the distinction between observed bounds and unsupported occlusion claims.
-3. Adapt reusable Hero motion/component machinery behind a versioned local contract. Preserve accepted source settings; test local fixtures before requesting host access. A reference card is not that adapter.
-4. Expand the component registry, Discovery Deck locks and comparison modes, and retain explicit decision history and protected four-manifest Take references.
-5. Complete responsive/quality/reduced-motion alternatives and the supported production/Framer fixture. Request host access only for that host-specific test.
+Browser tests use an isolated SQLite directory, Playwright and Chromium with software WebGL. They do not exercise Matt's working document or production hosts. Target-device GPU performance and trackpad feel still require his use. The deferred Three/R3F chunk is approximately 837 kB uncompressed; no GPU or performance-budget pass is claimed.
 
-These are parallel candidates after shared interfaces are settled, not a new one-instrument release ladder. The existing broad V1 acceptance checklist remains operative. Agent/evolutionary work stays in its specified later phases.
+## Explicit limits and next work
 
-## Reproduction
+1. Each GLB viewport still has its own WebGL context. Shared-context rendering, continuous cross-section 3D scenes and per-mesh actions such as Separate glass require further implementation; shared context alone would not create a shared scene.
+2. Paths support page/freeform-section X/Y tracks. Nested transformed groups, spline tangents, 3D camera paths and richer pose/cue coordination remain open. Action duplicates preserve generated motion tracks but do not recreate action parameter cards.
+3. Content-fit sections use authored child bounds, not arbitrary intrinsic HTML measurement. Existing tracks keep their clocks during reparenting; automatic clock rebinding is deliberately absent.
+4. Reduced-motion preference stops time playback; explicit scroll still drives scroll clocks. Authored alternatives and target-device quality profiles remain to be completed.
+5. Live legacy Hero/component adapters, richer component contracts, scene probes, comparison/discovery locks, decision history and protected four-manifest Takes remain part of the broad V1 work. The Hero reference card is not a verified adapter.
+6. Framer host compatibility remains unverified and is required only for its delivery fixture. No production access is needed for ordinary editor work. Agent, island, recombination and evolutionary mechanisms retain their later phases.
 
-From `studio/`: `npm ci`, `npm test`, `npm run build`, `npm run dev`. For the automated UI fixture, install Chromium with `npx playwright install chromium` and run `npm run test:browser`. Use `STUDIO_BROWSER_EXECUTABLE` only when supplying an already installed compatible Chromium. The browser fixture uses a separate SQLite directory and does not overwrite the working composition.
+## Reproduce
+
+From `studio/`, use Node 22.13+ and run `npm ci`, `npm test`, `npm run build`, then `npm run dev`. The browser fixture uses `npm run test:browser` after installing Chromium with `npx playwright install chromium`; `STUDIO_BROWSER_EXECUTABLE` can identify an already installed compatible binary.

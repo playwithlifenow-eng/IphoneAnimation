@@ -1077,3 +1077,17 @@ button svg {
   width: auto;
   padding-inline: 4px;
 }
+
+.canvas-board { align-items: flex-start; padding-top: 40px; touch-action: none; overscroll-behavior: contain; }
+.canvas-toolbar { overflow-x: auto; gap: 10px; }
+.canvas-toolbar > * { flex-shrink: 0; }
+.orbit-speed, .scroll-follow { display: flex; align-items: center; gap: 5px; white-space: nowrap; font-size: 10px; }
+.orbit-speed input { width: 65px; accent-color: #6a7c51; }
+.page-section { border-bottom: 1px dashed #97a68c; }
+.section-tools { position: absolute; top: 5px; left: 8px; z-index: 5; }
+.section-tools button, .section-insert { border: 1px solid #c8d4bd; border-radius: 5px; background: #f6f8ef; color: #465a35; font-size: 12px; padding: 7px 10px; cursor: pointer; }
+.section-tools button { opacity: .8; }
+.section-tools button:hover { opacity: 1; }
+.section-insert { position: absolute; bottom: 6px; left: 50%; transform: translateX(-50%); z-index: 5; }
+.recovery-list { padding: 12px 0; }
+.recovery-list summary { cursor: pointer; }

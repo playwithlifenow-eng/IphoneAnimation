@@ -1,5 +1,9 @@
 import {
   useEffect,
+  useCallback,
+  useMemo,
+  lazy,
+  Suspense,
   useLayoutEffect,
   useRef,
   useState,
@@ -15,7 +19,9 @@ import {
   type StudioDocument,
 } from "./model";
 import { measurePage, type BoundsProbe } from "./probes";
-import { SceneView } from "./SceneView";
+import { pageLayout, sectionSignals } from "./composition";
+import { clocksOf } from "./model";
+const SceneView = lazy(() => import("./SceneView"));
 import "./runtime.css";
 interface PageProps {
   document: StudioDocument;
@@ -26,6 +32,12 @@ interface PageProps {
   signals?: Record<string, number>;
   onSignalsChange?: (signals: Record<string, number>) => void;
   sceneInteractive?: boolean;
+  navigationTool?: boolean;
+  orbitSensitivity?: number;
+  viewportHeight?: number;
+  onBackground?: () => void;
+  onInsertSection?: (afterId: string) => void;
+  onSelectSection?: (id: string) => void;
   onPointerDown?: (
     event: PointerEvent<HTMLElement>,
     entity: Entity,
@@ -43,6 +55,12 @@ export function PageRenderer({
   signals: controlledSignals,
   onSignalsChange,
   sceneInteractive = false,
+  navigationTool = false,
+  orbitSensitivity,
+  viewportHeight,
+  onBackground,
+  onInsertSection,
+  onSelectSection,
   onPointerDown,
   onText,
   onSceneChange,
@@ -53,9 +71,34 @@ export function PageRenderer({
     pointerY: 0.5,
     scroll: 0,
   });
-  const signals = controlledSignals ?? localSignals;
+  const layout = pageLayout(d, profile.id, viewportHeight);
+  const signals = useMemo(() => sectionSignals(d, profile.id, controlledSignals ?? localSignals, viewportHeight), [d, profile.id, controlledSignals, localSignals, viewportHeight]);
+  const orbitHandlers = useRef(new Map<string, (event: globalThis.PointerEvent) => void>());
+  const registerOrbit = useCallback((id: string, handler: ((event: globalThis.PointerEvent) => void) | null) => { if (handler) orbitHandlers.current.set(id, handler); else orbitHandlers.current.delete(id); }, []);
+  const hitTests = useRef(new Map<string, (x: number, y: number) => boolean>());
+  const registerHit = useCallback((id: string, hit: ((x: number, y: number) => boolean) | null) => {
+    if (hit) hitTests.current.set(id, hit); else hitTests.current.delete(id);
+  }, []);
+  const pick = (x: number, y: number, behind = false) => {
+    const candidates: Entity[] = [];
+    const seen = new Set<string>();
+    for (const node of document.elementsFromPoint(x, y)) {
+      const el = node.closest<HTMLElement>("[data-entity]");
+      if (!el || !pageRef.current?.contains(el) || seen.has(el.dataset.entity!)) continue;
+      seen.add(el.dataset.entity!);
+      const e = d.entities.find(e => e.id === el.dataset.entity);
+      if (!e || e.kind === "section") continue;
+      if (e.kind === "scene" && !hitTests.current.get(e.id)?.(x, y)) continue;
+      candidates.push(e);
+    }
+    if (behind && candidates.length > 1) {
+      const index = candidates.findIndex(e => selection.includes(e.id));
+      return candidates[(index + 1) % candidates.length];
+    }
+    return candidates[0];
+  };
   useEffect(() => {
-    if (controlledSignals || !d.bindings.some((b) => b.source === "scroll"))
+    if (controlledSignals || (!d.bindings.some((b) => b.source === "scroll") && !clocksOf(d).some(c => c.source === "scroll")))
       return;
     const update = () =>
       setSignals((s) => ({
@@ -66,14 +109,15 @@ export function PageRenderer({
       }));
     update();
     addEventListener("scroll", update, { passive: true });
-    return () => removeEventListener("scroll", update);
-  }, [d.bindings, controlledSignals]);
+    addEventListener("resize", update);
+    return () => { removeEventListener("scroll", update); removeEventListener("resize", update); };
+  }, [d.bindings, d.clocks, controlledSignals]);
   const pageRef = useRef<HTMLDivElement>(null);
   const [boxes, setBoxes] = useState<BoundsProbe[]>([]);
   const hasConnectors = d.relationships.some((r) => r.connector);
   useLayoutEffect(() => {
     if (hasConnectors) setBoxes(measurePage(pageRef.current));
-  }, [d, profileId, time, signals, hasConnectors]);
+  }, [d, profileId, time, JSON.stringify(signals), hasConnectors]);
   const render = (e: Entity) => {
     const p = evaluateEntity(d, e, profile.id, time, signals);
     if (p.visible === false) return null;
@@ -89,7 +133,7 @@ export function PageRenderer({
       top: flow ? undefined : num(p, "y"),
       width: num(p, "width", 200),
       height: num(p, "height", 100),
-      transform: `rotate(${num(p, "rotation")}deg)`,
+      transform: `translate(${num(p, "translateX")}px, ${num(p, "translateY")}px) rotate(${num(p, "rotation")}deg) scale(${num(p, "visualScale", 1)})`,
       opacity: num(p, "opacity", 1),
       color: str(p, "color", "#22382c"),
       background: str(p, "background", "transparent"),
@@ -104,7 +148,7 @@ export function PageRenderer({
       textAlign: str(p, "textAlign", "left") as CSSProperties["textAlign"],
       flexShrink: 0,
     };
-    if (e.kind === "frame") {
+    if (e.kind === "frame" || e.kind === "section") {
       style.display = "flex";
       style.flexDirection = str(p, "layout") === "row" ? "row" : "column";
       style.gap = num(p, "gap", 16);
@@ -192,12 +236,15 @@ export function PageRenderer({
       );
     if (e.kind === "scene")
       content = (
-        <SceneView
+        <Suspense fallback={<div className="media-empty">Loading 3D renderer…</div>}><SceneView
           entity={e}
+          orbitSensitivity={orbitSensitivity}
+          onHitTest={registerHit}
+          onOrbitHandler={registerOrbit}
           values={p}
           interactive={editor && sceneInteractive && selected}
           onChange={(patch) => onSceneChange?.(e, patch)}
-        />
+        /></Suspense>
       );
     if (e.kind === "component")
       content = (
@@ -216,13 +263,13 @@ export function PageRenderer({
           )}
         </div>
       );
-    return (
+    const node = (
       <div
         key={e.id}
         className={`render-entity ${editor ? "editable" : ""} ${selected ? "selected" : ""} kind-${e.kind}`}
         data-entity={e.id}
         data-kind={e.kind}
-        style={style}
+        style={e.kind === "section" ? { ...style, position: "relative", left: undefined, top: undefined, width: "100%", height: layout.sections.find(b => b.id === e.id)?.height, transform: undefined } : style}
         onDoubleClick={(ev) => {
           if (editor && e.kind === "text") {
             ev.stopPropagation();
@@ -231,13 +278,11 @@ export function PageRenderer({
               ?.focus();
           }
         }}
-        onPointerDown={(ev) => {
-          if (editor) onPointerDown?.(ev, e);
-        }}
+
       >
         {content}
         {d.entities.filter((child) => child.parentId === e.id).map(render)}
-        {editor && selected && (
+        {editor && selected && e.kind !== "section" && (
           <>
             <span className="selection-label">{e.name}</span>
             <button
@@ -249,13 +294,43 @@ export function PageRenderer({
         )}
       </div>
     );
+    if (e.kind !== "section") return node;
+    const box = layout.sections.find(b => b.id === e.id);
+    if (!box) return null;
+    const scrollY = (signals.scroll ?? 0) * Math.max(0, layout.height - layout.viewport);
+    return <section key={e.id} className="page-section" data-section={e.id} style={{ height: box.extent, position: "relative" }}>
+      {editor && <div className="section-tools" data-section-controls>
+        <button onClick={() => onSelectSection?.(e.id)}>{e.name}{box.pinned ? " · pinned" : ""}</button>
+      </div>}
+      <div className="section-viewport" style={{ position: box.pinned && !editor ? "sticky" : "relative", top: box.pinned && !editor ? 0 : undefined, height: box.height,
+        transform: box.pinned && editor ? `translateY(${Math.max(0, Math.min(box.travel, scrollY - box.top))}px)` : undefined }}>
+        {node}
+      </div>
+      {editor && <button className="section-insert" data-section-controls onClick={() => onInsertSection?.(e.id)}>+ Insert section below</button>}
+    </section>;
   };
   return (
     <div
       ref={pageRef}
       className="composition-page"
       data-profile={profile.id}
-      style={{ width: profile.width, height: profile.height }}
+      style={{ width: profile.width, height: layout.height, overflow: editor ? "hidden" : "clip" }}
+      onPointerDownCapture={(ev) => {
+        if (!editor || navigationTool || (ev.target as HTMLElement).closest("[data-section-controls],.resize-handle,.scene-status-error button")) return;
+        const target = pick(ev.clientX, ev.clientY, ev.altKey);
+        if (target?.kind === "scene" && sceneInteractive && selection.includes(target.id)) { ev.stopPropagation(); orbitHandlers.current.get(target.id)?.(ev.nativeEvent); return; }
+        if ((ev.target as HTMLElement).isContentEditable && document.activeElement === ev.target && target?.id === selection[0]) return;
+        ev.stopPropagation();
+        if (target) onPointerDown?.(ev, target); else onBackground?.();
+      }}
+      onDoubleClickCapture={(ev) => {
+        if (!editor || navigationTool) return;
+        const target = pick(ev.clientX, ev.clientY);
+        if (target?.kind === "text") {
+          const el = pageRef.current?.querySelector<HTMLElement>(`[data-entity="${target.id}"] .render-text`);
+          el?.focus();
+        }
+      }}
       onPointerMove={(ev) => {
         if (!d.bindings.length) return;
         const r = ev.currentTarget.getBoundingClientRect();
@@ -272,7 +347,7 @@ export function PageRenderer({
         <svg
           className="relationship-connectors"
           width={profile.width}
-          height={profile.height}
+          height={layout.height}
           aria-label="Composition connectors"
         >
           {d.relationships

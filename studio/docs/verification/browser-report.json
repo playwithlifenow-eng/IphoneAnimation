@@ -1,5 +1,5 @@
 {
-  "verifiedAt": "2026-09-28T12:05:50.862Z",
+  "verifiedAt": "2026-10-12T12:41:13.214Z",
   "checks": [
     "Editor and original GLB load",
     "Shared copy editing and undo/redo",
@@ -15,15 +15,21 @@
     "Signal ownership and controlled preview inputs",
     "Feedback retains exact state and honest capture provenance",
     "Asset import and insertion",
+    "Tracked canvas dragging, whole-curve offsets, undo and Escape deselection",
+    "Real GLB mesh picking, transparent-space pass-through, background deselection and adjustable orbit",
+    "Timeline key editing respects clock scope and forks mobile tracks without changing base",
+    "Collapsible choreography, undoable legacy section conversion and scroll-driven Reveal action",
+    "Two real editor tabs preserve losing edits without overwriting the saved winner",
     "SQLite save and reopen",
     "Portable project includes GLB and imported assets",
     "Deduplicated portable project imports and reopens with Takes",
     "Four manifests and exported artifact hashes",
     "Exported static runtime reopens independently without editor code",
+    "Exported section scroll matches editor progress, pins correctly and adapts to mobile viewport",
     "No browser console errors or uncaught exceptions"
   ],
   "errors": [],
-  "browser": "140.0.7339.186",
+  "browser": "153.0.8010.0",
   "viewport": {
     "width": 1512,
     "height": 982

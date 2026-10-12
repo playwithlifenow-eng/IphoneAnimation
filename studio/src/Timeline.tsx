@@ -1,3 +1,4 @@
+import { editProperties } from "./editing";
 import { useEffect, useState } from "react";
 import {
   Camera,
@@ -13,6 +14,8 @@ import {
 import type { TimelineProps } from "./contracts";
 import {
   evaluateEntity,
+  clockTime,
+  clocksOf,
   num,
   ownerOf,
   uid,
@@ -25,6 +28,9 @@ import { NumberField } from "./Inspector";
 import "./controls.css";
 
 const LABELS: Record<string, string> = {
+  translateX: "Offset X",
+  translateY: "Offset Y",
+  visualScale: "Visual scale",
   x: "Position X",
   y: "Position Y",
   width: "Width",
@@ -76,7 +82,15 @@ export function Timeline({
   onCommand,
   onBatch,
   onSelect,
+  clockId = "page",
+  onClockSelect,
+  editMode = "key",
+  onEditMode,
 }: TimelineProps) {
+  const clock = clocksOf(doc).find(c => c.id === clockId) ?? clocksOf(doc)[0];
+  const position = clockTime(doc, clock.id, playhead, signals);
+  const scroll = clock.source === "scroll";
+  const format = (time: number) => scroll ? `${Math.round(time / doc.duration * 100)}%` : `${time.toFixed(2)}s`;
   const [collapsed, setCollapsed] = useState(() => {
     try {
       return localStorage.getItem("iglass.studio.timeline-collapsed") === "true";
@@ -140,10 +154,11 @@ export function Timeline({
             ? ["fontSize", "letterSpacing"]
             : []),
         ];
+  properties.push("translateX", "translateY", "visualScale");
   const visibleTracks = doc.tracks.filter(
-    (track) => track.profileId === "base" || track.profileId === profileId,
+    (track) => (track.profileId === profileId || (track.profileId === "base" && !doc.tracks.some(t => t.entityId === track.entityId && t.property === track.property && t.profileId === profileId))) && (track.clockId ?? "page") === clock.id,
   );
-  const selectedTrack = doc.tracks.find(
+  const selectedTrack = visibleTracks.find(
     (track) => track.id === keySelection?.trackId,
   );
   const selectedKey = selectedTrack?.keys.find(
@@ -158,7 +173,8 @@ export function Timeline({
     (_, index) => (doc.duration * index) / 8,
   );
   const canAddKey =
-    entity &&
+    entity && entity.kind !== "section" &&
+    !doc.tracks.some(t => t.entityId === entity.id && t.property === property && (t.profileId === "base" || t.profileId === profileId) && (t.clockId ?? "page") !== clock.id) &&
     !doc.bindings.some(
       (binding) =>
         binding.entityId === entity.id &&
@@ -170,7 +186,7 @@ export function Timeline({
     const values = evaluateEntity(doc, entity, profileId, playhead, signals);
     const time = Math.min(
       Math.floor(doc.duration * 100) / 100,
-      Math.round(playhead * 100) / 100,
+      Math.round(position * 100) / 100,
     );
     const track = upsertKey(
       doc,
@@ -179,11 +195,14 @@ export function Timeline({
       scope,
       time,
       num(values, property),
+      clock.id,
     );
     onCommand({ type: "track", track }, `Key ${LABELS[property] ?? property}`);
     const key = track.keys.find((item) => item.time === time);
     if (key) setKeySelection({ trackId: track.id, keyId: key.id });
   };
+  const forkForProfile = (track: Track): Track => profileId !== "desktop" && track.profileId === "base"
+    ? { ...track, id: uid("track"), profileId: scope } : track;
   const changeKey = (values: { time?: number; value?: number }) => {
     if (!selectedTrack || !selectedKey) return;
     if (
@@ -193,25 +212,18 @@ export function Timeline({
       )
     )
       return;
-    onCommand(
-      {
-        type: "track",
-        track: {
-          ...selectedTrack,
-          keys: selectedTrack.keys.map((key) =>
-            key.id === selectedKey.id ? { ...key, ...values } : key,
-          ),
-        },
-      },
-      "Edit keyframe",
-    );
+    const track = forkForProfile(selectedTrack);
+    onCommand({ type: "track", track: { ...track, keys: track.keys.map(key => key.id === selectedKey.id ? { ...key, ...values } : key) } }, "Edit keyframe");
+    setKeySelection({ trackId: track.id, keyId: selectedKey.id });
   };
   const deleteKey = () => {
     if (!selectedTrack || !selectedKey) return;
-    const keys = selectedTrack.keys.filter((key) => key.id !== selectedKey.id);
+    const track = forkForProfile(selectedTrack);
+    const keys = track.keys.filter((key) => key.id !== selectedKey.id);
+    if (!keys.length && track.id !== selectedTrack.id) return;
     onCommand(
       keys.length
-        ? { type: "track", track: { ...selectedTrack, keys } }
+        ? { type: "track", track: { ...track, keys } }
         : { type: "remove-track", id: selectedTrack.id },
       "Delete keyframe",
     );
@@ -233,10 +245,10 @@ export function Timeline({
         type: "pose",
         pose: {
           id: uid("pose"),
-          name: poseName.trim() || `${entity.name} · ${playhead.toFixed(2)}s`,
+          name: poseName.trim() || `${entity.name} · ${format(position)}`,
           entityId: entity.id,
           profileId: scope,
-          time: playhead,
+          time: position,
           values: transforms,
         },
       },
@@ -251,40 +263,7 @@ export function Timeline({
   );
   const recallPose = (values: Props) => {
     if (!entity) return;
-    const staticValues: Props = {};
-    const commands: Command[] = [];
-    for (const [key, value] of Object.entries(values)) {
-      if (ownerOf(doc, entity, key, profileId) === "signal") continue;
-      const animated = doc.tracks.some(
-        (track) =>
-          track.entityId === entity.id &&
-          track.property === key &&
-          (track.profileId === "base" || track.profileId === profileId),
-      );
-      if (animated && typeof value === "number")
-        commands.push({
-          type: "track",
-          track: upsertKey(
-            doc,
-            entity.id,
-            key,
-            scope,
-            Math.min(
-              Math.floor(doc.duration * 100) / 100,
-              Math.round(playhead * 100) / 100,
-            ),
-            value,
-          ),
-        });
-      else staticValues[key] = value;
-    }
-    if (Object.keys(staticValues).length)
-      commands.push({
-        type: "patch",
-        id: entity.id,
-        scope,
-        values: staticValues,
-      });
+    const commands = editProperties(doc, entity, values, profileId, playhead, signals ?? {}, editMode ?? "key", clock.id);
     if (commands.length) onBatch(commands, "Recall pose");
   };
   const interpolation = (track: Track, value: Track["interpolation"]) =>
@@ -320,11 +299,20 @@ export function Timeline({
             {playing ? <Pause size={13} /> : <Play size={13} />}
           </button>
           <output className="tl-time">
-            {playhead.toFixed(2)}
-            <span> / {doc.duration.toFixed(2)}s</span>
+            {format(position)}
+            <span> / {scroll ? "100%" : `${doc.duration.toFixed(2)}s`}</span>
           </output>
         </div>
-        <div className="tl-duration">
+        <select aria-label="Choreography scope" className="tl-scope" value={clock.id} onChange={e => onClockSelect?.(e.target.value)}>
+          {clocksOf(doc).map(c => <option key={c.id} value={c.id}>{c.sectionId ? doc.entities.find(e => e.id === c.sectionId)?.name : c.name}</option>)}
+        </select>
+        <select aria-label="Choreography driver" value={clock.source} onChange={e => onCommand({ type: "clock", clock: { ...clock, source: e.target.value as "time" | "scroll" } }, "Change clock driver")}>
+          <option value="time">Time</option><option value="scroll">Scroll</option>
+        </select>
+        <select aria-label="Animated edit mode" value={editMode} onChange={e => onEditMode?.(e.target.value as "key" | "offset")} title="Tracked properties: record a key at this moment, or shift the entire animation. Static properties remain static until you add a key or action.">
+          <option value="key">Key this moment</option><option value="offset">Offset animation</option>
+        </select>
+        {!scroll && <div className="tl-duration">
           <NumberField
             label="Duration"
             value={doc.duration}
@@ -336,7 +324,7 @@ export function Timeline({
               onCommand({ type: "duration", duration }, "Change duration")
             }
           />
-        </div>
+        </div>}
         <button
           type="button"
           className="tl-collapse"
@@ -360,7 +348,7 @@ export function Timeline({
           <div className="tl-ticks">
             {ticks.map((time, index) => (
               <span key={index} style={{ left: `${index * 12.5}%` }}>
-                {Number(time.toFixed(1))}s
+                {format(time)}
               </span>
             ))}
           </div>
@@ -371,7 +359,7 @@ export function Timeline({
             min={0}
             max={doc.duration}
             step={0.01}
-            value={playhead}
+            value={position}
             onChange={(event) => onSeek(Number(event.target.value))}
           />
         </div>
@@ -397,7 +385,7 @@ export function Timeline({
                   type="button"
                   className="tl-track-name"
                   title={`Select ${target?.name ?? "element"}`}
-                  onClick={() => onSelect(track.entityId)}
+                  onClick={() => { onSelect(track.entityId); onClockSelect?.(track.clockId ?? "page"); }}
                 >
                   <Diamond size={10} />
                   <span>
@@ -427,7 +415,7 @@ export function Timeline({
                   <div className="tl-lane-rule" />
                   <div
                     className="tl-playhead"
-                    style={{ left: `${(playhead / doc.duration) * 100}%` }}
+                    style={{ left: `${(position / doc.duration) * 100}%` }}
                   />
                   {track.keys.map((key) => (
                     <button
@@ -435,12 +423,13 @@ export function Timeline({
                       key={key.id}
                       className={`tl-key ${keySelection?.keyId === key.id ? "tl-key-selected" : ""}`}
                       style={{ left: `${(key.time / doc.duration) * 100}%` }}
-                      title={`${LABELS[track.property] ?? track.property}: ${key.value} at ${key.time.toFixed(2)}s`}
-                      aria-label={`${target?.name} ${track.property} key at ${key.time} seconds`}
+                      title={`${LABELS[track.property] ?? track.property}: ${key.value} at ${format(key.time)}`}
+                      aria-label={`${target?.name} ${track.property} key at ${scroll ? format(key.time) : `${key.time} seconds`}`}
                       onClick={(event) => {
                         event.stopPropagation();
                         onSeek(key.time);
                         onSelect(track.entityId);
+                        onClockSelect?.(track.clockId ?? "page");
                         setKeySelection({ trackId: track.id, keyId: key.id });
                       }}
                     >
@@ -488,7 +477,7 @@ export function Timeline({
             disabled={!canAddKey}
             title={
               entity && !canAddKey
-                ? "Release the signal binding before adding a key"
+                ? "This property has a signal or another clock. Select that owner in Behaviour."
                 : "Add or update a keyframe at the playhead"
             }
             onClick={addKey}
@@ -501,12 +490,12 @@ export function Timeline({
           <div className="tl-key-editor">
             <NumberField
               label="Key time"
-              value={selectedKey.time}
+              value={scroll ? selectedKey.time / doc.duration * 100 : selectedKey.time}
               min={0}
-              max={doc.duration}
-              step={0.01}
-              suffix="s"
-              onChange={(time) => changeKey({ time })}
+              max={scroll ? 100 : doc.duration}
+              step={scroll ? 1 : 0.01}
+              suffix={scroll ? "%" : "s"}
+              onChange={(time) => changeKey({ time: scroll ? time / 100 * doc.duration : time })}
             />
             <NumberField
               label="Key value"
@@ -517,7 +506,8 @@ export function Timeline({
             <button
               type="button"
               aria-label="Delete selected keyframe"
-              title="Delete selected keyframe"
+              disabled={profileId !== "desktop" && selectedTrack.profileId === "base" && selectedTrack.keys.length === 1}
+              title={profileId !== "desktop" && selectedTrack.profileId === "base" && selectedTrack.keys.length === 1 ? "Add a profile key before removing the only inherited key" : "Delete selected keyframe"}
               onClick={deleteKey}
             >
               <Trash2 size={13} />
@@ -526,7 +516,7 @@ export function Timeline({
         ) : (
           <span className="tl-hint">
             {entity
-              ? "Select a diamond to edit its time and value."
+              ? "Drag tracked objects to edit motion. Static objects stay static until keyed."
               : "Select an element to begin."}
           </span>
         )}
@@ -560,7 +550,7 @@ export function Timeline({
               type="button"
               key={pose.id}
               onClick={() => recallPose(pose.values)}
-              title={`Apply saved transforms at the current playhead. Signal-owned properties are preserved. Recorded at ${pose.time.toFixed(2)}s.`}
+              title={`Apply saved transforms at the current playhead. Signal mappings are offset when needed. Recorded at ${pose.time.toFixed(2)}s.`}
             >
               <Camera size={11} />
               {pose.name}

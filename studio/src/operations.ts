@@ -1,5 +1,6 @@
 import {
   clone,
+  clocksOf,
   evaluateEntity,
   num,
   ownerOf,
@@ -50,6 +51,8 @@ export function duplicateSelection(
     ),
   }));
   const commands: Command[] = [{ type: "insert", entities }];
+  const clockMap = new Map(clocksOf(d).filter(c => c.sectionId && ids.has(c.sectionId)).map(c => [c.id, uid("clock")]));
+  for (const c of clocksOf(d).filter(c => clockMap.has(c.id))) commands.push({ type: "clock", clock: { ...c, id: clockMap.get(c.id)!, sectionId: map.get(c.sectionId!)!, name: c.name + " copy" } });
   for (const t of d.tracks.filter((t) => ids.has(t.entityId)))
     commands.push({
       type: "track",
@@ -57,6 +60,7 @@ export function duplicateSelection(
         ...clone(t),
         id: uid("track"),
         entityId: map.get(t.entityId)!,
+        clockId: clockMap.get(t.clockId ?? "page") ?? t.clockId,
         keys: t.keys.map((k) => ({
           ...k,
           id: uid("key"),
@@ -123,11 +127,13 @@ export function groupSelection(
 ): { commands: Command[]; selection: string[] } {
   const children = d.entities.filter((e) => selection.includes(e.id));
   if (children.length < 2) throw new Error("Select at least two elements.");
-  if (children.some((e) => e.parentId))
-    throw new Error("Group elements at the page level first.");
+  if (children.some(e => e.kind === "section") || children.some(e => e.parentId !== children[0].parentId)) throw new Error("Group elements in the same section or frame.");
+  const parent = d.entities.find(e => e.id === children[0].parentId);
+  if (parent && d.profiles.some(p => evaluateEntity(d, parent, p.id, 0).layout !== "free")) throw new Error("Switch the parent to Free layout before grouping.");
   requireStatic(d, children);
   const frame = makeEntity("frame");
   frame.name = "Group";
+  frame.parentId = children[0].parentId;
   frame.overrides = {};
   const commands: Command[] = [];
   for (const scope of ["base", ...d.profiles.map((p) => p.id)]) {
@@ -176,8 +182,8 @@ export function ungroupSelection(
   id: string,
 ): { commands: Command[]; selection: string[] } {
   const frame = d.entities.find((e) => e.id === id);
-  if (!frame || frame.kind !== "frame" || frame.parentId)
-    throw new Error("Select a page-level group.");
+  if (!frame || frame.kind !== "frame")
+    throw new Error("Select a group.");
   requireStatic(d, [frame]);
   const children = d.entities.filter((e) => e.parentId === id);
   requireStatic(d, children);
@@ -208,7 +214,7 @@ export function ungroupSelection(
   }
   return {
     commands: [
-      ...children.map((e): Command => ({ type: "reparent", id: e.id })),
+      ...children.map((e): Command => ({ type: "reparent", id: e.id, parentId: frame.parentId })),
       ...commands,
       { type: "remove", ids: [id] },
     ],

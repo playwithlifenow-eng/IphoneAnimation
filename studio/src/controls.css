@@ -852,3 +852,17 @@
     display: none;
   }
 }
+
+/* Scope and ownership stay visible even with choreography collapsed. */
+.tl-header { gap: 8px; padding: 0 12px; overflow-x: auto; }
+.tl-header select { max-width: 155px; padding: 5px; border: 1px solid #dbe4ce; border-radius: 5px; background: #f6f8f1; color: #33432b; font: inherit; }
+.tl-header > * { flex-shrink: 0; }
+.tl-subtitle { display: none; }
+.tl-collapse { margin-left: auto; position: sticky; right: 0; }
+.motion-actions { padding: 12px; display: grid; gap: 12px; }
+.motion-action-card { display: grid; gap: 10px; border: 1px solid #dbe4ce; border-radius: 8px; padding: 12px; background: #f6f8f1; }
+.motion-action-card strong { font-size: 12px; }
+.motion-action-card small { color: #697c5e; line-height: 1.5; }
+.motion-actions .wide-action { margin: 0; }
+.motion-actions .ic-select-field { display: grid; gap: 6px; }
+.motion-actions select { padding: 7px; border: 1px solid #dbe4ce; border-radius: 4px; background: white; }

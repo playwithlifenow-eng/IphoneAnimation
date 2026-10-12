@@ -1,5 +1,5 @@
 import type { Entity, Kind } from "./model";
-export const INSTRUMENT_VERSION = "iglass-studio/0.1.0";
+export const INSTRUMENT_VERSION = "iglass-studio/0.2.0";
 export interface CapabilityEnvelope {
   adapter: string;
   version: 1;
@@ -11,12 +11,14 @@ const common = [
   "Selection and transforms",
   "Profile overrides",
   "Undo and Takes",
-  "Numeric tracks",
-  "Page-level position path handles",
+  "Numeric tracks and scoped scroll clocks",
+  "Reveal, move, rotate and scale actions",
+  "Page and freeform-section position path handles",
   "Frame relationships and connectors",
   "Pointer/scroll bindings",
 ];
 const byKind: Record<Kind, Omit<CapabilityEnvelope, "version">> = {
+  section: { adapter: "dom.section", supported: ["Ordered page flow", "Fixed, viewport or content height", "Pinned viewport", "Section scroll clock"], limited: ["Content height uses authored child bounds"], unavailable: ["Nested sections"] },
   text: {
     adapter: "dom.text",
     supported: ["Linked copy", "Direct text editing", "Typography"],
@@ -100,13 +102,13 @@ export function capabilityEnvelope(entity: Entity): CapabilityEnvelope {
         "Production playback equivalence",
       ],
     };
-  return { ...item, version: 1, supported: [...common, ...item.supported] };
+  return { ...item, version: 1, supported: [...(entity.kind === "section" ? ["Selection", "Profile overrides", "Undo and Takes"] : common), ...item.supported] };
 }
 export function instrumentManifest(entities: Entity[]) {
   return {
     schemaVersion: 1,
     id: INSTRUMENT_VERSION,
-    documentSchema: 1,
+    documentSchema: 2,
     authority: "semantic-document",
     adapters: entities.map((e) => ({
       entityId: e.id,
@@ -131,7 +133,7 @@ export function instrumentManifest(entities: Entity[]) {
     },
     rendering: {
       quality: "DPR capped at 1.75",
-      reducedMotion: "runtime holds at time zero",
+      reducedMotion: "wall-clock holds at zero; scroll follows user input",
     },
     capture: {
       pixels: "unavailable",

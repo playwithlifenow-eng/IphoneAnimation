@@ -296,15 +296,27 @@ The board arranges finite page frames, references and alternatives. Inside page 
 
 | Surface | BUILD_NOW capabilities | Intentionally bounded first implementation |
 |---|---|---|
-| Composition | Pan/zoom board, page frames, hierarchy, multi-selection, transforms, grouping, alignment/spacing, DOM typography, images/SVG/video, buttons/shapes and simple diagrams | Practical layout modes and basic connectors; no general drawing or constraint-solver platform |
+| Composition | Pan/zoom board, page frames, flowing sections with freeform/stacks inside, hierarchy, multi-selection, transforms, grouping, alignment/spacing, DOM typography, images/SVG/video, buttons/shapes and simple diagrams | Practical layout modes and basic connectors; no general drawing or constraint-solver platform |
 | Copy | Shared copy records, fragments, variants, inline editing and insertion; adapt useful Copy Atomiser code when available | Basic organisation/search; no autonomous copy ranking |
 | Components | Shelf, preview, versioned registration, insertion, typed props, anchors/signals and lifecycle; complex components built separately can be incorporated | Known adapter formats, explicit opaque internals; no universal source importer |
 | Scene and appearance | GLB/object selection and transforms; camera framing/target; useful light handles; supported material controls and presets | Accurate renderer capabilities, not invented support for every optical effect |
-| Pose/path/choreography | Named poses, editable paths, holds, scrub/play, cues and property tracks; cross-component timing through shared clock ownership | Practical timeline; reuse established interpolation rather than build a full animation suite |
+| Pose/path/choreography | Named poses, editable paths, holds, scrub/play, section-scoped scroll clocks, editable motion actions, cues and property tracks; cross-component timing through shared clock ownership | Practical timeline; reuse established interpolation rather than build a full animation suite |
 | Responsive | Named profiles, override/inherit/reset, live dimensions, framing/type/timing decisions and supported reduced-motion/static alternatives | Desktop authoring with mobile output preview; full touch-first editor is not required |
 | Takes and discovery | Immutable snapshots, A/B, differences, revert/bookmarks, locks and small bounded candidate deck | Manual/preset/seeded alternatives; no statistical aesthetic scoring |
 
 Complete session: insert content and a component; arrange the page; adjust copy, camera and appearance; author a pose or cue; create a mobile treatment; compare Takes; Evaluate; save/reopen; export the supported composition. This is the operative V1 acceptance target.
+
+### 4.6.1 Flow and direct-editing commitments
+
+Basic section flow, section insertion seams and scoped scroll choreography are BUILD_NOW. A page is a vertical sequence of sections, each containing freeform content or a row/column stack. Section height and the extra scroll travel used for pinning are separate. Adding or moving sections preserves child coordinates and responsive values. Converting a stack back to freeform retains its current arrangement; stale coordinates must not reappear. Existing flat documents open unchanged; adding the first section offers an undoable conversion that wraps the original composition.
+
+A choreography scope names its clock and source: elapsed time or page/section scroll progress. DOM properties and 3D properties use the same evaluator. Scroll mode presents percentages, supports forward/reverse scrubbing, and derives ranges from authored layout rather than animated transforms. Runtime and editor must use the same mapping at their declared viewport dimensions. A section with no scroll travel explains how to add travel or choose time. Pinning uses a separate outer scroll range and inner sticky frame. A shared WebGL context is an implementation option, not a precondition or a claim of shared scene lighting.
+
+Canvas, inspector and model rotation use one property-editing policy. Tracked values either write a key at their owner's current phase or offset the entire curve; the mode stays visible when choreography is collapsed. Static values remain static until explicitly keyed or assigned an action. Supported numeric signal mappings can be offset without detaching the signal. Profile edits preserve inherited keys. A gesture commits once, cancels without residual edits and remains undoable. Background clicks and Escape deselect; Escape cancels an active gesture before clearing selection. Mesh-aware selection passes through unpainted viewport space, with overlap cycling and explicit layer selection as fallbacks. Workspace panning, object movement and model rotation remain distinct; rotation sensitivity is adjustable independently of canvas zoom.
+
+Meaningful actions such as Reveal, Move, Rotate and Scale generate ordinary property tracks with editable timing, amount and stagger. Those tracks remain runtime authority. Detailed manual key edits mark the action as customized so a later parameter edit cannot silently discard them. Per-mesh operations such as Separate glass require an adapter that exposes the relevant parts; do not claim them for opaque whole-model imports.
+
+Recovery copies are independent per writer. A server version conflict must preserve both versions, and failure of both persistence routes must be reported as unsaved. Recovery UI provides identifiable copies and an explicit path to reopen them. No failure message may claim an unverified recovery save.
 
 ### 4.7 V1 integration and acceptable roughness
 
@@ -1130,7 +1142,7 @@ Neither algorithm may alter protected relationships or define “premium” by p
 | Semantic document, stable IDs, typed properties and units | BUILD_NOW | One authoritative model across all seven surfaces; explicit coordinate spaces and references |
 | Command transactions and property ownership | BUILD_NOW | Preview/commit/cancel/no-op, undo/redo, stale-revision rejection and visible owners |
 | Save/reopen, recovery and basic migrations | BUILD_NOW | Preserve authored meaning and unknown supported extension data; portable project package |
-| Composition board and page frames | BUILD_NOW | Pan/zoom workspace with finite real DOM/CSS page frames, hierarchy, selection, grouping and transforms |
+| Composition board and page frames | BUILD_NOW | Pan/zoom workspace with finite real DOM/CSS pages, flowing sections, insertion seams, hierarchy, mesh-aware selection, grouping and transforms |
 | Layout and typography | BUILD_NOW | Editable copy, spacing, alignment, sizes, text measure and responsive overrides; appropriate DOM semantics |
 | Copy workspace / Atomiser integration | BUILD_NOW | Shared copy records, reusable fragments and variants; no duplicate authoritative text store |
 | Component shelf and contracts | BUILD_NOW | Known component registration, preview, insertion, versioned inputs, lifecycle and capability declaration |
@@ -1154,7 +1166,7 @@ Neither algorithm may alter protected relationships or define “premium” by p
 | Rich stateful replay / broader capture | EARLY | Expand per instrument where episodes expose a concrete missing state or observation |
 | Property/model-based test expansion | EARLY | Grow meaningful command combinations and retain shrunk counterexamples; core invariants already tested in V1 |
 | Targeted performance, React and GL diagnostics | EARLY / ON_DEMAND | Use existing specialist tools to answer actual questions, including during V1 when necessary |
-| Advanced section seams, modulation and typography | EARLY | Extend the usable baseline from real compositions and capability discovery |
+| Advanced cross-section transitions, modulation and typography | EARLY | Extend basic BUILD_NOW section flow and insertion from real compositions and capability discovery |
 | Reusable semantic macro promotion | EARLY | Trial new representations and validate in another meaningful context; ordinary established editing mechanics need no rediscovery gate |
 | Bounded agent-user and synthetic motor tests | EXPERIMENTAL | Declared actor access and task; technical robustness evidence, not synthetic human or aesthetic authority |
 | Repeatable isolated candidate runner | CONDITIONAL | Automate recurring preparation/collection when it saves work; scripts may suffice |

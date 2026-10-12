@@ -1,3 +1,4 @@
+import { INSTRUMENT_VERSION } from "./src/capabilities";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { sourceIdentity } from "./build-identity";
@@ -16,7 +17,7 @@ export default defineConfig({
             schemaVersion: 1,
             sourceHash: sourceIdentity(),
             builtAt: new Date().toISOString(),
-            implementation: "iglass-studio/0.1.0",
+            implementation: INSTRUMENT_VERSION,
           }),
         });
       },

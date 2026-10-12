@@ -1,3 +1,4 @@
+import { readRecoveries } from "./recovery";
 import {
   useEffect,
   useRef,
@@ -68,10 +69,14 @@ import {
   type Command,
   type Take,
 } from "./model";
+import { scrollRange, layoutChangeCommands, pageLayout, sectionSignals, scrollAtClock, insertSection, moveSection, sectionFor, staticValues } from "./composition";
+import { effectiveTrack, editProperties } from "./editing";
+import { MotionActions } from "./MotionActions";
+import { clockTime, clocksOf } from "./model";
 import { Relationships } from "./Relationships";
 import { measurePage, readRelationship } from "./probes";
 import { PathEditor } from "./PathEditor";
-import { pathAvailability, positionKeyCommands } from "./paths";
+import { pathAvailability, pathClockId, positionKeyCommands } from "./paths";
 import { makeEntity, COMPONENTS } from "./seed";
 import {
   download,
@@ -84,12 +89,14 @@ const tabs = [
   ["copy", "Copy"],
   ["components", "Components"],
   ["looks", "Scene & look"],
+  ["motion", "Motion actions"],
   ["takes", "Takes"],
 ];
 const kindIcon: Record<Kind, typeof Box> = {
   text: Type,
   button: ArrowUpRight,
   frame: Frame,
+  section: Frame,
   image: Image,
   video: Film,
   svg: Image,
@@ -103,9 +110,15 @@ export default function App() {
   const entity = doc.entities.find((e) => e.id === s.selection[0]);
   const profile =
     doc.profiles.find((p) => p.id === s.profileId) ?? doc.profiles[0];
+  const layout = pageLayout(doc, s.profileId);
+  const signals = sectionSignals(doc, s.profileId, s.signals);
+  const clock = clocksOf(doc).find(c => c.id === s.clockId) ?? clocksOf(doc)[0];
+  const position = clockTime(doc, clock.id, s.playhead, signals);
   const scope = s.profileId === "desktop" ? "base" : s.profileId;
   const [leftTab, setLeftTab] = useState("layers");
   const [tool, setTool] = useState("select");
+  const [orbitSensitivity, setOrbitSensitivity] = useState(() => { try { return Number(localStorage.getItem("iglass.orbit-sensitivity")) || 0.8; } catch { return 0.8; } });
+  useEffect(() => { try { localStorage.setItem("iglass.orbit-sensitivity", String(orbitSensitivity)); } catch {} }, [orbitSensitivity]);
   const [modal, setModal] = useState("");
   const [feedback, setFeedback] = useState("");
   const [tag, setTag] = useState("Interaction");
@@ -113,6 +126,7 @@ export default function App() {
   const [compare, setCompare] = useState<Take | null>(null);
   const [filter, setFilter] = useState("");
   const [busy, setBusy] = useState(false);
+  const [followScroll, setFollowScroll] = useState(true);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const boardRef = useRef<HTMLDivElement>(null);
   const uploadRef = useRef<HTMLInputElement>(null);
@@ -121,22 +135,39 @@ export default function App() {
     void studio.load();
   }, []);
   useEffect(() => {
+    const board = boardRef.current;
+    if (!board) return;
+    const wheel = (ev: WheelEvent) => {
+      ev.preventDefault();
+      if (ev.ctrlKey || ev.metaKey) studio.session({ zoom: Math.max(0.15, Math.min(2, studio.get().zoom * Math.exp(-ev.deltaY * 0.005))) });
+      else setPan(p => ({ x: p.x - ev.deltaX, y: p.y - ev.deltaY }));
+    };
+    board.addEventListener("wheel", wheel, { passive: false });
+    return () => board.removeEventListener("wheel", wheel);
+  }, []);
+  useEffect(() => {
+    if (followScroll && layout.sections.length) setPan(p => ({ ...p, y: -(s.signals.scroll ?? 0) * Math.max(0, layout.height - layout.viewport) * s.zoom }));
+  }, [s.signals.scroll, followScroll]);
+  const seek = (time: number, playing = false) => {
+    if (clock.source === "scroll") studio.session({ signals: { ...signals, scroll: scrollAtClock(doc, s.profileId, clock.id, time / doc.duration) }, playing });
+    else studio.session({ playhead: time, playing });
+  };
+  useEffect(() => {
     if (!s.playing) return;
-    let id = 0,
-      last = performance.now();
+    let id = 0, last = performance.now();
     const tick = (now: number) => {
-      const st = studio.get();
-      const next = st.playhead + (now - last) / 1000;
-      last = now;
-      if (next >= st.workspace.document.duration) {
-        studio.session({
-          playhead: st.workspace.document.duration,
-          playing: false,
-        });
-        return;
+      const st = studio.get(), d = st.workspace.document;
+      const c = clocksOf(d).find(c => c.id === st.clockId) ?? clocksOf(d)[0];
+      const inputs = sectionSignals(d, st.profileId, st.signals);
+      if (c.source === "scroll") {
+        const range = scrollRange(d, st.profileId, c.sectionId);
+        if (range.end <= range.start) { studio.session({ playing: false }); studio.fail("This scope has no scroll travel. Pin the section and set its scroll distance, add another section, or choose Time."); return; }
       }
-      studio.session({ playhead: next });
-      id = requestAnimationFrame(tick);
+      const next = Math.min(d.duration, clockTime(d, c.id, st.playhead, inputs) + (now - last) / 1000);
+      last = now;
+      if (c.source === "scroll") studio.session({ signals: { ...inputs, scroll: scrollAtClock(d, st.profileId, c.id, next / d.duration) }, playing: next < d.duration });
+      else studio.session({ playhead: next, playing: next < d.duration });
+      if (next < d.duration) id = requestAnimationFrame(tick);
     };
     id = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(id);
@@ -147,9 +178,10 @@ export default function App() {
         "input,textarea,select,[contenteditable=true]",
       );
       if (ev.key === "Escape") {
-        studio.cancelGesture();
-        setModal("");
-        setCompare(null);
+        if (studio.hasGesture()) studio.cancelGesture();
+        else if (modal) setModal("");
+        else if (compare) setCompare(null);
+        else { (document.activeElement as HTMLElement)?.blur?.(); studio.select([]); }
         return;
       }
       if (editing || modal || compare) return;
@@ -224,13 +256,13 @@ export default function App() {
   const addPositionKey = () => {
     if (!entity) return;
     try {
-      const p = evaluateEntity(doc, entity, s.profileId, s.playhead, s.signals);
+      const p = evaluateEntity(doc, entity, s.profileId, s.playhead, signals);
       studio.batch(
         positionKeyCommands(
           doc,
           entity,
           s.profileId,
-          s.playhead,
+          clockTime(doc, pathClockId(doc, entity, s.profileId), s.playhead, signals),
           num(p, "x"),
           num(p, "y"),
         ),
@@ -244,51 +276,32 @@ export default function App() {
   const command = (c: Command, label?: string) => studio.execute(c, label);
   const patch = (values: Props, target = entity) => {
     if (!target) return;
-    const commands: Command[] = [];
-    const basic: Props = {};
-    for (const [k, v] of Object.entries(values)) {
-      const owner = ownerOf(doc, target, k, s.profileId);
-      if (owner === "signal") {
-        studio.fail(
-          `${k} is signal-driven. Detach its binding before editing.`,
-        );
-        continue;
-      }
-      if (owner === "track" && typeof v === "number") {
-        const existing =
-          doc.tracks.find(
-            (t) =>
-              t.entityId === target.id &&
-              t.property === k &&
-              t.profileId === s.profileId,
-          ) ??
-          doc.tracks.find(
-            (t) =>
-              t.entityId === target.id &&
-              t.property === k &&
-              t.profileId === "base",
-          );
-        commands.push({
-          type: "track",
-          track: upsertKey(
-            doc,
-            target.id,
-            k,
-            s.profileId === "desktop"
-              ? (existing?.profileId ?? "base")
-              : s.profileId,
-            s.playhead,
-            v,
-          ),
-        });
-      } else basic[k] = v;
+    try {
+      const commands = values.layout !== undefined
+        ? layoutChangeCommands(s.workspace.document, target, String(values.layout), s.profileId, s.playhead, signals)
+        : editProperties(s.workspace.document, target, values, s.profileId, s.playhead, signals, s.editMode, clock.id);
+      studio.batch(commands, "Adjust " + target.name);
     }
-    if (Object.keys(basic).length)
-      commands.push({ type: "patch", id: target.id, scope, values: basic });
-    if (commands.length) studio.batch(commands, "Adjust " + target.name);
+    catch (error) { studio.fail(error instanceof Error ? error.message : String(error)); }
   };
+  const selectLayer = (id: string, extend = false) => {
+    studio.select(extend ? [...new Set([...s.selection, id])] : [id]);
+    const box = layout.sections.find(b => b.id === id);
+    if (box) setPan(p => ({ ...p, y: -box.top * s.zoom }));
+  };
+  const addSection = (afterId?: string) => {
+    try {
+      const result = insertSection(s.workspace.document, afterId ?? sectionFor(doc, entity)?.id);
+      studio.batch(result.commands, "Insert section");
+      studio.select([result.id]);
+      const box = pageLayout(studio.get().workspace.document, s.profileId).sections.find(b => b.id === result.id);
+      if (box) setPan(p => ({ ...p, y: 40 - box.top * s.zoom }));
+    } catch (error) { studio.fail(String(error)); }
+  };
+  const insertionParent = () => sectionFor(doc, entity)?.id ?? doc.entities.filter(e => e.kind === "section").at(-1)?.id;
   const add = (kind: Kind, componentId?: string) => {
     const e = makeEntity(kind, doc.entities.length % 4);
+    e.parentId = insertionParent();
     if (kind === "component") {
       const c = COMPONENTS.find((c) => c.id === componentId) ?? COMPONENTS[0];
       e.componentId = c.id;
@@ -350,19 +363,7 @@ export default function App() {
         ? s.selection
         : [e.id];
     studio.select(selected);
-    if (
-      selected.some((id) => {
-        const item = doc.entities.find((e) => e.id === id)!;
-        return ["x", "y", ...(resize ? ["width", "height"] : [])].some((p) =>
-          ["track", "signal"].includes(ownerOf(doc, item, p, s.profileId)),
-        );
-      })
-    ) {
-      studio.fail(
-        "This transform is driven. Edit its keyframe or detach its owner in the inspector.",
-      );
-      return;
-    }
+    if (e.kind === "section") return;
     const origin = { x: ev.clientX, y: ev.clientY };
     const targets = selected.map((id) => ({
       entity: doc.entities.find((x) => x.id === id)!,
@@ -371,6 +372,7 @@ export default function App() {
         doc.entities.find((x) => x.id === id)!,
         s.profileId,
         s.playhead,
+        signals,
       ),
     }));
     studio.beginGesture();
@@ -381,21 +383,18 @@ export default function App() {
         dy = (event.clientY - origin.y) / s.zoom;
       const snap = (v: number) =>
         event.shiftKey ? Math.round(v / 8) * 8 : Math.round(v);
-      studio.previewGesture(
-        targets.map((t) => ({
-          id: t.entity.id,
-          scope,
-          values: resize
-            ? {
-                width: Math.max(24, snap(num(t.values, "width") + dx)),
-                height: Math.max(16, snap(num(t.values, "height") + dy)),
-              }
-            : ({
-                x: snap(num(t.values, "x") + dx),
-                y: snap(num(t.values, "y") + dy),
-              } as Props),
-        })),
-      );
+      try {
+        const commands = targets.flatMap(t => {
+          const parent = doc.entities.find(e => e.id === t.entity.parentId);
+          const flow = parent && str(staticValues(parent, s.profileId), "layout", "free") !== "free";
+          const x = flow || effectiveTrack(doc, t.entity, "translateX", s.profileId) ? "translateX" : "x", y = flow || effectiveTrack(doc, t.entity, "translateY", s.profileId) ? "translateY" : "y";
+          const values: Props = resize ? { width: Math.max(24, snap(num(t.values, "width") + dx)), height: Math.max(16, snap(num(t.values, "height") + dy)) }
+            : { [x]: snap(num(t.values, x) + dx), [y]: snap(num(t.values, y) + dy) };
+          return editProperties(s.workspace.document, t.entity, values, s.profileId, s.playhead, signals, s.editMode, clock.id);
+        });
+        studio.previewCommands(commands);
+      } catch (error) { studio.fail(String(error)); }
+
     };
     const finish = (event: PointerEvent) => {
       target.removeEventListener("pointermove", move);
@@ -455,6 +454,7 @@ export default function App() {
             : (kind as "image" | "svg" | "video"),
       };
       const e = makeEntity(kind);
+      e.parentId = insertionParent();
       e.name = file.name;
       e.props[kind === "scene" ? "modelUrl" : "src"] = data.url;
       studio.batch(
@@ -546,7 +546,10 @@ export default function App() {
       );
     studio.take("Reflective look");
   };
+  const layerOrder = (parentId?: string): Entity[] => doc.entities.filter(e => e.parentId === parentId).flatMap(e => [e, ...layerOrder(e.id)]);
+  const layerDepth = (e: Entity): number => e.parentId ? 1 + layerDepth(doc.entities.find(p => p.id === e.parentId)!) : 0;
   const leftContent = () => {
+    if (s.tab === "motion") return <MotionActions document={doc} selection={s.selection} profileId={s.profileId} clockId={clock.id} time={s.playhead} signals={signals} onCommand={command} onError={message => studio.fail(message)} />;
     if (s.tab === "copy")
       return (
         <>
@@ -767,7 +770,7 @@ export default function App() {
             selection={s.selection}
             profileId={s.profileId}
             time={s.playhead}
-            signals={s.signals}
+            signals={signals}
             canvasRef={boardRef}
             onCommand={command}
           />
@@ -777,10 +780,12 @@ export default function App() {
               <Frame size={14} />
               <span>Page 01</span>
               <small>
-                {profile.width} × {profile.height}
+                {profile.width} × {Math.round(layout.height)}
               </small>
             </div>
-            {doc.entities
+            <button className="wide-action" onClick={() => addSection()}>+ Add section below</button>
+            {entity?.kind === "section" && <div className="section-reorder"><button onClick={() => studio.batch(moveSection(doc, entity.id, -1), "Move section up")}>↑ Move section</button><button onClick={() => studio.batch(moveSection(doc, entity.id, 1), "Move section down")}>↓ Move section</button></div>}
+            {layerOrder()
               .filter(
                 (e) =>
                   (s.tab !== "looks" || e.kind === "scene") &&
@@ -794,17 +799,11 @@ export default function App() {
                       "layer " + (s.selection.includes(e.id) ? "active" : "")
                     }
                     key={e.id}
-                    style={{ paddingLeft: e.parentId ? 30 : 14 }}
+                    style={{ paddingLeft: 14 + layerDepth(e) * 14 }}
                   >
                     <button
                       className="layer-select"
-                      onClick={(ev) =>
-                        studio.select(
-                          ev.shiftKey
-                            ? [...new Set([...s.selection, e.id])]
-                            : [e.id],
-                        )
-                      }
+                      onClick={ev => selectLayer(e.id, ev.shiftKey)}
                     >
                       <Icon size={14} />
                       <span>{e.name}</span>
@@ -867,6 +866,7 @@ export default function App() {
                 key={a.id}
                 onClick={() => {
                   const e = makeEntity(a.type === "model" ? "scene" : a.type);
+                  e.parentId = insertionParent();
                   e.props[a.type === "model" ? "modelUrl" : "src"] = a.url;
                   e.name = a.name;
                   studio.execute({ type: "insert", entities: [e] });
@@ -985,21 +985,21 @@ export default function App() {
           <div className="canvas-toolbar">
             <div className="tool-group">
               <button
-                aria-label="Select tool"
+                aria-label="Select tool" title="Select / move · Alt-click cycles overlapping elements"
                 className={tool === "select" ? "active" : ""}
                 onClick={() => setTool("select")}
               >
                 <MousePointer2 size={16} />
               </button>
               <button
-                aria-label="Pan tool"
+                aria-label="Pan tool" title="Pan workspace · two-finger scroll also pans"
                 className={tool === "hand" ? "active" : ""}
                 onClick={() => setTool("hand")}
               >
                 <Hand size={16} />
               </button>
               <button
-                aria-label="Orbit scene tool"
+                aria-label="Orbit scene tool" title="Rotate model · drag selected model · arrows for precision"
                 className={tool === "orbit" ? "active" : ""}
                 onClick={() => setTool("orbit")}
               >
@@ -1014,10 +1014,11 @@ export default function App() {
               <Move size={15} />
               Path
             </button>
-            {doc.bindings.length > 0 && (
+            {tool === "orbit" && <label className="orbit-speed">Rotate speed<input aria-label="Orbit sensitivity" type="range" min="0.1" max="2" step="0.1" value={orbitSensitivity} onChange={e => setOrbitSensitivity(Number(e.target.value))} /></label>}
+            {(doc.bindings.length > 0 || clocksOf(doc).some(c => c.source === "scroll")) && (
               <div
                 className="toolbar-signals"
-                title={`Live inputs · Pointer ${Math.round(s.signals.pointerX * 100)}% / ${Math.round(s.signals.pointerY * 100)}%`}
+                title={`Live inputs · Pointer ${Math.round(signals.pointerX * 100)}% / ${Math.round(signals.pointerY * 100)}%`}
               >
                 <label>
                   Scroll
@@ -1027,14 +1028,15 @@ export default function App() {
                     min={0}
                     max={1}
                     step={0.01}
-                    value={s.signals.scroll}
+                    value={signals.scroll}
                     onChange={(e) =>
                       studio.session({
-                        signals: { ...s.signals, scroll: Number(e.target.value) },
+                        signals: { ...signals, scroll: Number(e.target.value) },
                       })
                     }
                   />
                 </label>
+                {layout.sections.length > 0 && <label className="scroll-follow"><input type="checkbox" checked={followScroll} onChange={e => setFollowScroll(e.target.checked)} />Follow scroll</label>}
               </div>
             )}
             <div className="profile-switch">
@@ -1134,7 +1136,7 @@ export default function App() {
               className="artboard-position"
               style={{
                 width: profile.width * s.zoom,
-                height: profile.height * s.zoom,
+                height: layout.height * s.zoom,
                 transform: `translate(${pan.x}px,${pan.y}px)`,
               }}
             >
@@ -1143,7 +1145,7 @@ export default function App() {
                   01 <b>{profile.name}</b>
                 </span>
                 <span>
-                  {profile.width} × {profile.height}
+                  {profile.width} × {Math.round(layout.height)}
                 </span>
               </div>
               <div
@@ -1157,10 +1159,15 @@ export default function App() {
                   profileId={s.profileId}
                   time={s.playhead}
                   selection={s.selection}
-                  signals={s.signals}
+                  signals={signals}
                   onSignalsChange={(signals) => studio.session({ signals })}
                   editor
                   sceneInteractive={tool === "orbit"}
+                  navigationTool={tool === "hand"}
+                  orbitSensitivity={orbitSensitivity}
+                  onBackground={() => studio.select([])}
+                  onInsertSection={addSection}
+                  onSelectSection={id => selectLayer(id)}
                   onPointerDown={startGesture}
                   onText={textEdit}
                   onSceneChange={(e, p) => patch(p, e)}
@@ -1170,11 +1177,13 @@ export default function App() {
                     document={doc}
                     entity={entity}
                     profileId={s.profileId}
-                    playhead={s.playhead}
+                    playhead={clockTime(doc, pathClockId(doc, entity, s.profileId), s.playhead, signals)}
+                    scroll={signals.scroll}
                     zoom={s.zoom}
-                    onSeek={(playhead) =>
-                      studio.session({ playhead, playing: false })
-                    }
+                    onSeek={time => {
+                      const id = pathClockId(doc, entity, s.profileId), c = clocksOf(doc).find(c => c.id === id);
+                      studio.session({ clockId: id, playing: false, ...(c?.source === "scroll" ? { signals: { ...signals, scroll: scrollAtClock(doc, s.profileId, id, time / doc.duration) } } : { playhead: time }) });
+                    }}
                     onBegin={() => studio.beginGesture()}
                     onPreview={(commands) => studio.previewCommands(commands)}
                     onCommit={() => studio.commitGesture()}
@@ -1192,7 +1201,7 @@ export default function App() {
                   ? "Drag the selected model to orbit"
                   : tool === "path"
                     ? "Drag path points · arrows nudge · Delete removes · Esc cancels"
-                    : "Drag to move · Double-click text to edit · Shift snaps · Esc cancels"}
+                    : "Drag to move · Alt-click selects behind · Double-click text · Esc cancels / deselects"}
             </div>
           </div>
           <div className="selection-bar">
@@ -1254,15 +1263,14 @@ export default function App() {
             selection={s.selection}
             profileId={s.profileId}
             playhead={s.playhead}
-            signals={s.signals}
+            signals={signals}
             playing={s.playing}
-            onSeek={(playhead) => studio.session({ playhead, playing: false })}
-            onPlay={() =>
-              studio.session({
-                playing: !s.playing,
-                playhead: s.playhead >= doc.duration ? 0 : s.playhead,
-              })
-            }
+            clockId={clock.id}
+            onClockSelect={clockId => studio.session({ clockId, playing: false })}
+            editMode={s.editMode}
+            onEditMode={editMode => studio.session({ editMode })}
+            onSeek={time => seek(time)}
+            onPlay={() => seek(position >= doc.duration ? 0 : position, !s.playing)}
             onCommand={command}
             onBatch={(commands, label) => studio.batch(commands, label)}
             onSelect={(id) => studio.select([id])}
@@ -1274,7 +1282,7 @@ export default function App() {
             entity={entity}
             profileId={s.profileId}
             playhead={s.playhead}
-            signals={s.signals}
+            signals={signals}
             onCommand={command}
             onPatch={patch}
           />
@@ -1488,21 +1496,12 @@ export default function App() {
                   Open project <span>Restore a Studio JSON package</span>
                   <Upload size={17} />
                 </button>
-                <button
-                  className="export-option"
-                  onClick={() => {
-                    const saved = localStorage.getItem(
-                      "iglass-studio-conflicted-recovery",
-                    );
-                    if (saved) download("iglass-conflict-recovery.json", saved);
-                    else
-                      studio.fail("No separate conflict recovery is stored.");
-                  }}
-                >
-                  Conflict recovery{" "}
-                  <span>Download edits retained after a save conflict</span>
-                  <Download size={17} />
-                </button>
+                <details className="recovery-list"><summary>Recovery copies · {readRecoveries().length}</summary>
+                  <p>Each window keeps its own copy. Download one to inspect or reopen it using Open project. Existing edits remain undoable.</p>
+                  {readRecoveries().map(copy => <button className="export-option" key={copy.id} onClick={() => download(`iglass-recovery-${copy.at}.json`, JSON.stringify(copy.workspace, null, 2))}>
+                    {copy.workspace.document.name}<span>{copy.at ? new Date(copy.at).toLocaleString() : "Legacy recovery"} · revision {copy.workspace.document.revision}</span><Download size={17} />
+                  </button>)}
+                </details>
                 <small>
                   Standalone output is available. Framer host verification
                   remains pending.
@@ -1578,7 +1577,7 @@ export default function App() {
                 <p>
                   Shift-click for multiple selection. Drag the corner to resize.
                   Ctrl/Cmd Z to undo, D to duplicate, S to save. Escape cancels
-                  a gesture. Space plays.
+                  a gesture, then clears selection. Space plays the selected clock. Two-finger scroll pans; pinch zooms.
                 </p>
                 <p>
                   Import a GLB, image or video from Assets. Capture Takes before
@@ -1627,7 +1626,7 @@ export default function App() {
                       document={d}
                       profileId={s.profileId}
                       time={s.playhead}
-                      signals={s.signals}
+                      signals={signals}
                     />
                   </div>
                 </div>

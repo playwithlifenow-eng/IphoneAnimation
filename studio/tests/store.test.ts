@@ -6,6 +6,8 @@ beforeEach(() => {
   vi.useFakeTimers();
   memory.clear();
   vi.stubGlobal("localStorage", {
+    get length() { return memory.size; },
+    key: (i: number) => [...memory.keys()][i] ?? null,
     getItem: (k: string) => memory.get(k) ?? null,
     setItem: (k: string, v: string) => memory.set(k, v),
   });
@@ -94,7 +96,7 @@ describe("editing transactions", () => {
     await Promise.all([first, second]);
     expect(studio.get().status).toBe("Saved locally");
     expect(
-      JSON.parse(memory.get("iglass-studio-recovery")!).serverVersion,
+      JSON.parse([...memory.entries()].find(([k]) => k.startsWith("iglass-studio-recovery:"))![1]).serverVersion,
     ).toBe(2);
   });
 
@@ -183,8 +185,29 @@ describe("editing transactions", () => {
     expect(studio.get().workspace.document.name).toBe("Newer server work");
     expect(studio.get().error).toContain("separate recovery");
     expect(
-      JSON.parse(memory.get("iglass-studio-conflicted-recovery")!).document
+      JSON.parse(memory.get("iglass-studio-recovery")!).workspace.document
         .name,
     ).toBe("Local unsynced");
+  });
+});
+
+describe("independent recovery writers", () => {
+  it("does not overwrite another tab's recovery slot", async () => {
+    const { writeRecovery, readRecoveries } = await import("../src/recovery");
+    const workspace = { version: 1 as const, document: seedDocument(), takes: [], episodes: [] };
+    writeRecovery("tab-a", workspace, 2);
+    const before = memory.get("iglass-studio-recovery:tab-a");
+    writeRecovery("tab-b", { ...workspace, document: { ...workspace.document, name: "Other edits" } }, 2);
+    expect(memory.get("iglass-studio-recovery:tab-a")).toBe(before);
+    expect(readRecoveries()).toHaveLength(2);
+  });
+  it("reports unsaved state when both server and recovery storage fail", async () => {
+    const { studio } = await import("../src/store");
+    await studio.load();
+    vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => { throw new Error("quota"); } });
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("offline"); }));
+    studio.execute({ type: "patch", id: "headline", scope: "base", values: { x: 220 } });
+    await studio.save();
+    expect(studio.get().status).toBe("Unsaved · export your project");
   });
 });

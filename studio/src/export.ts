@@ -1,5 +1,5 @@
 import { zipSync, strToU8 } from "fflate";
-import { instrumentManifest } from "./capabilities";
+import { INSTRUMENT_VERSION, instrumentManifest } from "./capabilities";
 import {
   clone,
   validateWorkspace,
@@ -268,7 +268,7 @@ export async function exportRuntime(document: StudioDocument) {
         version: 1,
         documentId: doc.id,
         revision: doc.revision,
-        implementation: "iglass-studio/0.1.0",
+        implementation: INSTRUMENT_VERSION,
         runtime: "shared-evaluator",
         host: "static-http",
         framer: "not-yet-verified",

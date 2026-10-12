@@ -4,6 +4,7 @@ export type Kind =
   | "text"
   | "button"
   | "frame"
+  | "section"
   | "image"
   | "video"
   | "svg"
@@ -44,7 +45,30 @@ export interface Keyframe {
   time: number;
   value: number;
 }
+export interface Clock {
+  id: string;
+  name: string;
+  source: "time" | "scroll";
+  sectionId?: string;
+}
+export interface MotionAction {
+  id: string;
+  name: string;
+  kind: "reveal" | "move" | "rotate" | "scale";
+  entityIds: string[];
+  profileId: string;
+  clockId: string;
+  start: number;
+  end: number;
+  amount: number;
+  stagger: number;
+  axis: "x" | "y";
+  trackIds: string[];
+  baseline: Record<string, Props>;
+  customized?: boolean;
+}
 export interface Track {
+  clockId?: string;
   id: string;
   entityId: string;
   property: string;
@@ -78,7 +102,9 @@ export interface Relationship {
   connector?: boolean;
 }
 export interface StudioDocument {
-  schemaVersion: 1;
+  schemaVersion: 1 | 2;
+  clocks?: Clock[];
+  actions?: MotionAction[];
   id: string;
   name: string;
   revision: number;
@@ -151,7 +177,11 @@ export type Command =
   | { type: "profile"; profile: Profile }
   | { type: "document-name"; name: string }
   | { type: "duration"; duration: number }
-  | { type: "relationship"; relationship: Relationship };
+  | { type: "relationship"; relationship: Relationship }
+  | { type: "clock"; clock: Clock }
+  | { type: "reorder"; ids: string[] }
+  | { type: "action"; action: MotionAction; tracks: Track[] }
+  | { type: "remove-action"; id: string };
 export const uid = (prefix = "id") =>
   `${prefix}-${crypto.randomUUID().slice(0, 10)}`;
 export const clone = <T>(value: T): T => structuredClone(value);
@@ -163,6 +193,7 @@ const kinds = new Set<Kind>([
   "text",
   "button",
   "frame",
+  "section",
   "image",
   "video",
   "svg",
@@ -171,10 +202,10 @@ const kinds = new Set<Kind>([
   "component",
 ]);
 export function validateDocument(input: unknown): StudioDocument {
-  const d = input as StudioDocument;
+  const d = clone(input) as StudioDocument;
   if (
     !d ||
-    d.schemaVersion !== 1 ||
+    ![1, 2].includes(d.schemaVersion) ||
     typeof d.id !== "string" ||
     typeof d.name !== "string" ||
     !Number.isInteger(d.revision) ||
@@ -183,6 +214,9 @@ export function validateDocument(input: unknown): StudioDocument {
     d.duration > 600
   )
     throw new Error("Unsupported or invalid document.");
+  if (d.schemaVersion === 1) d.schemaVersion = 2;
+  d.clocks ??= [{ id: "page", name: "Page", source: "time" }];
+  d.actions ??= [];
   for (const key of [
     "entities",
     "copy",
@@ -192,6 +226,8 @@ export function validateDocument(input: unknown): StudioDocument {
     "bindings",
     "relationships",
     "profiles",
+    "clocks",
+    "actions",
   ] as const)
     if (!Array.isArray(d[key])) throw new Error(`Missing ${key}.`);
   const unique = (xs: { id: string }[]) =>
@@ -206,6 +242,8 @@ export function validateDocument(input: unknown): StudioDocument {
     d.bindings,
     d.relationships,
     d.profiles,
+    d.clocks,
+    d.actions,
   ])
     if (!unique(xs)) throw new Error("Duplicate or missing IDs.");
   if (
@@ -251,11 +289,18 @@ export function validateDocument(input: unknown): StudioDocument {
       parent = d.entities.find((x) => x.id === parent)?.parentId;
     }
   }
+  if (!d.clocks.some(c => c.id === "page" && !c.sectionId) || d.clocks.some(c =>
+    !["time", "scroll"].includes(c.source) || typeof c.name !== "string" ||
+    (c.sectionId && !d.entities.some(e => e.id === c.sectionId && e.kind === "section"))))
+    throw new Error("Invalid choreography clock.");
+  if (d.entities.some(e => e.kind === "section" && e.parentId))
+    throw new Error("Sections must be at page level.");
   const owners = new Set<string>();
   for (const t of d.tracks) {
     const key = `${t.entityId}:${t.property}:${t.profileId}`;
     if (
       !ids.has(t.entityId) ||
+      (t.clockId !== undefined && !d.clocks.some(c => c.id === t.clockId)) ||
       !scopes.has(t.profileId) ||
       owners.has(key) ||
       !["linear", "smooth", "hold"].includes(t.interpolation) ||
@@ -272,6 +317,14 @@ export function validateDocument(input: unknown): StudioDocument {
     )
       throw new Error("Invalid or conflicting track.");
     owners.add(key);
+  }
+  for (const action of d.actions) {
+    if (!Array.isArray(action.entityIds) || !Array.isArray(action.trackIds) ||
+      action.entityIds.some(id => !ids.has(id)) || !scopes.has(action.profileId) ||
+      !d.clocks.some(c => c.id === action.clockId) || !validAction(action, d.duration) ||
+      action.entityIds.some(id => !validProps(action.baseline?.[id])) ||
+      action.trackIds.some(id => !d.tracks.some(t => t.id === id && action.entityIds.includes(t.entityId) && t.profileId === action.profileId && (t.clockId ?? "page") === action.clockId)))
+      throw new Error("Invalid motion action.");
   }
   for (const b of d.bindings) {
     const key = `${b.entityId}:${b.property}:${b.profileId}`;
@@ -328,7 +381,7 @@ export function applyCommand(
 ): StudioDocument {
   if (expectedRevision !== document.revision)
     throw new Error("Stale edit: document has changed.");
-  const d = clone(document);
+  const d = validateDocument(document);
   const entity = (id: string) => {
     const e = d.entities.find((e) => e.id === id);
     if (!e) throw new Error("Element no longer exists.");
@@ -359,6 +412,11 @@ export function applyCommand(
             changed = true;
           }
       }
+      const removedClocks = new Set(d.clocks!.filter(c => c.sectionId && ids.has(c.sectionId)).map(c => c.id));
+      if (d.tracks.some(t => !ids.has(t.entityId) && removedClocks.has(t.clockId ?? "page")))
+        throw new Error("This section clock also drives elements outside the section. Change their clock before deleting it.");
+      d.clocks = d.clocks!.filter(c => !removedClocks.has(c.id));
+      d.actions = d.actions!.filter(a => !a.entityIds.some(id => ids.has(id)) && !removedClocks.has(a.clockId));
       d.entities = d.entities.filter((e) => !ids.has(e.id));
       d.tracks = d.tracks.filter((t) => !ids.has(t.entityId));
       d.poses = d.poses.filter((p) => !ids.has(p.entityId));
@@ -384,12 +442,34 @@ export function applyCommand(
         .filter((a) => a.id !== command.asset.id)
         .concat(clone(command.asset));
       break;
+    case "clock":
+      d.clocks = d.clocks!.filter(c => c.id !== command.clock.id).concat(clone(command.clock));
+      break;
+    case "reorder":
+      if (command.ids.length !== d.entities.length || new Set(command.ids).size !== d.entities.length)
+        throw new Error("Invalid layer order.");
+      d.entities = command.ids.map(entity);
+      break;
+    case "action": {
+      const before = d.actions!.find(a => a.id === command.action.id);
+      d.tracks = d.tracks.filter(t => !before?.trackIds.includes(t.id)).concat(clone(command.tracks));
+      d.actions = d.actions!.filter(a => a.id !== command.action.id).concat(clone(command.action));
+      break;
+    }
+    case "remove-action": {
+      const action = d.actions!.find(a => a.id === command.id);
+      d.tracks = d.tracks.filter(t => !action?.trackIds.includes(t.id));
+      d.actions = d.actions!.filter(a => a.id !== command.id);
+      break;
+    }
     case "track":
+      d.actions = d.actions!.map(a => a.trackIds.includes(command.track.id) ? { ...a, customized: true } : a);
       d.tracks = d.tracks
         .filter((t) => t.id !== command.track.id)
         .concat(clone(command.track));
       break;
     case "remove-track":
+      d.actions = d.actions!.filter(a => !a.trackIds.includes(command.id));
       d.tracks = d.tracks.filter((t) => t.id !== command.id);
       break;
     case "pose":
@@ -423,9 +503,14 @@ export function applyCommand(
     case "document-name":
       d.name = command.name;
       break;
-    case "duration":
+    case "duration": {
+      const ratio = command.duration / d.duration;
+      const scrollClocks = new Set(clocksOf(d).filter(c => c.source === "scroll").map(c => c.id));
+      d.tracks = d.tracks.map(t => scrollClocks.has(t.clockId ?? "page") ? { ...t, keys: t.keys.map(k => ({ ...k, time: k.time * ratio })) } : t);
+      d.actions = d.actions!.map(a => scrollClocks.has(a.clockId) ? { ...a, start: a.start * ratio, end: a.end * ratio, stagger: a.stagger * ratio } : a);
       d.duration = command.duration;
       break;
+    }
     case "relationship":
       d.relationships = d.relationships
         .filter((r) => r.id !== command.relationship.id)
@@ -500,7 +585,7 @@ export function evaluateEntity(
     for (const t of d.tracks.filter(
       (t) => t.entityId === e.id && t.profileId === scope,
     )) {
-      const value = sampleTrack(t, time);
+      const value = sampleTrack(t, clockTime(d, t.clockId, time, signals));
       if (value !== undefined) props[t.property] = value;
     }
     for (const b of d.bindings.filter(
@@ -519,6 +604,7 @@ export function upsertKey(
   profileId: string,
   time: number,
   value: number,
+  clockId?: string,
 ): Track {
   const exact = d.tracks.find(
     (t) =>
@@ -543,11 +629,12 @@ export function upsertKey(
         property,
         profileId,
         interpolation: inherited?.interpolation ?? "smooth",
+        clockId: inherited?.clockId ?? clockId ?? "page",
         keys: inherited
           ? inherited.keys.map((k) => ({ ...k, id: uid("key") }))
           : [],
       };
-  const at = Math.round(time * 100) / 100;
+  const at = Math.min(d.duration, Math.max(0, Math.round(time * 100) / 100));
   const old = t.keys.find((k) => k.time === at);
   if (old) old.value = value;
   else t.keys.push({ id: uid("key"), time: at, value });
@@ -562,10 +649,11 @@ export function validateWorkspace(input: unknown): Workspace {
     !Array.isArray(w.episodes)
   )
     throw new Error("Invalid workspace.");
-  validateDocument(w.document);
-  for (const t of w.takes) validateDocument(t.document);
-  for (const e of w.episodes) validateDocument(e.document);
-  return clone(w);
+  const next = clone(w);
+  next.document = validateDocument(w.document);
+  next.takes = next.takes.map(t => ({ ...t, document: validateDocument(t.document) }));
+  next.episodes = next.episodes.map(e => ({ ...e, document: validateDocument(e.document) }));
+  return next;
 }
 export function diffDocuments(a: StudioDocument, b: StudioDocument): string[] {
   const changes: string[] = [];
@@ -601,8 +689,35 @@ export function diffDocuments(a: StudioDocument, b: StudioDocument): string[] {
     ["assets", "Assets"],
     ["duration", "Duration"],
     ["name", "Document name"],
+    ["clocks", "Choreography clocks"],
+    ["actions", "Motion actions"],
   ] as const)
     if (JSON.stringify(a[key]) !== JSON.stringify(b[key]))
       changes.push(label + " changed");
   return changes;
+}
+
+export const clocksOf = (d: StudioDocument): Clock[] => d.clocks ?? [{ id: "page", name: "Page", source: "time" }];
+export function clockTime(d: StudioDocument, id: string | undefined, time: number, signals: Record<string, number> = {}): number {
+  const clock = clocksOf(d).find(c => c.id === (id ?? "page"));
+  if (clock?.source !== "scroll") return time;
+  const value = signals[clock.sectionId ? `section:${clock.sectionId}` : "scroll"] ?? 0;
+  return Math.max(0, Math.min(1, value)) * d.duration;
+}
+export function entityClockId(d: StudioDocument, e: Entity | undefined): string {
+  const track = d.tracks.find(t => t.entityId === e?.id);
+  if (track) return track.clockId ?? "page";
+  while (e) {
+    const clock = clocksOf(d).find(c => c.sectionId === e!.id);
+    if (clock) return clock.id;
+    e = d.entities.find(p => p.id === e?.parentId);
+  }
+  return "page";
+}
+function validAction(a: MotionAction, duration: number) {
+  return ["reveal", "move", "rotate", "scale"].includes(a.kind) &&
+    [a.start, a.end, a.amount, a.stagger].every(Number.isFinite) &&
+    a.start >= 0 && a.end > a.start && a.stagger >= 0 &&
+    a.end + a.stagger * Math.max(0, a.entityIds.length - 1) <= duration + 0.00001 &&
+    ["x", "y"].includes(a.axis) && !!a.baseline;
 }

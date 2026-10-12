@@ -209,7 +209,7 @@ export function Inspector({
       step={step}
       suffix={suffix}
       owner={ownerOf(doc, entity, key, profileId)}
-      disabled={ownerOf(doc, entity, key, profileId) === "signal"}
+      disabled={false}
       onChange={(value) => patch(key, value)}
     />
   );
@@ -330,13 +330,31 @@ export function Inspector({
       <div className="ic-scroll">
         {tab === "design" ? (
           <>
-            <Section title="Transform">
+            {entity.kind !== "section" && (!entity.parentId || doc.entities.find(e => e.id === entity.parentId)?.kind === "section") && doc.entities.some(e => e.kind === "section") && <Section title="Page section">
+              <label className="ic-select-field">Move to section<select aria-label="Move to section" value={entity.parentId ?? ""} onChange={e => onCommand({ type: "reparent", id: entity.id, parentId: e.target.value || undefined }, "Move to section")}>
+                {!entity.parentId && <option value="">Page overlay</option>}
+                {doc.entities.filter(e => e.kind === "section").map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+              </select></label>
+              <p className="ic-help">Keeps the element’s local position, responsive values and existing animation clock.</p>
+            </Section>}
+            {entity.kind === "section" && <Section title="Section flow">
+              <label className="ic-select-field">Height mode<select aria-label="Section height mode" value={str(values, "heightMode", "fixed")} onChange={e => patch("heightMode", e.target.value)}>
+                <option value="fixed">Fixed height</option><option value="viewport">Viewport height</option><option value="content">Fit authored content</option>
+              </select></label>
+              {str(values, "heightMode", "fixed") === "fixed" && number("height", "Section height", 760, 100, 10000)}
+              <label className="ic-check"><input type="checkbox" aria-label="Pin section" checked={values.pin === true} onChange={e => patch("pin", e.target.checked)} />Pin during scroll choreography</label>
+              {values.pin === true && number("scrollVh", "Scroll distance", 100, 10, 1000, 10, "vh")}
+              <p className="ic-help">Section height is the visible frame. Scroll distance adds travel while that frame stays pinned. Reorder sections in Layers.</p>
+            </Section>}
+            <Section title={entity.kind === "section" ? "Appearance" : "Transform"}>
               <div className="ic-field-grid">
-                {number("x", "X", 0, undefined, undefined, 1, "px")}
-                {number("y", "Y", 0, undefined, undefined, 1, "px")}
-                {number("width", "Width", 320, 1, 10000, 1, "px")}
-                {number("height", "Height", 200, 1, 10000, 1, "px")}
-                {number(
+                {entity.kind !== "section" && <>
+                  {number("x", "X", 0, undefined, undefined, 1, "px")}
+                  {number("y", "Y", 0, undefined, undefined, 1, "px")}
+                  {number("width", "Width", 320, 1, 10000, 1, "px")}
+                  {number("height", "Height", 200, 1, 10000, 1, "px")}
+                </>}
+                {entity.kind !== "section" && number(
                   "rotation",
                   "Rotation",
                   0,
@@ -356,6 +374,10 @@ export function Inspector({
                 Visible in composition
               </label>
             </Section>
+            {entity.kind !== "section" && <Section title="Motion offset">
+              <div className="ic-field-grid">{number("translateX", "Page offset X", 0)}{number("translateY", "Page offset Y", 0)}{number("visualScale", "Visual scale", 1, 0.01, 100, 0.1)}</div>
+              <p className="ic-help">Offsets move the rendered element without changing its place in a stack. Signal edits offset the mapping; animated edits follow the mode shown in Choreography.</p>
+            </Section>}
             {isText && (
               <Section title="Content">
                 {entity.kind === "component" && text("title", "Title")}
@@ -533,7 +555,7 @@ export function Inspector({
                 {number("padding", "Padding", 0, 0, 1000, 1, "px")}
               </div>
             </Section>
-            {entity.kind === "frame" && (
+            {(entity.kind === "frame" || entity.kind === "section") && (
               <Section title="Child layout">
                 <label className="ic-select-field">
                   <span>Direction</span>

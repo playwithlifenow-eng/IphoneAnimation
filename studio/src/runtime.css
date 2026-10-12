@@ -1,7 +1,7 @@
 .composition-page {
   position: relative;
   background: #f2f2e9;
-  overflow: hidden;
+  overflow: clip;
   isolation: isolate;
   color: #233a30;
   font-family: Arial, sans-serif;
@@ -76,7 +76,7 @@
 .runtime-frame {
   margin: 0 auto;
   position: relative;
-  overflow: hidden;
+  overflow: clip;
 }
 .runtime-loading {
   padding: 40px;

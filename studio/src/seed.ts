@@ -233,7 +233,9 @@ export function seedDocument(): StudioDocument {
   });
   foot.overrides = { mobile: { x: 28, y: 856, width: 320, fontSize: 9 } };
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
+    clocks: [{ id: "page", name: "Page", source: "time" }],
+    actions: [],
     id: "iglass-first-composition",
     name: "A clearer point of view",
     revision: 0,
