@@ -1,0 +1,15 @@
+# Immediate stage: one host hook, calling the existing IG guard.
+[features]
+hooks = true
+
+[[hooks.PreToolUse]]
+matcher = '^Bash$'
+
+[[hooks.PreToolUse.hooks]]
+type = 'command'
+command = 'node --disable-warning=ExperimentalWarning "C:\Users\matth\Desktop\R3F Repo\IphoneAnimation-live\IphoneAnimation\studio\ig\codex-pre-tool-use.mts"'
+command_windows = 'node --disable-warning=ExperimentalWarning "C:\Users\matth\Desktop\R3F Repo\IphoneAnimation-live\IphoneAnimation\studio\ig\codex-pre-tool-use.mts"'
+timeout = 30
+statusMessage = 'Checking the existing IG repository/package guard'
+
+

@@ -1,0 +1,20 @@
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { repoState, guard } from './core.mts';
+const here = dirname(fileURLToPath(import.meta.url)), studio = resolve(here, '..');
+const s = repoState(studio);
+const project = { id: 'a330d639-ff89-4e78-a5d9-5d9165f6a082', alias: 'POSE', root: s.root, studio: s.studio, commonDir: s.commonDir,
+  remote: s.remote, branch: s.branch, packageName: 'iglass-composition-studio', port: 5173, node: process.execPath };
+guard(project);
+if (process.platform !== 'win32' || process.versions.node.split('.')[0] !== '24') throw Error('IG requires verified Windows Node 24');
+const data = resolve(process.env.LOCALAPPDATA!, 'iGlass/IG'), bin = resolve(process.env.USERPROFILE!, '.local/bin');
+mkdirSync(data, { recursive: true });
+mkdirSync(bin, { recursive: true });
+const manifest = resolve(data, 'pose-registration.json');
+writeFileSync(manifest, JSON.stringify(project, null, 2));
+execFileSync(process.execPath, [resolve(here, 'cli.mts'), 'REGISTER', '--manifest', manifest], { stdio: 'inherit', cwd: studio });
+const shim = resolve(bin, 'IG.cmd');
+writeFileSync(shim, `@echo off\r\n"${process.execPath}" --disable-warning=ExperimentalWarning "${resolve(here, 'cli.mts')}" %*\r\nexit /b %errorlevel%\r\n`);
+console.log(`Installed ${shim} in the existing user PATH. Data: ${data}`);

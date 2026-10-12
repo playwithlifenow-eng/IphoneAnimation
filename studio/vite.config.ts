@@ -2,6 +2,7 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { sourceIdentity } from "./build-identity";
 import { middleware } from "./server";
+import { identityMiddleware } from "./ig/identity.mts";
 export default defineConfig({
   base: "./",
   plugins: [
@@ -21,6 +22,7 @@ export default defineConfig({
         });
       },
       configureServer(s) {
+        s.middlewares.use(identityMiddleware);
         s.middlewares.use((req, res, next) => void middleware(req, res, next));
       },
       configurePreviewServer(s) {
