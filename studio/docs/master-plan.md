@@ -1,5 +1,7 @@
 # iGlass Composition Studio — authoritative master build plan
 
+> **13 October 2026 — operative precedence:** The authorised Evolutionary PoC supersedes the Milestone 1-first UI priorities below. Build the light spatial instrument editor, simultaneous artboards, compound states and cross-actor modulation on `studio/visual-instruments-poc`. The preserved research chapters remain valid unless contradicted by the attached execution brief. The accepted Hero and `main` remain protected. Technical results are not Matt's creative acceptance. See [PoC implementation](visual-instrument-poc.md), [coverage ledger](capability-ledger.md), and [authoritative execution brief](poc/execution-brief.md).
+
 **Decision edition: 28 September 2026 · workspace revision: 12 October 2026**
 **Status: adopted specification. Creative-workflow amendment: 12 October 2026. Milestone 1 is the immediate build; broad V1 remains the product destination.**
 

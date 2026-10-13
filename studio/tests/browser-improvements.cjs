@@ -128,7 +128,7 @@ exports.editor = async ({ page, state, doc, check }) => {
   check("Collapsible choreography, undoable legacy section conversion and scroll-driven Reveal action");
   await page.evaluate(async () => (await import("/src/store.ts")).studio.save());
   const other = await page.context().newPage();
-  await other.goto("http://127.0.0.1:5173"); await other.waitForLoadState("networkidle");
+  await other.goto("http://127.0.0.1:5173/?legacy"); await other.waitForLoadState("networkidle");
   const originalName = (await doc()).name;
   await page.evaluate(async () => { const { studio } = await import("/src/store.ts"); studio.execute({ type: "document-name", name: "Winning tab" }); await studio.save(); });
   await other.evaluate(async () => { const { studio } = await import("/src/store.ts"); studio.execute({ type: "document-name", name: "Unsynced other tab" }); await studio.save(); });

@@ -1,3 +1,5 @@
+import type { VisualProject } from "./instruments/types";
+import { validateVisual } from "./instruments/engine";
 export type Value = string | number | boolean;
 export type Props = Record<string, Value>;
 export type Kind =
@@ -102,6 +104,7 @@ export interface Relationship {
   connector?: boolean;
 }
 export interface StudioDocument {
+  visual?: VisualProject;
   schemaVersion: 1 | 2;
   clocks?: Clock[];
   actions?: MotionAction[];
@@ -160,6 +163,7 @@ export interface Workspace {
   workingParentTakeId?: string;
 }
 export type Command =
+  | { type: "visual-project"; project: VisualProject }
   | { type: "patch"; id: string; values: Props; scope: string }
   | { type: "insert"; entities: Entity[] }
   | { type: "remove"; ids: string[] }
@@ -372,6 +376,7 @@ export function validateDocument(input: unknown): StudioDocument {
       a.variants.some((v) => typeof v !== "string")
     )
       throw new Error("Invalid copy record.");
+  if (d.visual) { validateVisual(d.visual); for (const variant of d.visual.variants) variant.document = validateDocument(variant.document); }
   return clone(d);
 }
 export function applyCommand(
@@ -388,6 +393,9 @@ export function applyCommand(
     return e;
   };
   switch (command.type) {
+    case "visual-project":
+      d.visual = clone(command.project);
+      break;
     case "patch": {
       const e = entity(command.id);
       if (command.scope === "base") Object.assign(e.props, command.values);

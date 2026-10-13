@@ -13,6 +13,7 @@ export function sourceIdentity() {
       "package.json",
       "package-lock.json",
       "runtime.html",
+      "visual-runtime.html",
       "vite.config.ts",
       "build-identity.ts",
     ].map((f) => resolve(f)),

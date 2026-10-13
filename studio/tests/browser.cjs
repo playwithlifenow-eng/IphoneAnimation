@@ -58,7 +58,7 @@ const { unzipSync } = require("fflate");
       checks.push(name);
       console.log("PASS " + name);
     };
-    await page.goto("http://127.0.0.1:5173");
+    await page.goto("http://127.0.0.1:5173/?legacy");
     await page.waitForLoadState("networkidle");
     assert.equal(await page.title(), "iGlass Composition Studio");
     assert.equal(await page.locator("canvas").count(), 1);

@@ -33,6 +33,6 @@ export default defineConfig({
   preview: { port: 5173, strictPort: true },
   build: {
     manifest: true,
-    rollupOptions: { input: { studio: "index.html", runtime: "runtime.html" } },
+    rollupOptions: { input: { studio: "index.html", runtime: "runtime.html", visualRuntime: "visual-runtime.html" } },
   },
 });

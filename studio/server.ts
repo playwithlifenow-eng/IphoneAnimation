@@ -164,9 +164,10 @@ export async function middleware(
         ])
           add(key);
       }
-      add("runtime.html");
+      const runtimeEntry = (req.url ?? "").includes("visual=1") ? "visual-runtime.html" : "runtime.html";
+      add(runtimeEntry);
       files["index.html"] = readFileSync(
-        resolve(dist, "runtime.html"),
+        resolve(dist, runtimeEntry),
       ).toString("base64");
       return json(res, 200, { files, implementation });
     }
