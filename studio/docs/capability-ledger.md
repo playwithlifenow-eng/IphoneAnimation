@@ -94,7 +94,7 @@
 | Scenario | Status | Evidence | Exact substitution / remaining scope |
 |---|---|---|---|
 | Olympic | working | `olympic.png`, `olympic.webm`, browser | Original vector scenery instead of source photography |
-| Cartier | partial | `cartier.png`, `cartier.webm` | Original watch fixture; aperture, rotation, L/R handoff; complete source gallery and final video sequence not reproduced |
+| Cartier | partial | `cartier.png`, `cartier.webm` | Original watch fixture; aperture, depth, L/R handoff, final illustrated video; source photography/gallery not reproduced |
 | Morpho | proxy | `morpho.png`, `morpho.webm` | Original can and animated illustrated coast; CSS portal, no true hole in model |
 | Aevion | proxy | `aevion.png`, `aevion.webm` | Original folding drone, linked labels/counter/pin; LiDAR terrain transition pending |
 | Teatika | proxy | `teatika.png`, `teatika.webm` | Original hinged case with wireframe/solid and light; not handbag/ring/furniture assets |

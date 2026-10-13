@@ -260,7 +260,8 @@ export function exampleVariant(example = "iglass"): Variant {
   if (example === "iglass") {
     add("orbit", "product", { turn: 68, tilt: 12 });
     add("part", "product", { lift: 0.65 }, [0.22, 0.85]);
-    add("glint", "product", { angle: -60, intensity: 5 });
+    const light = add("glint", "product", { angle: -60, intensity: 5 });
+    light.drivers[0].modulators.push({ kind: "phase", amount: 0.08 });
     add("camera", "product", { dolly: 0.5, orbit: 12 });
     add("hotspot", "product");
     add("rise", "support", { lift: 28 }, [0, 0.3]);
@@ -389,6 +390,11 @@ export function exampleVariant(example = "iglass"): Variant {
     add("glint", "product");
     add("orbit", "second-product", { turn: -110, tilt: 10 });
     add("glint", "second-product");
+    d.entities.push(actor("finale", "video", {
+      x: 0, y: 0, width: 1200, height: 760,
+      src: "/assets/poc/tide.webm", poster: "/assets/poc/coast.svg",
+    }, { x: 0, y: 0, width: 390, height: 900 }));
+    add("rise", "finale", { lift: 0 }, [0.86, 1]);
     names = ["Lens", "Passage", "Handoff"];
   } else if (example === "morpho") {
     v.background = "#102b32";
@@ -525,8 +531,14 @@ export function exampleVariant(example = "iglass"): Variant {
       actors: {},
       mobile: {},
     }));
+    if (example === "iglass")
+      v.states.forEach((s, i) => {
+        s.actors.product = { rotateX: [-8, 9, -4][i], hotspotText: ["Original OLED", "Lift / named front glass", "Restore the original"][i] };
+        s.actors.support = { color: ["#6b756c", "#334139", "#6b756c"][i] };
+      });
     if (example === "cartier")
       v.states.forEach((s, i) => {
+        s.at = [0, 0.4, 0.78][i];
         s.actors.product = { x: [620, 620, 70][i], y: 100 };
         s.actors["second-product"] = { opacity: [0, 0, 1][i] };
         s.actors.headline = {
@@ -546,6 +558,8 @@ export function exampleVariant(example = "iglass"): Variant {
       });
     if (example === "aevion")
       v.states.forEach((s, i) => {
+        s.actors.product = { rotateX: [-18, 12, 0][i], rotateZ: [0, -6, 3][i], hotspotText: ["LiDAR / scan", "Link / connected", "Arms / compact"][i] };
+        s.actors.metric = { color: ["#304c60", "#397d76", "#304c60"][i] };
         s.actors.support = {
           text: [
             "Scan · 450 m range",

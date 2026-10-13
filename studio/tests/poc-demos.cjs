@@ -5,7 +5,7 @@ const path = require("node:path");
 const assert = require("node:assert/strict");
 const crypto = require("node:crypto");
 (async () => {
-  const dataDir = fs.mkdtempSync("/tmp/pose-demos-");
+  const dataDir = fs.mkdtempSync(path.join(require("node:os").tmpdir(), "pose-demos-"));
   const server = spawn(
     process.execPath,
     ["node_modules/vite/bin/vite.js", "--host", "127.0.0.1"],
@@ -75,22 +75,23 @@ const crypto = require("node:crypto");
       await p.mouse.move(scrub.x + scrub.width * 0.12, scrub.y + 2);
       await p.mouse.down();
       await p.mouse.move(scrub.x + scrub.width * 0.82, scrub.y + 2, {
-        steps: 26,
+        steps: 6,
       });
       await p.mouse.up();
       await p.waitForTimeout(400);
       if (id === "morpho")
         await p
-          .getByRole("button", { name: /Portal$/, exact: false })
+          .locator(".vi-layer-row").filter({ hasText: "Portal" })
           .first()
           .click();
       const knob = p.getByLabel(control, { exact: true });
-      if (await knob.count()) {
+      assert.equal(await knob.count(), 1, `${id}: live control ${control}`);
+      {
         await knob.scrollIntoViewIfNeeded();
         const r = await knob.boundingBox();
         await p.mouse.move(r.x + r.width * 0.45, r.y + 2);
         await p.mouse.down();
-        await p.mouse.move(r.x + r.width * 0.82, r.y + 2, { steps: 10 });
+        await p.mouse.move(r.x + r.width * 0.82, r.y + 2, { steps: 6 });
         await p.mouse.up();
       }
       if (["iglass", "aevion"].includes(id)) {
@@ -102,7 +103,7 @@ const crypto = require("node:crypto");
         await p.mouse.move(
           r.x + r.width * 0.5 + 65,
           r.y + r.height * 0.45 + 25,
-          { steps: 12 },
+          { steps: 6 },
         );
         await p.mouse.up();
         await p.waitForTimeout(900);
@@ -131,6 +132,10 @@ const crypto = require("node:crypto");
       await seek(0.3);
       await p.waitForTimeout(200);
       await seek(0.7);
+      if (id === "cartier") {
+        await seek(1);
+        await p.waitForTimeout(800);
+      }
       await p.evaluate(async () => {
         await (await import("/src/store.ts")).studio.save();
       });

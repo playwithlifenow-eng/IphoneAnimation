@@ -31,7 +31,7 @@ import {
   duplicateBoard,
   removeActor,
 } from "./editing";
-import { instantiate } from "./registry";
+import { instantiate, effectiveInstrument } from "./registry";
 import { clamp, evaluate } from "./engine";
 import { Stage } from "./Stage";
 import { Rack, Slider } from "./Rack";
@@ -78,7 +78,8 @@ export default function VisualStudio() {
   const board =
       project?.boards.find((b) => b.id === boardId) ?? project?.boards[0],
     variant = project?.variants.find((v) => v.id === board?.variantId);
-  const smooth = variant?.instruments.find(
+  const effectiveInstruments = variant?.instruments.map(i => effectiveInstrument(i, board?.profile ?? "desktop")) ?? [];
+  const smooth = effectiveInstruments.find(
     (i) => i.definitionId === "smooth" && i.enabled,
   );
   const clock = useClock(smooth?.macroValues.weight ?? 0, reduced);
@@ -1486,7 +1487,7 @@ export default function VisualStudio() {
           >
             <div
               style={{
-                height: `${(variant.instruments.find((i) => i.definitionId === "stage" && i.enabled)?.macroValues.travel ?? 3) * 100}vh`,
+                height: `${(effectiveInstruments.find((i) => i.definitionId === "stage" && i.enabled)?.macroValues.travel ?? 3) * 100}vh`,
                 position: "relative",
               }}
             >

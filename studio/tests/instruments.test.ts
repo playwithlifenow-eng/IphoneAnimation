@@ -196,6 +196,18 @@ describe("visual instrument ontology", () => {
       }).actors.coast.skew,
     ).toBe(0);
   });
+  it("mobile instrument overrides isolate macros and bypass without mutating desktop", () => {
+    const p = makeProject("olympic"), v = p.variants[0];
+    const i = v.instruments.find(i => i.definitionId === "parallax")!;
+    const desktop = evaluate(v, "desktop", 1200, signals(0.8));
+    i.profileOverrides = { mobile: { macroValues: { ...i.macroValues, depth: 0.9 }, advancedValues: { ...i.advancedValues }, drivers: clone(i.drivers), enabled: false } };
+    expect(evaluate(v, "mobile", 390, signals(0.8)).actors.coast.mediaScale).toBeUndefined();
+    expect(evaluate(v, "desktop", 1200, signals(0.8))).toEqual(desktop);
+    expect(() => validateVisual(p)).not.toThrow();
+    i.profileOverrides!.mobile!.enabled = true;
+    expect(evaluate(v, "mobile", 390, signals(0.8)).actors.coast.mediaScale).toBeGreaterThan(1);
+    expect(evaluate(v, "desktop", 1200, signals(0.8))).toEqual(desktop);
+  });
   it("compound bypass restores authored model state and retains all child settings", () => {
     const v = exampleVariant(),
       copy = clone(v.instruments);

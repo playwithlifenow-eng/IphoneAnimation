@@ -10,6 +10,7 @@ import {
   type PointerEvent,
 } from "react";
 import { num, str, type Entity, type Props } from "../model";
+import { effectiveInstrument } from "./registry";
 import { evaluate, clamp } from "./engine";
 import type { Artboard, Signals, Variant, Bounds } from "./types";
 import type { Projection } from "./InstrumentScene";
@@ -196,7 +197,8 @@ export function Stage({
       }),
     [v, b.profile, b.width, signals, pointer, orbit, bounds],
   );
-  const pinned = v.instruments.some(
+  const instruments = useMemo(() => v.instruments.map(i => effectiveInstrument(i, b.profile)), [v.instruments, b.profile]);
+  const pinned = instruments.some(
     (i) => i.definitionId === "stage" && i.enabled,
   );
   const contentHeight = Math.max(
@@ -223,7 +225,7 @@ export function Stage({
       const decay = (now: number) => {
         const dt = (now - last) / 1000;
         last = now;
-        const inst = v.instruments.find(
+        const inst = instruments.find(
             (i) =>
               i.targetId === d.id && i.definitionId === "orbit" && i.enabled,
           ),
@@ -244,7 +246,7 @@ export function Stage({
       };
       release.current = requestAnimationFrame(decay);
     },
-    [v.instruments, onOrbit],
+    [instruments, onOrbit],
   );
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
@@ -253,10 +255,11 @@ export function Stage({
     addEventListener("keydown", key);
     return () => {
       removeEventListener("keydown", key);
-      cancelAnimationFrame(release.current);
     };
   }, [endDrag]);
+  useEffect(() => () => cancelAnimationFrame(release.current), []);
   useEffect(() => {
+    cancelAnimationFrame(release.current);
     setProjections({});
     setOrbit({});
   }, [v.id, b.width, b.profile, active]);
@@ -293,7 +296,6 @@ export function Stage({
       letterSpacing: num(p, "letterSpacing"),
       lineHeight: num(p, "lineHeight", 1.1),
       textAlign: str(p, "textAlign", "left") as CSSProperties["textAlign"],
-      zIndex: sel ? 20 : undefined,
     };
     const isScene = entity.kind === "scene",
       proj = projections[id];
@@ -318,7 +320,7 @@ export function Stage({
       if (
         isScene &&
         !ev.shiftKey &&
-        v.instruments.some(
+        instruments.some(
           (i) => i.targetId === id && i.definitionId === "orbit" && i.enabled,
         )
       ) {

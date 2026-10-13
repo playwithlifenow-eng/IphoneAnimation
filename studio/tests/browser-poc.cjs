@@ -164,7 +164,12 @@ const { unzipSync } = require("fflate");
     await page.mouse.up();
     const first = JSON.parse(await product.getAttribute("data-orbit"));
     assert(Math.hypot(...first) > 1);
-    await page.waitForTimeout(1400);
+    // Autosave can replace instrument references during release; it must not cancel decay.
+    await page.evaluate(async () => { await (await import("/src/store.ts")).studio.save(); });
+    await page.waitForFunction(() => {
+      const node = document.querySelector('.vi-artboard.active [data-actor="product"]');
+      return node && Math.hypot(...JSON.parse(node.getAttribute("data-orbit"))) < 0.1;
+    }, null, { timeout: 10000 });
     assert(
       Math.hypot(...JSON.parse(await product.getAttribute("data-orbit"))) < 0.1,
     );
@@ -356,7 +361,10 @@ const { unzipSync } = require("fflate");
     assert.equal(await runtime.locator("canvas").count(), 1);
     assert.equal(await runtime.locator(".vi-toolbar").count(), 0);
     await runtime.evaluate(() => scrollTo(0, 800));
-    await runtime.waitForTimeout(700);
+    await runtime.waitForFunction(
+      () => Number(document.querySelector("[data-stage]")?.getAttribute("data-progress")) > 0.1,
+      null, { timeout: 15000 },
+    );
     assert(
       Number(
         await runtime.locator("[data-stage]").getAttribute("data-progress"),
