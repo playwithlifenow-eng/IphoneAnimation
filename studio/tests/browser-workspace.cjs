@@ -43,6 +43,7 @@ exports.run = async ({ page, state, doc, check }) => {
   check("1366×768 compact header, panel collapse persistence and pointer/keyboard panel resizing");
 
   await choose("headline");
+  await page.getByText("Position & size precision", { exact: true }).click();
   const original = (await doc()).entities.find(e => e.id === "headline").props.x;
   const revision = (await doc()).revision;
   await drag(page.getByLabel("Scrub X", { exact: true }), 24);
@@ -79,6 +80,7 @@ exports.run = async ({ page, state, doc, check }) => {
   check("Responsive animation badges coexist; inherit-base is reversible and keys navigate their clock");
 
   await choose("headline");
+  await page.getByText("Position & size precision", { exact: true }).click();
   await page.setViewportSize({ width: 1512, height: 982 });
   // Restore original zoom so the existing regression gestures retain their tested viewport.
   await page.evaluate(async () => (await import("/src/store.ts")).studio.session({ zoom: .73 }));

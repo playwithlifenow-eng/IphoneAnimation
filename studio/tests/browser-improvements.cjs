@@ -7,6 +7,7 @@ exports.editor = async ({ page, state, doc, check }) => {
   await page.evaluate(async () => { const { studio } = await import("/src/store.ts"); studio.session({ signals: { pointerX: .5, pointerY: .5, scroll: 0 }, playhead: 4, clockId: "page" }); });
   await choose("headline");
   await page.getByRole("tab", { name: "Design", exact: true }).click();
+  await page.getByText("Position & size precision", { exact: true }).click();
   const before = await doc();
   const headline = await page.locator('[data-entity="headline"]').boundingBox();
   await drag(headline.x + 25, headline.y + 25, 20, 10);

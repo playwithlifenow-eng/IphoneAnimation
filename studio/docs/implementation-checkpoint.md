@@ -1,12 +1,25 @@
 # Implementation checkpoint — 12 October 2026
 
-**State:** integrated alpha 0.3.0. The broad V1 remains BUILD_NOW under `docs/master-plan.md`; the full V1 acceptance gate and later evolutionary systems remain in that plan.
+**State:** integrated alpha 0.3.1 — Milestone 1 visual-authoring implementation. The authoritative master plan now prioritises the complete DOM creative workflow and human usability validation before advanced 3D expansion. Broad V1 and all unfinished research remain preserved.
 
 ## Scope and isolation
 
-Changes are confined to `studio/`. The existing Hero application, original GLB and production configuration are unchanged. Publication targets `studio/broad-v1` only. The workspace redesign builds on published commit `117ae4ca6e74c9c9bda79121e687a8cea1f64b42`.
+Changes are confined to `studio/`. The existing Hero application, original GLB and production configuration are unchanged. Publication targets `studio/broad-v1` only. This milestone builds on published `studio/broad-v1` commit `f29fd7c391eea2b54a17d02bdfed839b493af470`. The attached `8e881c6` archive was the source-only review export of that baseline. The full branch, including its original GLB, was used for implementation and verification.
 
-## Implemented
+## Milestone 1 implementation
+
+- Right-edge text measure handle rewraps copy live without changing height/copy. It supports keyboard nudges and accounts for canvas zoom, centre-origin CSS transforms and transformed ancestors. At the degenerate half-turn where the midpoint is stationary, a finite horizontal fallback remains available.
+- Typography starting points plus size, weight and coupled rhythm sliders; prominence uses a visible opacity rail. Independent font metrics, transform values, copy editing and capability details remain discoverable in native disclosure panels. Typography appears first so the instruments are visible without traversing a raw copy form.
+- Pointer and held-key slider edits preview, commit once and cancel with Escape; further pointer motion after cancellation cannot accidentally commit. Existing command ownership handles inherited tracks and signals; Mobile forks them without mutating base.
+- Bounded alignment and clearance guides compare sibling DOM frames during previews. They do not snap, author relationships or claim pixel/mesh clearance.
+- Header and Inspector capture automatic-name Takes immediately; Inspector opens comparison with the latest Take. Named capture and existing restore/compare remain available. Confirmation is non-modal. No screenshot/thumbnail generation is claimed.
+- The existing navigation, scene rendering, animation evaluator, database, document schema and dependency versions remain intact. Instrument version advances to 0.3.1.
+
+## First working-interaction checkpoint
+
+Before completing the visual Inspector, a browser check exercised width-only drag at non-default zoom, unchanged height, one-step undo, Escape cancellation and Mobile isolation with no page errors. This established the requested first working visual-interaction checkpoint. The complete workflow suite subsequently supersedes that narrow check.
+
+## Preserved foundation
 
 - Graphite workspace with a single 44px header, left-panel workspace navigation, 12–13px labels, 32px numeric controls, resizable/collapsible side panels and resizable/collapsible choreography. Preferences persist independently of documents. Feedback/help/version remain accessible through the header question-mark menu.
 - Numeric label scrubbing with Shift/Alt precision, keyboard adjustment, one history entry per drag and Escape cancellation. Profile scope and effective driver badges coexist; inherit-base resets a property's local static/track/signal overrides atomically. Key diamonds distinguish keyed positions and seek the owning clock.
@@ -20,17 +33,23 @@ Changes are confined to `studio/`. The existing Hero application, original GLB a
 - Paths continue working for page elements and direct children of freeform sections, including scroll-clock sampling. Existing Takes, named poses, responsive overrides, relationships, feedback and portable export remain integrated.
 - Independent browser recovery slots per writer, identifiable downloadable copies, server-version conflict protection and truthful status when both browser and server persistence fail.
 - Choreography retains explicit key/offset modes when collapsed; primary tools now live in the unified header. Two-finger scroll pans; pinch zooms. Follow scroll keeps the relevant page region in view.
-- Version 1 documents migrate to version 2 on validation. Takes and episodes migrate with the workspace. Implementation/instrument manifests use version 0.3.0, with source and artifact hashes.
+- Version 1 documents migrate to version 2 on validation. Takes and episodes migrate with the workspace. Implementation/instrument manifests use version 0.3.1, with source and artifact hashes.
 
 ## Verification
 
-**27 automated tests and 30 browser checks pass**, along with TypeScript and the production build. `npm test`, `npm run build` and `npm run test:browser` exercise the integrated code. The checked-in `verification/browser-report.json` is the exact browser assertion record; `verification/tested-build.json` identifies the tested source. Screenshots in the same directory show the tested editor and independent exports.
+**30 automated tests and 38 browser checks pass**, along with TypeScript and the production build. `npm test`, `npm run build` and `npm run test:browser` exercise the integrated code. The checked-in `verification/browser-report.json` is the exact browser assertion record; `verification/tested-build.json` identifies the tested source. Screenshots in the same directory show the tested editor and independent exports.
 
 The invariant suite covers migration, section preservation/reordering, scoped DOM/3D clocks, percentage preservation, independent duplicated section clocks, mobile curve forks, stack conversion, action ownership, nested section paths, gesture history, Takes, recovery separation and double-save failure. The browser fixture covers real GLB pixel/mesh selection, direct tracked dragging, offsets, sensitivity, background deselection, section conversion/undo, scroll actions, scoped key editing, mobile forks, two real conflicting tabs, save/reopen, media-inclusive imports and standalone runtime playback/pinning at desktop and mobile sizes.
+
+Milestone checks cover actual text wrapping, rotated/scaled text measure, visual controls without default numbers, live guides, atomic coupled edits, cancellation after continued pointer movement, keyboard changes, Mobile forks of inherited tracks/signals, immutable one-click Takes, comparison/restore, SQLite save/reopen, and Desktop/Mobile standalone runtime parity. Three geometry tests exercise transformed parent coordinates, finite degenerate transforms and bounded sibling guides.
 
 Additional workspace checks cover 1366×768 header fit, canvas expansion with panels hidden, preference persistence, pointer/keyboard divider resizing, static and animated numeric scrubbing, cancellation, reversible profile inheritance, key navigation and camera/model separation.
 
 Browser tests use an isolated SQLite directory, Playwright and Chromium with software WebGL. They do not exercise Matt's working document or production hosts. Target-device GPU performance and trackpad feel still require his use. The deferred Three/R3F chunk is approximately 837 kB uncompressed; no GPU or performance-budget pass is claimed.
+
+## Human acceptance and next action
+
+**Pending: Matt's actual Windows laptop/trackpad assessment.** Automated tests establish technical behaviour, not creative feel. Ask whether the tools make exploring layouts easier and whether anything interrupts discovery. The 30-second scenario is optional guidance, never a rigid acceptance test. Resolve significant usability feedback before advanced 3D work. Preserved next directions are generic mesh inspection and perceptual 3D staging, StoryBeats compiled to tracks, controlled discovery alternatives and AI exploration/handoff, followed by conditional experiments and knowledge architecture.
 
 ## Explicit limits and next work
 

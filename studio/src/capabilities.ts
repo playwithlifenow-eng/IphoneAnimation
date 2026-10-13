@@ -1,5 +1,5 @@
 import type { Entity, Kind } from "./model";
-export const INSTRUMENT_VERSION = "iglass-studio/0.3.0";
+export const INSTRUMENT_VERSION = "iglass-studio/0.3.1";
 export interface CapabilityEnvelope {
   adapter: string;
   version: 1;
@@ -21,7 +21,7 @@ const byKind: Record<Kind, Omit<CapabilityEnvelope, "version">> = {
   section: { adapter: "dom.section", supported: ["Ordered page flow", "Fixed, viewport or content height", "Pinned viewport", "Section scroll clock"], limited: ["Content height uses authored child bounds"], unavailable: ["Nested sections"] },
   text: {
     adapter: "dom.text",
-    supported: ["Linked copy", "Direct text editing", "Typography"],
+    supported: ["Linked copy", "Direct text editing", "Visual line length", "Typography starting points and live sliders", "Coupled rhythm with independent precision"],
     limited: ["Installed or hosted CSS fonts"],
     unavailable: ["Font asset packaging", "Rich text spans"],
   },

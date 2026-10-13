@@ -866,3 +866,27 @@
 .motion-actions .wide-action { margin: 0; }
 .motion-actions .ic-select-field { display: grid; gap: 6px; }
 .motion-actions select { padding: 7px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-surface); }
+
+/* Outcome-first instruments. Exact values remain in native disclosures. */
+.ic-instrument-label { display: flex; align-items: center; gap: 6px; min-height: 26px; font-size: 12px; }
+.ic-visual-slider { margin: 12px 0 16px; }
+.ic-visual-slider input[type=range] { display: block; width: 100%; height: 28px; margin: 2px 0; padding: 0; cursor: ew-resize; touch-action: none; }
+.ic-slider-ends { display: flex; justify-content: space-between; color: var(--text-secondary); font-size: 11px; }
+.ic-type-presets { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 12px 0 4px; }
+.ic-type-presets button { display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-end; gap: 5px; min-height: 75px; padding: 10px; border: 1px solid var(--border); background: var(--bg-surface); border-radius: 8px; text-align: left; font-size: 11px; }
+.ic-type-presets button:hover { border-color: var(--accent); }
+.ic-precision-panel { border: 1px solid var(--border); border-radius: 7px; margin: 14px 0; }
+.ic-precision-panel summary { padding: 10px; cursor: pointer; color: var(--text-secondary); font-size: 12px; }
+.ic-precision-panel[open] summary { border-bottom: 1px solid var(--border); margin-bottom: 10px; color: var(--text-primary); }
+.ic-precision-panel > .ic-field-grid, .ic-precision-panel > .ic-help { margin: 10px; }
+.ic-transform-precision { margin: 14px 16px; }
+.ic-canvas-tip { display: flex; gap: 6px; align-items: center; font-size: 12px; color: var(--text-secondary); line-height: 1.6; margin-top: 10px; }
+.ic-panel-title .ic-capture { margin-left: auto; padding: 5px 8px; min-height: 30px; color: #d6e9ff; background: #25466d; border: 1px solid #3b608a; font-size: 12px; border-radius: 6px; }
+.ic-compare-take { margin: 8px 12px; min-height: 32px; font-size: 12px; border: 1px solid var(--border); }
+.take-notice:empty { display: none; }
+.take-notice { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%); padding: 10px 18px; border: 1px solid #3b608a; border-radius: 8px; background: #1c3049; color: #d6e9ff; font-size: 13px; pointer-events: none; z-index: 60; box-shadow: 0 4px 20px #0006; }
+.topbar .capture-take { color: #c2dfff; background: #25466d; border-radius: 6px; }
+.ic-font-precision { padding: 0 10px; }
+.ic-type-presets button { min-height: 60px; padding: 8px 10px; gap: 3px; }
+.ic-visual-slider { margin: 8px 0 12px; }
+.ic-visual-slider input[type=range] { height: 24px; }

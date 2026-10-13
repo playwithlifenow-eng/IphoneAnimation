@@ -332,7 +332,7 @@ export const studio = {
       update({ error: String(e) });
     }
   },
-  commitGesture() {
+  commitGesture(label = "Transform selection") {
     const base = gestureBase,
       preview = state.preview;
     gestureBase = null;
@@ -350,7 +350,7 @@ export const studio = {
     }
     replaceDocument(
       { ...preview, revision: state.workspace.document.revision + 1 },
-      "Transform selection",
+      label,
       "gesture",
     );
   },

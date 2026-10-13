@@ -17,7 +17,19 @@ Open `http://127.0.0.1:5173`. `npm run build` also prepares the independent runt
 
 The service is intended for a local, single-user workspace. Keep its default loopback binding. It is not a hosted multi-user service.
 
-## Workspace controls (0.3.0)
+## Milestone 1 — visual authoring (0.3.1)
+
+Select text and drag its right-edge handle to shape the line breaks. The corner handle still resizes the whole frame. The line-length handle also accepts Left/Right arrow keys (Shift for larger steps). Guides show nearby sibling alignment and clearance while you adjust; they do not snap or change the document.
+
+Use typography starting points, then refine **Type size**, **Type weight**, **Rhythm** and **Prominence** with live sliders. Rhythm moves line-height and letter-spacing together; individual values remain in **Typography precision**. **Position & size precision** preserves exact transform entry. Native disclosures start collapsed. Font weight depends on the available font faces.
+
+Every slider drag or held keyboard adjustment is one undoable gesture. Escape cancels, including continued movement until release. Profile tags, key diamonds and signal badges remain available on visual controls. Mobile edits fork inherited motion/signal ownership without altering Desktop.
+
+**Capture Take** in the header or Inspector immediately preserves the direction with an automatic name. Compare with the latest Take from the Inspector, or restore/compare in Takes. Optional **Capture a named Take…** retains the naming workflow. Captures preserve document state; they are not rendered thumbnails.
+
+Milestone 1 technical verification and Matt's Windows-laptop creative acceptance are separate. The 30-second scenario is guidance, never a speed gate. Advanced 3D work follows resolution of significant usability problems; the long-term architecture is retained in the master plan.
+
+## Workspace controls
 
 The graphite workspace has a single 44px header. Workspace tabs live in the left panel; feedback/help and the version are under the question-mark menu. Panel buttons in the header hide/show Layers and Inspector. Drag their dividers to resize, or focus a divider and use arrow keys. Choreography has its own resize divider and Collapse/Expand button. These preferences survive reloads independently of your composition.
 
@@ -46,7 +58,7 @@ For an already installed Windows checkout, stop the current Studio server before
 
 ## Boundaries of this checkpoint
 
-This is implementation progress toward the broad V1, **not the completed V1 acceptance gate**. Work remains within BUILD_NOW:
+This is implementation progress toward broad V1. Milestone 1 is the immediate creative-use checkpoint, **not the completed V1 acceptance gate**. The following scope remains preserved and sequenced after that checkpoint:
 
 - Coordinated pose/cue editing, 3D paths and richer camera controls. Current handles edit page/freeform-section X/Y tracks; spline tangents and nested coordinate spaces remain unimplemented.
 - Connector routing/style controls and scene-space probes. Current connectors join frame centres. Evaluate measures DOM frame bounds and alignment/clearance; it does not infer 3D occlusion or perceptual quality.

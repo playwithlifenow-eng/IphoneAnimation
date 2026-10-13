@@ -20,6 +20,7 @@ import {
 } from "./model";
 import { measurePage, type BoundsProbe } from "./probes";
 import { pageLayout, sectionSignals } from "./composition";
+import { nearbyGuides } from "./visualGeometry";
 import { clocksOf } from "./model";
 const SceneView = lazy(() => import("./SceneView"));
 import "./runtime.css";
@@ -34,6 +35,8 @@ interface PageProps {
   sceneInteractive?: boolean;
   sceneNavigation?: "model" | "camera";
   navigationTool?: boolean;
+  showGuides?: boolean;
+  onVisualChange?: (entity: Entity, props: Props) => void;
   orbitSensitivity?: number;
   viewportHeight?: number;
   onBackground?: () => void;
@@ -42,7 +45,7 @@ interface PageProps {
   onPointerDown?: (
     event: PointerEvent<HTMLElement>,
     entity: Entity,
-    resize?: boolean,
+    resize?: boolean | "width",
   ) => void;
   onText?: (entity: Entity, text: string) => void;
   onSceneChange?: (entity: Entity, props: Props) => void;
@@ -58,6 +61,8 @@ export function PageRenderer({
   sceneInteractive = false,
   sceneNavigation = "model",
   navigationTool = false,
+  showGuides = false,
+  onVisualChange,
   orbitSensitivity,
   viewportHeight,
   onBackground,
@@ -118,8 +123,11 @@ export function PageRenderer({
   const [boxes, setBoxes] = useState<BoundsProbe[]>([]);
   const hasConnectors = d.relationships.some((r) => r.connector);
   useLayoutEffect(() => {
-    if (hasConnectors) setBoxes(measurePage(pageRef.current));
-  }, [d, profileId, time, JSON.stringify(signals), hasConnectors]);
+    if (hasConnectors || (editor && showGuides)) setBoxes(measurePage(pageRef.current));
+  }, [d, profileId, time, JSON.stringify(signals), hasConnectors, editor, showGuides]);
+  const selectedEntity = d.entities.find(e => e.id === selection[0]);
+  const guides = editor && showGuides && selection.length === 1 && selectedEntity
+    ? nearbyGuides(boxes, selectedEntity.id, new Set(d.entities.filter(e => e.parentId === selectedEntity.parentId && e.kind !== "section").map(e => e.id))) : [];
   const render = (e: Entity) => {
     const p = evaluateEntity(d, e, profile.id, time, signals);
     if (p.visible === false) return null;
@@ -293,6 +301,17 @@ export function PageRenderer({
               aria-label={`Resize ${e.name}`}
               onPointerDown={(ev) => onPointerDown?.(ev, e, true)}
             />
+            {e.kind === "text" && <button
+              className="text-measure-handle"
+              aria-label={`Adjust line length of ${e.name}`}
+              title="Drag to shape line breaks"
+              onPointerDown={(ev) => onPointerDown?.(ev, e, "width")}
+              onKeyDown={ev => {
+                if (ev.key !== "ArrowLeft" && ev.key !== "ArrowRight") return;
+                ev.preventDefault(); ev.stopPropagation();
+                onVisualChange?.(e, { width: Math.max(24, num(p, "width", 200) + (ev.key === "ArrowRight" ? 1 : -1) * (ev.shiftKey ? 24 : 8)) });
+              }}
+            ><span /></button>}
           </>
         )}
       </div>
@@ -319,7 +338,7 @@ export function PageRenderer({
       data-profile={profile.id}
       style={{ width: profile.width, height: layout.height, overflow: editor ? "hidden" : "clip" }}
       onPointerDownCapture={(ev) => {
-        if (!editor || navigationTool || (ev.target as HTMLElement).closest("[data-section-controls],.resize-handle,.scene-status-error button")) return;
+        if (!editor || navigationTool || (ev.target as HTMLElement).closest("[data-section-controls],.resize-handle,.text-measure-handle,.scene-status-error button")) return;
         const target = pick(ev.clientX, ev.clientY, ev.altKey);
         if (target?.kind === "scene" && sceneInteractive && selection.includes(target.id)) { ev.stopPropagation(); orbitHandlers.current.get(target.id)?.(ev.nativeEvent); return; }
         if ((ev.target as HTMLElement).isContentEditable && document.activeElement === ev.target && target?.id === selection[0]) return;
@@ -373,6 +392,9 @@ export function PageRenderer({
         </svg>
       )}
       {d.entities.filter((e) => !e.parentId).map(render)}
+      {guides.length > 0 && <svg className="canvas-guides" width={profile.width} height={layout.height} aria-hidden="true">
+        {guides.map((guide, index) => <line key={index} {...guide} className={`guide-${guide.kind}`} vectorEffect="non-scaling-stroke" />)}
+      </svg>}
     </div>
   );
 }

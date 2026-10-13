@@ -20,6 +20,8 @@ export interface InspectorProps {
   onPatch: (values: Props) => void;
   onBatch: (commands: Command[], label: string) => void;
   onSeekTrack: (time: number, clockId: string) => void;
+  onCaptureTake: () => void;
+  onCompareTake?: () => void;
 }
 export interface TimelineProps {
   document: StudioDocument;

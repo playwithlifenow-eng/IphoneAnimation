@@ -23,6 +23,7 @@ import { effectiveTrack } from "./editing";
 import { capabilityEnvelope } from "./capabilities";
 import { COMPONENTS } from "./seed";
 import "./controls.css";
+import { VisualSlider } from "./VisualSlider";
 
 /** Numeric fields retain incomplete input locally; the document only receives finite numbers. */
 export function NumberField({
@@ -152,6 +153,8 @@ export function Inspector({
   onPatch,
   onBatch,
   onSeekTrack,
+  onCaptureTake,
+  onCompareTake,
 }: InspectorProps) {
   const [tab, setTab] = useState<"design" | "motion">("design");
   const [signalProperty, setSignalProperty] = useState("rotateY");
@@ -233,15 +236,14 @@ export function Inspector({
           ...(isText ? ["fontSize", "letterSpacing"] : []),
         ];
   const patch = (key: string, value: Value) => onPatch({ [key]: value });
-  const number = (key: string, label: string, fallback = 0, min?: number, max?: number, step = 1, suffix?: string) => {
+  const badges = (key: string, label: string) => {
     const owner = ownerOf(doc, entity, key, profileId);
     const track = owner === "track" ? effectiveTrack(doc, entity, key, profileId) : undefined;
     const binding = owner === "signal" ? (doc.bindings.find(b => b.entityId === entity.id && b.property === key && b.profileId === profileId) ?? doc.bindings.find(b => b.entityId === entity.id && b.property === key && b.profileId === "base")) : undefined;
     const at = track ? clockTime(doc, track.clockId, playhead, signals) : 0;
     const keyed = track?.keys.some(k => Math.abs(k.time - at) < .0001);
     const overridden = scope !== "base" && (Object.hasOwn(entity.overrides[scope] ?? {}, key) || doc.tracks.some(t => t.entityId === entity.id && t.property === key && t.profileId === scope) || doc.bindings.some(b => b.entityId === entity.id && b.property === key && b.profileId === scope));
-    return <NumberField key={key} label={label} value={num(values, key, fallback)} min={min} max={max} step={step} suffix={suffix}
-      onChange={value => patch(key, value)} badges={<span className="property-badges">
+    return <span className="property-badges">
         {overridden && <button type="button" className="property-scope" aria-label={`Inherit base ${label}`} title={`Reset ${label}: remove this profile’s value, animation and signal overrides; inherit base`}
           onClick={() => onBatch([
             { type: "reset-override", id: entity.id, scope, property: key },
@@ -251,8 +253,11 @@ export function Inspector({
         {track && <button type="button" className={`property-key ${keyed ? "at-key" : ""}`} aria-label={`Go to nearest ${label} key`} title={keyed ? "Key at this position" : "Animated · go to nearest key"}
           onClick={() => { const key = [...track.keys].sort((a,b) => Math.abs(a.time-at)-Math.abs(b.time-at))[0]; if(key) onSeekTrack(key.time, track.clockId ?? "page"); }}><Diamond size={13} fill={keyed ? "currentColor" : "none"} /></button>}
         {binding && <button type="button" className="property-signal" title={`Driven by ${binding.source}; edits offset its mapping`} aria-label={`${label} driven by ${binding.source}`} onClick={() => setTab("motion")}>~ {binding.source}</button>}
-      </span>} />;
+      </span>;
   };
+  const number = (key: string, label: string, fallback = 0, min?: number, max?: number, step = 1, suffix?: string) =>
+    <NumberField key={key} label={label} value={num(values, key, fallback)} min={min} max={max} step={step} suffix={suffix}
+      onChange={value => patch(key, value)} badges={badges(key, label)} />;
   const text = (key: string, label: string, fallback = "") => (
     <label className="ic-text-field">
       <span>{label}</span>
@@ -322,7 +327,7 @@ export function Inspector({
       <div className="ic-panel-title">
         <SlidersHorizontal size={15} />
         <span>Inspector</span>
-        <span className="ic-kind">{entity.kind}</span>
+        <button type="button" className="ic-capture" onClick={onCaptureTake} title="Preserve this direction without a naming dialog">Capture Take</button>
       </div>
       <div className="ic-entity-heading">
         <input
@@ -367,6 +372,7 @@ export function Inspector({
           )}
         </button>
       </div>
+      {onCompareTake && <button type="button" className="ic-compare-take" onClick={onCompareTake}>Compare with latest Take</button>}
       <div className="ic-scroll">
         {tab === "design" ? (
           <>
@@ -386,40 +392,60 @@ export function Inspector({
               {values.pin === true && number("scrollVh", "Scroll distance", 100, 10, 1000, 10, "vh")}
               <p className="ic-help">Section height is the visible frame. Scroll distance adds travel while that frame stays pinned. Reorder sections in Layers.</p>
             </Section>}
-            <Section title={entity.kind === "section" ? "Appearance" : "Transform"}>
-              <div className="ic-field-grid">
-                {entity.kind !== "section" && <>
-                  {number("x", "X", 0, undefined, undefined, 1, "px")}
-                  {number("y", "Y", 0, undefined, undefined, 1, "px")}
-                  {number("width", "Width", 320, 1, 10000, 1, "px")}
-                  {number("height", "Height", 200, 1, 10000, 1, "px")}
-                </>}
-                {entity.kind !== "section" && number(
-                  "rotation",
-                  "Rotation",
-                  0,
-                  undefined,
-                  undefined,
-                  1,
-                  "°",
-                )}
-                {number("opacity", "Opacity", 1, 0, 1, 0.05)}
-              </div>
-              <label className="ic-check">
-                <input
-                  type="checkbox"
-                  checked={values.visible !== false}
-                  onChange={(event) => patch("visible", event.target.checked)}
-                />
-                Visible in composition
-              </label>
-            </Section>
-            {entity.kind !== "section" && <Section title="Motion offset">
-              <div className="ic-field-grid">{number("translateX", "Page offset X", 0)}{number("translateY", "Page offset Y", 0)}{number("visualScale", "Visual scale", 1, 0.01, 100, 0.1)}</div>
-              <p className="ic-help">Offsets move the rendered element without changing its place in a stack. Signal edits offset the mapping; animated edits follow the mode shown in Choreography.</p>
-            </Section>}
             {isText && (
-              <Section title="Content">
+              <Section title="Typography">
+                <div className="ic-type-presets" role="group" aria-label="Typography starting points">
+                  {[
+                    { name: "Display Hero", size: 86, weight: 500, height: .99, tracking: -.05, sample: 28 },
+                    { name: "Cinematic Title", size: 64, weight: 500, height: 1.08, tracking: -.035, sample: 23 },
+                    { name: "Editorial Lead", size: 36, weight: 400, height: 1.2, tracking: -.015, sample: 19 },
+                    { name: "Body", size: 18, weight: 400, height: 1.5, tracking: 0, sample: 15 },
+                  ].map(preset => <button type="button" key={preset.name} onClick={() => onPatch({ fontSize: preset.size, fontWeight: preset.weight, lineHeight: preset.height, letterSpacing: preset.size * preset.tracking })}>
+                    <span aria-hidden="true" style={{ fontSize: preset.sample, fontFamily: str(values, "fontFamily", "Arial"), fontWeight: preset.weight }}>Aa</span>
+                    <span>{preset.name}</span>
+                  </button>)}
+                </div>
+                <p className="ic-help">Choose a starting point, then shape it freely.</p>
+                <VisualSlider key={`${entity.id}:${profileId}:size`} label="Type size" value={num(values, "fontSize", 16)} min={8} max={500} step={1}
+                  from="Small" to="Large" onChange={value => patch("fontSize", value)} badges={badges("fontSize", "Type size")} />
+                <VisualSlider key={`${entity.id}:${profileId}:weight`} label="Type weight" value={num(values, "fontWeight", 400)} min={100} max={900} step={100}
+                  from="Light" to="Bold" onChange={value => patch("fontWeight", value)} badges={badges("fontWeight", "Type weight")} />
+                <VisualSlider key={`${entity.id}:${profileId}:rhythm`} label="Rhythm" value={(num(values, "lineHeight", 1.2) - .95) / .75} min={0} max={1} step={.01}
+                  from="Tight" to="Airy" onChange={value => onPatch({ lineHeight: .95 + value * .75, letterSpacing: num(values, "fontSize", 16) * (-.05 + value * .09) })}
+                  badges={<>{badges("lineHeight", "Rhythm line spacing")}{badges("letterSpacing", "Rhythm letter spacing")}</>}
+                  help="Moves line spacing and letter spacing together. Adjust them separately in Typography precision." />
+                <details className="ic-precision-panel" key={`${entity.id}:type-precision`}>
+                  <summary>Typography precision</summary>
+                  <div className="ic-font-precision">{text("fontFamily", "Font family", "Arial, sans-serif")}</div>
+                  <div className="ic-field-grid">
+                    {number("fontSize", "Font size", 16, 1, 500, 1, "px")}
+                    {number("fontWeight", "Weight", 400, 100, 900, 100)}
+                    {number("lineHeight", "Line height", 1.2, .1, 5, .05)}
+                    {number("letterSpacing", "Tracking", 0, -30, 100, .1, "px")}
+                  </div>
+                </details>
+                <label className="ic-select-field">
+                  <span>Alignment</span>
+                  <select
+                    aria-label="Text alignment"
+                    value={str(values, "textAlign", "left")}
+                    onChange={(event) => patch("textAlign", event.target.value)}
+                  >
+                    <option value="left">Left</option>
+                    <option value="center">Centre</option>
+                    <option value="right">Right</option>
+                  </select>
+                </label>
+              </Section>
+            )}
+            <Section title="Presence">
+              <VisualSlider key={`${entity.id}:${profileId}:opacity`} label="Prominence" value={num(values, "opacity", 1)} min={0} max={1} step={.01}
+                from="Transparent" to="Solid" onChange={value => patch("opacity", value)} badges={badges("opacity", "Prominence")} />
+              <label className="ic-check"><input type="checkbox" checked={values.visible !== false} onChange={event => patch("visible", event.target.checked)} />Visible in composition</label>
+              {entity.kind === "text" && <div className="ic-canvas-tip"><span>Drag the right-edge handle to shape line breaks.</span>{badges("width", "Line length")}</div>}
+            </Section>
+            {isText && (
+              <details className="ic-precision-panel ic-transform-precision"><summary>Edit copy</summary><Section title="Content">
                 {entity.kind === "component" && text("title", "Title")}
                 <label className="ic-text-field">
                   <span>
@@ -441,31 +467,25 @@ export function Inspector({
                   </p>
                 )}
                 {entity.kind === "button" && text("href", "Destination URL")}
-              </Section>
+              </Section></details>
             )}
-            {isText && (
-              <Section title="Typography">
-                {text("fontFamily", "Font family", "Arial, sans-serif")}
-                <div className="ic-field-grid">
-                  {number("fontSize", "Font size", 16, 1, 500, 1, "px")}
-                  {number("fontWeight", "Weight", 400, 100, 900, 100)}
-                  {number("lineHeight", "Line height", 1.2, 0.1, 5, 0.05)}
-                  {number("letterSpacing", "Tracking", 0, -30, 100, 0.1, "px")}
-                </div>
-                <label className="ic-select-field">
-                  <span>Alignment</span>
-                  <select
-                    aria-label="Text alignment"
-                    value={str(values, "textAlign", "left")}
-                    onChange={(event) => patch("textAlign", event.target.value)}
-                  >
-                    <option value="left">Left</option>
-                    <option value="center">Centre</option>
-                    <option value="right">Right</option>
-                  </select>
-                </label>
-              </Section>
-            )}
+            <details className="ic-precision-panel ic-transform-precision" key={`${entity.id}:transform-precision`}>
+              <summary>Position &amp; size precision</summary>
+              <div className="ic-field-grid">
+                {entity.kind !== "section" && <>
+                  {number("x", "X", 0, undefined, undefined, 1, "px")}
+                  {number("y", "Y", 0, undefined, undefined, 1, "px")}
+                  {number("width", "Width", 320, 1, 10000, 1, "px")}
+                  {number("height", "Height", 200, 1, 10000, 1, "px")}
+                  {number("rotation", "Rotation", 0, undefined, undefined, 1, "°")}
+                  {number("translateX", "Page offset X", 0)}
+                  {number("translateY", "Page offset Y", 0)}
+                  {number("visualScale", "Visual scale", 1, .01, 100, .1)}
+                </>}
+                {number("opacity", "Opacity", 1, 0, 1, .05)}
+              </div>
+              <p className="ic-help">Animation and signal edits keep their current owner. Use Choreography to choose key or offset editing.</p>
+            </details>
             {isMedia && (
               <Section
                 title={entity.kind === "video" ? "Video" : "Image source"}
@@ -592,10 +612,10 @@ export function Inspector({
             <Section title="Appearance">
               {isText && colour("color", "Text colour", "#233a30")}
               {colour("background", "Fill", "#ecebe4")}
-              <div className="ic-field-grid">
+              <details className="ic-precision-panel"><summary>Shape precision</summary><div className="ic-field-grid">
                 {number("radius", "Corner radius", 0, 0, 1000, 1, "px")}
                 {number("padding", "Padding", 0, 0, 1000, 1, "px")}
-              </div>
+              </div></details>
             </Section>
             {(entity.kind === "frame" || entity.kind === "section") && (
               <Section title="Child layout">
@@ -634,7 +654,7 @@ export function Inspector({
                 )}
               </Section>
             )}
-            <Section title="Capability envelope">
+            <details className="ic-precision-panel ic-transform-precision"><summary>Capabilities &amp; limits</summary><Section title="Capability envelope">
               <div className="ic-capabilities">
                 {envelope.supported.map((c) => (
                   <span key={c}>{c}</span>
@@ -647,9 +667,9 @@ export function Inspector({
               <p className="ic-help">
                 Unavailable: {envelope.unavailable.join("; ")}.
               </p>
-            </Section>
+            </Section></details>
             {scope !== "base" && (
-              <Section
+              <details className="ic-precision-panel ic-transform-precision"><summary>Profile override details</summary><Section
                 title={`${profileName} overrides`}
                 action={
                   <button
@@ -705,7 +725,7 @@ export function Inspector({
                     )}
                   </div>
                 )}
-              </Section>
+              </Section></details>
             )}
           </>
         ) : (
@@ -713,8 +733,8 @@ export function Inspector({
             <Section title="Property ownership">
               <p className="ic-help">
                 Static fields use base values or profile overrides. Tracked
-                numeric fields edit a key at the playhead. Signal-owned fields
-                are locked until their binding is removed.
+                numeric fields edit a key at the playhead. Signal-owned edits
+                offset the mapping while preserving its range.
               </p>
               {ownedTracks.length === 0 && ownedBindings.length === 0 && (
                 <p className="ic-notice">

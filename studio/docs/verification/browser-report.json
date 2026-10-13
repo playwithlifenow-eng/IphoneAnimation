@@ -1,7 +1,15 @@
 {
-  "verifiedAt": "2026-10-12T17:50:37.721Z",
+  "verifiedAt": "2026-10-12T21:12:22.017Z",
   "checks": [
     "Editor and original GLB load",
+    "M1: text Inspector has no visible numeric inputs; laptop header fits",
+    "M1: width handle rewraps real text at zoom; height/copy preserved; one undo; Escape and keyboard work",
+    "M1: rotated/scaled text measure follows its actual CSS edge transform",
+    "M1: typography presets and coupled rhythm are atomic; live sliders cancel even if pointer keeps moving",
+    "M1: mobile rhythm and measure fork inherited tracks/signals; ownership badges and undo preserve base",
+    "M1: header/Inspector capture immediately, snapshots stay immutable, comparison and save/reopen preserve changes",
+    "M1: independent exported runtime matches visual typography, opacity and mobile measure; no editor controls",
+    "M1: captured direction restores through the existing Take workflow",
     "1366×768 compact header, panel collapse persistence and pointer/keyboard panel resizing",
     "Numeric scrubbing is live, one undoable change, and cancellable with Escape",
     "Responsive animation badges coexist; inherit-base is reversible and keys navigate their clock",
@@ -33,7 +41,7 @@
     "No browser console errors or uncaught exceptions"
   ],
   "errors": [],
-  "browser": "153.0.8010.0",
+  "browser": "140.0.7339.186",
   "viewport": {
     "width": 1512,
     "height": 982

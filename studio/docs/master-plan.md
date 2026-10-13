@@ -1,21 +1,25 @@
 # iGlass Composition Studio — authoritative master build plan
 
 **Decision edition: 28 September 2026 · workspace revision: 12 October 2026**
-**Status: adopted specification and execution plan. Broad integrated V1 is BUILD_NOW.**
+**Status: adopted specification. Creative-workflow amendment: 12 October 2026. Milestone 1 is the immediate build; broad V1 remains the product destination.**
 
-This consolidated plan replaces the previous execution sequence and the separate strategy reassessment. It preserves the established authoring, runtime, creative, evidence, experimental, knowledge, island, recombination and promotion architecture. Superseded one-instrument release gates and calendar allocations have been removed. No other document is needed to decide which build strategy is operative.
+This consolidated plan replaces the previous execution sequence and the separate strategy reassessment. It preserves the established authoring, runtime, creative, evidence, experimental, knowledge, island, recombination and promotion architecture. The creative-workflow amendment below supersedes the earlier broad-V1-first execution priority. The original calendar allocations remain superseded. No other document is needed to decide which build strategy is operative.
 
 **Quick navigation:** [Direction](#1-executive-direction) · [Creative scope](#46-integrated-v1-workspace) · [Architecture](#2-revised-ontology-and-complete-architecture) · [Commitments](#18-operative-subsystem-commitment-matrix) · [Sequence](#19-authoritative-execution-sequence) · [Ownership](#21-delegation-interfaces-and-integration-ownership) · [Acceptance](#23-integrated-v1-acceptance-and-later-expansion).
 
 ## 1. Executive direction
 
+**Governing principle: a visual environment where creativity develops faster than Matt can describe it in words.** Build outcome-first instruments: see, manipulate, compare, retain. Technical quantities remain precise underneath and available on demand. Replacing number fields with sliders alone does not satisfy this principle.
+
+**12 October creative-workflow decision:** retain the working foundation and the complete product/research scope; first complete and validate the Milestone 1 DOM workflow in §19. Improve representations through real use before expanding advanced 3D. Existing connected capabilities remain available. Technical completion, Matt's perceptual acceptance and release remain separate states.
+
 Build an integrated personal visual composition environment where Matt discovers layout, copy, DOM/2D/3D relationships, appearance, motion and responsive art direction through direct manipulation. AI builds and adapts the machinery; Matt retains perceptual authority. The architecture should let accepted compositions and instruments be pruned, reshaped and extended without losing their meaning or history.
 
-Product definition is mature enough for a broad V1. Interaction representations and integration details remain subject to use and testing. This is a reason to build a recoverable, inspectable workspace, not to rediscover each documented requirement through one Hero task at a time.
+Product definition is mature enough to retain broad V1 scope while validating the immediate creative workflow. Interaction representations and integration details remain subject to use and testing. This is a reason to build a recoverable, inspectable workspace, not to rediscover each documented requirement through one Hero task at a time.
 
 Adopt four responsibilities—create, observe, experiment, remember/promote—in one application and a small local service. Shared document identity, commands, ownership, persistence and export are early technical dependencies. Complete replay, a universal runtime graph and an autonomous laboratory are not.
 
-The first release spans seven connected surfaces: composition; copy; components; scene/appearance; pose/path/choreography; responsive art direction; Takes/comparison/discovery. Build them through small integrated changes. A first end-to-end command is an internal foundation check, not the intended product release.
+The broad V1 destination spans seven connected surfaces: composition; copy; components; scene/appearance; pose/path/choreography; responsive art direction; Takes/comparison/discovery. Build them through small integrated changes. A first end-to-end command is an internal foundation check, not the intended product release.
 
 The existing Hero works and Matt is happy with its result. Preserve it as an accepted system, reusable machinery and a regression fixture. Validate the Studio against it and other composition classes. Do not assume it needs repair, redesign or a new pain-point interview.
 
@@ -41,7 +45,7 @@ Earlier 19 September archive/source observations remain historical evidence, not
 ### 1.2 Implementation doctrine and decisions
 
 - Use the complete product specification as the primary brief. Consult history selectively for missing source, exact decisions or regression cases.
-- Build broad creative scope with small implementation increments, stable interfaces and frequent integration.
+- Preserve broad creative scope; sequence small integrated increments around complete, human-validated creative workflows.
 - Preserve a single authoritative semantic document; derived runtime, observation and experimental copies do not gain competing authority.
 - Choose reasonable reversible defaults. Ask Matt only when a decision materially changes the objective/product, is costly to reverse, or needs specific information unavailable from accessible evidence.
 - Keep feedback and basic evidence native. Expand capture depth when an actual question needs it.
@@ -319,6 +323,17 @@ Meaningful actions such as Reveal, Move, Rotate and Scale generate ordinary prop
 Recovery copies are independent per writer. A server version conflict must preserve both versions, and failure of both persistence routes must be reported as unsaved. Recovery UI provides identifiable copies and an explicit path to reopen them. No failure message may claim an unverified recovery save.
 
 ### 4.6.2 Operative workspace design
+
+**Milestone 1 creative instruments (operative amendment):**
+- A selected text element exposes a generous right-edge line-length handle. Width changes live without implicitly changing height or copy; respect zoom, transforms, property ownership, active profile and gesture cancellation.
+- Typography offers visual starting points and continuous adjustment of size, weight and rhythm. Presets are editable suggestions, not a restricted design vocabulary. Coupled rhythm is a transparent authoring macro over existing line-height/tracking values, with independent precision available.
+- Opacity is a visible slider. Transform and typography quantities live in collapsed, clearly labelled precision disclosure. Keep responsive inheritance and track/signal ownership accessible on visual instruments. Do not remove a capability before a practical replacement or discoverable precision escape exists.
+- Capture a Take directly from the header or Inspector without a naming dialog. Automatic names, immediate confirmation, existing comparison and optional naming remain available. A Take is a document snapshot, not a claimed rendered screenshot.
+- Navigation remains trackpad-first: native two-finger pan, pinch zoom, H hand tool, middle-button drag. Space remains playback. Show bounded alignment/clearance guidance without secretly changing layout or creating relationships.
+- Preserve one authoritative document, command transactions, undo/redo, responsive isolation, save/reopen and runtime parity. No dependency upgrade or new 3D rendering system belongs in this milestone.
+
+The following workspace mechanics remain the foundation; their numeric controls are the precision layer:
+
 
 Use one compact 44px header for project/save state, selection, pan, model turntable, camera orbit, paths, responsive profile, zoom, undo/redo, panel visibility, Takes and export. Put workspace navigation in the left panel rather than a second full-width navigation row. A contextual strip may show rotation sensitivity or live input preview only when relevant. Feedback and help stay accessible through the project-actions menu.
 
@@ -1145,7 +1160,7 @@ Neither algorithm may alter protected relationships or define “premium” by p
 
 ## 18. Operative subsystem commitment matrix
 
-**BUILD_NOW means the broad integrated V1, not a single-instrument demonstration.** The scope is a coherent creative session across composition, copy, components, scene/appearance, pose/choreography, responsive art direction and Takes/discovery. Development proceeds in small integrated changes. A foundation demonstration is an internal check, not the release target.
+**Broad V1 remains the destination; Milestone 1 is the immediate BUILD_NOW priority.** The scope is a coherent creative session across composition, copy, components, scene/appearance, pose/choreography, responsive art direction and Takes/discovery. Development proceeds in small integrated changes. A foundation demonstration is an internal check, not the release target.
 
 | Subsystem | Commitment | Required V1 outcome / later admission condition |
 |---|---|---|
@@ -1190,29 +1205,33 @@ Neither algorithm may alter protected relationships or define “premium” by p
 | General bidirectional native Framer conversion | NOT A V1 PROMISE | Requires its own supported mapping and actual round-trip evidence |
 | Distributed lab / CRDT / cloud multi-user platform | DEFER | Preserve future seams; require an actual workload or collaboration need |
 
+The table preserves the original subsystem commitments; it does not instruct simultaneous completion before human use. Current executable sequence and status:
+
+| Capability | Source baseline | Immediate decision |
+|---|---|---|
+| Commands, ownership, history, profiles, persistence, runtime | Implemented foundation in alpha 0.3.0 | Preserve and regression-check |
+| Pan/zoom, hand tool, collapsible panels, generic resize | Implemented | Reuse; extend text measure |
+| Text measure, visual type/rhythm, opacity, progressive disclosure | Implemented in alpha 0.3.1 | Technical verification recorded; human usability pending |
+| Takes, automatic-name backend, A/B | One-click access implemented in alpha 0.3.1 | Human workflow validation pending |
+| Mesh-specific appearance, richer optics/cameras | Partial/missing | Subsequent visual 3D milestone |
+| StoryBeats | Missing authoring abstraction | Subsequent choreography milestone; compile to authoritative tracks |
+| Discovery Deck, controlled candidates and AI exploration/handoff | Partial/missing | Subsequent discovery milestones |
+| Experimental islands, knowledge, recombination and evolution | Preserved research | Conditional expansion; never a prerequisite to creative use |
+
 All statuses are implementation commitments, not completion claims. Move a status only with a recorded reason. The long-term experimental, island, recombination, knowledge and promotion architecture in §§10–16 remains part of this specification.
 
 ## 19. Authoritative execution sequence
 
-### 19.1 Dependency model
+### 19.1 Operative workflow-first sequence
 
-Build breadth and integration granularity are separate decisions. Shared identity, commands, ownership, persistence and renderer contracts are load-bearing. Panel polish, comprehensive recording, an autonomous laboratory and perfect final interactions are not global gates.
+1. **Milestone 1 — DOM creative workflow:** select text → drag its line length → explore type/rhythm and opacity → one-click Take → compare → adjust Mobile independently → save/reopen/export. Implement the width interaction first, record a working browser checkpoint, then complete the connected instruments. A checkpoint is evidence and a review opportunity, not an automatic interruption of authorised work.
+2. **Human use:** Matt tries the working flow on his Windows laptop. Resolve significant usability problems before advancing to advanced 3D. The proposed 30-second target is diagnostic guidance, never a rigid pass/fail rule. Test creative exploration and recovery, not only a rehearsed sequence.
+3. **Visual 3D staging:** inspect actual asset hierarchy first; generic mesh targeting, camera/framing and perceptual appearance controls. Preserve imported materials; selectively extend only where evidence warrants it. Three 0.158.0 remains pinned in Milestone 1; later environment-rotation work needs a compatible implementation or a tested Studio-only upgrade.
+4. **StoryBeats:** coordinated DOM/3D moments compile through normal commands to existing tracks. No competing runtime state engine.
+5. **Discovery and AI:** grow immediate Takes/comparison into bounded alternatives, locks, combined DOM/WebGL previews and safe recombination. AI proposes possibilities throughout exploration and handles production handoff; Matt retains creative authority.
+6. **Conditional expansion:** preserve knowledge, islands, four manifests, agent testing, recombination and evolutionary research. Implement when the working creative loop demonstrates a need.
 
-```mermaid
-flowchart TD
-    R["E0: refresh technical reality"] --> S["E1: shared editing substrate"]
-    S --> C["E2: connected creative surfaces"]
-    S --> D["Runtime and host delivery"]
-    C --> V["E3: integrated V1"]
-    D --> V
-    V --> U["E4: use and adaptation"]
-    U --> A["E5–E6: bounded assistance and experiments"]
-    U --> X["E7: creative extensions"]
-    A --> I["E8: conditional evolutionary search"]
-    X --> I
-```
-
-E0 is a task-specific reconnaissance activity, not a waiting room. Known-independent substrate work may start while an inaccessible host check remains pending. Delivery starts during E1 and continues throughout E2. Matt may use connected capabilities before the entire V1 checklist is complete.
+The original engineering work packages E0–E8 below remain useful dependency descriptions. Their numbering no longer imposes broad V1 completion before real-use feedback. E4 begins during Milestone 1. Broader E2/E3 work resumes according to the sequence above; missing host access blocks only its host-specific claim.
 
 ### E0 — Refresh technical reality
 
@@ -1228,7 +1247,7 @@ This is an architecture check inside the broad build. It is not a one-instrument
 
 ### E2 — Build the connected creative workspace
 
-Build all seven surfaces in §4.6 against E1 contracts. Composition/copy, scene/appearance, pose/choreography, Takes/evidence and component/delivery work may progress in parallel where ownership is independent. Keep selection, responsive scope, commands, clocks and history shared. Integrate continuously with ordinary DOM, mixed DOM/3D and existing-component fixtures.
+Continue the seven surfaces in §4.6 against E1 contracts in the operative milestone order above. Composition/copy, scene/appearance, pose/choreography, Takes/evidence and component/delivery work may progress in parallel where ownership is independent. Keep selection, responsive scope, commands, clocks and history shared. Integrate continuously with ordinary DOM, mixed DOM/3D and existing-component fixtures.
 
 Evaluate, capability declarations and Takes accompany the instruments. Capture is proportional to the interaction. Do not require full video, GPU capture or perfect stateful replay before useful controls can ship.
 
@@ -1377,6 +1396,18 @@ Uncertainty is resolved at the smallest relevant boundary. It is not a reason to
 
 ## 23. Integrated V1 acceptance and later expansion
 
+### Milestone 1 technical and human acceptance
+
+- [x] Text measure changes wrapping directly, including non-default zoom and transformed parents, without an unintended height/copy edit.
+- [x] Visual typography, rhythm and opacity support live feedback, single-gesture undo, cancellation and profile/track/signal ownership.
+- [x] Precision remains discoverable but is collapsed by default; meaningful editing requires no numeric coordinates.
+- [x] One-click automatic-name Take capture, comparison, restore and persistence work.
+- [x] Mobile adjustments preserve Desktop/base; save/reopen and runtime export preserve the visual result.
+- [x] Browser and invariant checks verify the command-to-render-to-storage flow and existing supported behaviour.
+- [ ] Matt validates trackpad feel and creative freedom on his Windows laptop; significant usability problems are resolved before advanced 3D begins.
+
+The 30-second scenario is an optional observation, not an acceptance threshold. Automated success cannot mark the human acceptance item complete.
+
 ### Broad V1
 
 - [ ] One shared semantic document and validated command boundary span all creative surfaces.
@@ -1420,7 +1451,7 @@ V1 implements this loop at practical fidelity across the workspace. Additional c
 
 ## 24. Operative build directive
 
-**Build the broad integrated Studio V1 now.** Use the established product specification, preserve the working Hero, and reuse existing machinery through explicit adapters. Start with shared authoring/command/persistence/runtime semantics and immediately build the connected creative surfaces against them.
+**Build and validate Milestone 1 now, preserving broad integrated V1 as the destination.** Use the established product specification, preserve the working Hero, and reuse existing machinery through explicit adapters. Reuse the implemented authoring/command/persistence/runtime semantics. First deliver the complete visual DOM workflow in §19; record the width-interaction checkpoint and complete the remaining authorised Milestone 1 work. Resolve significant human-reported usability issues before advanced 3D expansion.
 
 Make reversible decisions without another general requirements interview. Inspect historical material only to answer a specific missing question or obtain a fixture. Do not wait for Framer or Vercel unless the current task requires the real host or deployment service.
 

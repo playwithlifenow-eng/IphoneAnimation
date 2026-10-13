@@ -50,6 +50,9 @@
 .editable.selected { outline-color: var(--accent); }
 .selection-label { background: #2460a3; }
 .resize-handle { border-color: var(--accent); background: #d5e9ff; width: 12px; height: 12px; }
+.text-measure-handle { position: absolute; right: -18px; top: 50%; width: 36px; height: 64px; transform: translateY(-50%); display: grid; place-items: center; padding: 0; border: 0; background: transparent; cursor: ew-resize; z-index: 8; touch-action: none; }
+.text-measure-handle span { width: 8px; height: 38px; border: 2px solid #9bc9ff; border-radius: 8px; background: #2460a3; box-shadow: 0 1px 5px #0005; }
+.text-measure-handle:hover span, .text-measure-handle:focus-visible span { background: #d5e9ff; border-color: #2460a3; }
 .workspace-resizer { background: var(--bg-panel); position: relative; touch-action: none; z-index: 9; }
 .workspace-resizer:hover, .workspace-resizer:focus-visible { background: #4774aa; outline: none; }
 .resize-x { cursor: col-resize; border-inline: 1px solid var(--border); }
@@ -147,3 +150,6 @@ select { color-scheme: dark; }
 .ic-inspector .property-signal { color: var(--signal); }
 .tl-panel .tl-key-selected { color: #eadbff; }
 .ic-inspector .ic-scrub-label { flex: 1; min-width: 24px; justify-content: flex-start; }
+.canvas-guides { position: absolute; inset: 0; pointer-events: none; z-index: 15; overflow: visible; }
+.canvas-guides line { stroke: #248acc; stroke-width: 1; stroke-dasharray: 4 3; }
+.canvas-guides .guide-clearance { stroke: #986900; stroke-width: 2; stroke-dasharray: none; }

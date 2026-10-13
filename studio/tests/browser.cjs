@@ -70,7 +70,9 @@ const { unzipSync } = require("fflate");
     );
     await page.screenshot({ path: "test-results/desktop.png" });
     check("Editor and original GLB load");
+    await require("./browser-milestone.cjs").run({ page, state, doc, check });
     await require("./browser-workspace.cjs").run({ page, state, doc, check });
+    await page.getByText("Edit copy", { exact: true }).click();
     await page
       .getByLabel("Element text", { exact: true })
       .fill("A sharper\npoint of view.");
@@ -270,11 +272,11 @@ const { unzipSync } = require("fflate");
     check("Named pose capture");
     await page.getByRole("button", { name: "Takes", exact: true }).click();
     await page
-      .getByRole("button", { name: "Capture current Take", exact: true })
+      .getByRole("button", { name: "Capture a named Take…", exact: true })
       .click();
     await page.getByLabel("Take name", { exact: true }).fill("Quiet direction");
     await page
-      .getByRole("button", { name: "Capture Take", exact: true })
+      .getByRole("dialog").getByRole("button", { name: "Capture Take", exact: true })
       .click();
     await page.getByLabel("Rotate Z", { exact: true }).fill("12");
     await page.getByRole("button", { name: "Compare", exact: true }).click();

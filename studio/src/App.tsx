@@ -74,6 +74,7 @@ import {
 } from "./model";
 import { scrollRange, layoutChangeCommands, pageLayout, sectionSignals, scrollAtClock, insertSection, moveSection, sectionFor, staticValues } from "./composition";
 import { effectiveTrack, editProperties } from "./editing";
+import { widthAxis } from "./visualGeometry";
 import { MotionActions } from "./MotionActions";
 import { clockTime, clocksOf } from "./model";
 import { Relationships } from "./Relationships";
@@ -131,6 +132,7 @@ export default function App() {
   const [feedback, setFeedback] = useState("");
   const [tag, setTag] = useState("Interaction");
   const [takeName, setTakeName] = useState("");
+  const [takeNotice, setTakeNotice] = useState("");
   const [compare, setCompare] = useState<Take | null>(null);
   const [filter, setFilter] = useState("");
   const [busy, setBusy] = useState(false);
@@ -266,6 +268,16 @@ export default function App() {
       previous?.focus();
     };
   }, [modal]);
+  useEffect(() => {
+    if (!takeNotice) return;
+    const timer = window.setTimeout(() => setTakeNotice(""), 4000);
+    return () => window.clearTimeout(timer);
+  }, [takeNotice]);
+  const captureTake = () => {
+    studio.commitGesture();
+    const take = studio.take("");
+    setTakeNotice(`${take.name} captured`);
+  };
   const addPositionKey = () => {
     if (!entity) return;
     try {
@@ -356,7 +368,7 @@ export default function App() {
   const startGesture = (
     ev: ReactPointerEvent<HTMLElement>,
     e: Entity,
-    resize = false,
+    resize: boolean | "width" = false,
   ) => {
     if ((ev.target as HTMLElement).closest("a")) ev.preventDefault();
     if (tool === "hand") return;
@@ -372,7 +384,7 @@ export default function App() {
     ev.stopPropagation();
     if (ev.button !== 0) return;
     ev.preventDefault();
-    const selected = ev.shiftKey
+    const selected = resize === "width" ? [e.id] : ev.shiftKey
       ? [...new Set([...s.selection, e.id])]
       : s.selection.includes(e.id)
         ? s.selection
@@ -380,6 +392,7 @@ export default function App() {
     studio.select(selected);
     if (e.kind === "section") return;
     const origin = { x: ev.clientX, y: ev.clientY };
+    const measureAxis = widthAxis(doc, e, s.profileId, s.playhead, signals, s.zoom);
     const targets = selected.map((id) => ({
       entity: doc.entities.find((x) => x.id === id)!,
       values: evaluateEntity(
@@ -394,6 +407,7 @@ export default function App() {
     ev.currentTarget.setPointerCapture(ev.pointerId);
     const target = ev.currentTarget;
     const move = (event: PointerEvent) => {
+      if (!studio.hasGesture()) return;
       const dx = (event.clientX - origin.x) / s.zoom,
         dy = (event.clientY - origin.y) / s.zoom;
       const snap = (v: number) =>
@@ -403,7 +417,9 @@ export default function App() {
           const parent = doc.entities.find(e => e.id === t.entity.parentId);
           const flow = parent && str(staticValues(parent, s.profileId), "layout", "free") !== "free";
           const x = flow || effectiveTrack(doc, t.entity, "translateX", s.profileId) ? "translateX" : "x", y = flow || effectiveTrack(doc, t.entity, "translateY", s.profileId) ? "translateY" : "y";
-          const values: Props = resize ? { width: Math.max(24, snap(num(t.values, "width") + dx)), height: Math.max(16, snap(num(t.values, "height") + dy)) }
+          const widthDelta = ((event.clientX - origin.x) * measureAxis.x + (event.clientY - origin.y) * measureAxis.y) / Math.max(.000001, measureAxis.x ** 2 + measureAxis.y ** 2);
+          const values: Props = resize === "width" ? { width: Math.max(24, snap(num(t.values, "width") + widthDelta)) }
+            : resize ? { width: Math.max(24, snap(num(t.values, "width") + dx)), height: Math.max(16, snap(num(t.values, "height") + dy)) }
             : { [x]: snap(num(t.values, x) + dx), [y]: snap(num(t.values, y) + dy) };
           return editProperties(s.workspace.document, t.entity, values, s.profileId, s.playhead, signals, s.editMode, clock.id);
         });
@@ -415,19 +431,22 @@ export default function App() {
       target.removeEventListener("pointermove", move);
       target.removeEventListener("pointerup", finish);
       target.removeEventListener("pointercancel", cancel);
+      target.removeEventListener("lostpointercapture", cancel);
       if (target.hasPointerCapture(event.pointerId))
         target.releasePointerCapture(event.pointerId);
-      studio.commitGesture();
+      studio.commitGesture(resize === "width" ? "Shape text line length" : "Transform selection");
     };
     const cancel = () => {
       target.removeEventListener("pointermove", move);
       target.removeEventListener("pointerup", finish);
       target.removeEventListener("pointercancel", cancel);
+      target.removeEventListener("lostpointercapture", cancel);
       studio.cancelGesture();
     };
     target.addEventListener("pointermove", move);
     target.addEventListener("pointerup", finish);
     target.addEventListener("pointercancel", cancel);
+    target.addEventListener("lostpointercapture", cancel);
   };
   const textEdit = (e: Entity, text: string) => {
     if (e.copyId && scope === "base") {
@@ -694,9 +713,10 @@ export default function App() {
           <div className="panel-heading">
             Takes & discovery <GitBranch size={16} />
           </div>
-          <button className="wide-action" onClick={() => setModal("take")}>
+          <button className="wide-action" onClick={captureTake}>
             <Plus size={15} /> Capture current Take
           </button>
+          <button className="wide-action subtle" onClick={() => setModal("take")}>Capture a named Take…</button>
           <button className="wide-action subtle" onClick={createVariant}>
             <Sparkles size={15} /> Explore reflective look
           </button>
@@ -917,7 +937,7 @@ export default function App() {
     <div className="app">
       <header className="topbar">
         <div className="project-control">
-          <span className="brand-symbol" title="Pose Studio 0.3.0">i</span>
+          <span className="brand-symbol" title="Pose Studio 0.3.1">i</span>
           <input aria-label="Project name" value={doc.name} onChange={ev => command({ type: "document-name", name: ev.target.value })} />
           <span className="saved" title={s.status}><span />{s.status}</span>
         </div>
@@ -949,8 +969,9 @@ export default function App() {
         </div>
         <details className="project-menu">
           <summary aria-label="Project actions" title="Feedback, help and version"><CircleHelp size={17} /></summary>
-          <div><strong>Pose Studio 0.3.0</strong><button onClick={() => setModal("evaluate")}><MessageSquare size={14} />Evaluate / feedback</button><button onClick={() => setModal("help")}>Help & shortcuts</button></div>
+          <div><strong>Pose Studio 0.3.1</strong><button onClick={() => setModal("evaluate")}><MessageSquare size={14} />Evaluate / feedback</button><button onClick={() => setModal("help")}>Help & shortcuts</button></div>
         </details>
+        <button className="header-action capture-take" aria-label="Capture Take" title="Capture Take · preserve this direction" onClick={captureTake}><Plus size={17} /><span>Take</span></button>
         <button className="header-action" aria-label="Open Takes" title="Takes" onClick={() => { studio.session({ tab: "takes" }); setLeftOpen(true); }}><GitBranch size={16} /></button>
         <button className="export-button" onClick={() => setModal("export")}>Export <ArrowUpRight size={14} /></button>
       </header>
@@ -1098,6 +1119,8 @@ export default function App() {
                   sceneInteractive={tool === "orbit" || tool === "camera"}
                   sceneNavigation={tool === "camera" ? "camera" : "model"}
                   navigationTool={tool === "hand"}
+                  showGuides={s.preview !== null}
+                  onVisualChange={(target, values) => patch(values, target)}
                   orbitSensitivity={orbitSensitivity}
                   onBackground={() => studio.select([])}
                   onInsertSection={addSection}
@@ -1216,6 +1239,8 @@ export default function App() {
           <Inspector
             document={doc}
             entity={entity}
+            onCaptureTake={captureTake}
+            onCompareTake={s.workspace.takes.length ? () => setCompare(s.workspace.takes[s.workspace.takes.length - 1]) : undefined}
             profileId={s.profileId}
             playhead={s.playhead}
             signals={signals}
@@ -1261,6 +1286,7 @@ export default function App() {
           ev.target.value = "";
         }}
       />
+      <div className="take-notice" role="status" aria-live="polite">{takeNotice}</div>
       {(!s.loaded || busy) && (
         <div className="busy">
           {s.loaded ? "Preparing your files…" : "Opening workspace…"}
@@ -1518,7 +1544,7 @@ export default function App() {
                 <p>
                   Shift-click for multiple selection. Drag the corner to resize.
                   Ctrl/Cmd Z to undo, D to duplicate, S to save. Escape cancels
-                  a gesture, then clears selection. V selects, H pans, R turns the model, C orbits the camera, P edits paths. Space plays the selected clock. Two-finger scroll pans; pinch zooms. Drag inspector labels to scrub; Shift is coarse and Alt is fine.
+                  a gesture, then clears selection. V selects, H pans, R turns the model, C orbits the camera, P edits paths. Space plays the selected clock. Two-finger scroll pans; pinch zooms. Drag the text’s right-edge handle to shape line breaks; arrow keys also adjust it. Typography and prominence sliders preview live; Escape cancels. Precision panels retain exact values and label scrubbing.
                 </p>
                 <p>
                   Import a GLB, image or video from Assets. Capture Takes before
