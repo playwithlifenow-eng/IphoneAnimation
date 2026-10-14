@@ -1,359 +1,315 @@
-# iGlass Composition Studio — authoritative master build plan
+# iGlass Pose Studio — authoritative master build plan
 
-> **13 October 2026 — operative precedence:** The authorised Evolutionary PoC supersedes the Milestone 1-first UI priorities below. Build the light spatial instrument editor, simultaneous artboards, compound states and cross-actor modulation on `studio/visual-instruments-poc`. The preserved research chapters remain valid unless contradicted by the attached execution brief. The accepted Hero and `main` remain protected. Technical results are not Matt's creative acceptance. See [PoC implementation](visual-instrument-poc.md), [coverage ledger](capability-ledger.md), and [authoritative execution brief](poc/execution-brief.md).
+**Plan ID:** `PS-MASTER`  
+**Operative edition:** **14 October 2026 — visual instruments, reusable choreography and human-owned UI/UX**  
+**Canonical source:** `playwithlifenow-eng/IphoneAnimation`, branch `studio/visual-instruments-poc`, path `studio/docs/master-plan.md`  
+**Reviewed software:** Studio 0.4.0 at `96927871067e235a99bd415fa7ec02675b0ec967`  
+**Source verification:** the live branch's `engine.ts` matches that reviewed snapshot at blob `c8ee2dcda6d5aed60debb68cac1001f88b2cfc22`; the preceding master-plan blob was `04d0228dcd9ad270355750286ab8abb779b2c5d3`.  
+**Status:** the PoC is an engineering testbed; Matthew has not accepted its UI or an evolutionary advance. This edition updates the plan, not the software's capabilities or test results.
 
-**Decision edition: 28 September 2026 · workspace revision: 12 October 2026**
-**Status: adopted specification. Creative-workflow amendment: 12 October 2026. Milestone 1 is the immediate build; broad V1 remains the product destination.**
+## Read first — continuity contract for Astra, GPT and Gemini
 
-This consolidated plan replaces the previous execution sequence and the separate strategy reassessment. It preserves the established authoring, runtime, creative, evidence, experimental, knowledge, island, recombination and promotion architecture. The creative-workflow amendment below supersedes the earlier broad-V1-first execution priority. The original calendar allocations remain superseded. No other document is needed to decide which build strategy is operative.
+**Purpose:** creativity develops faster than Matthew can describe it in words. Studio combines Framer/Webflow-like spatial fluidity with editable pre-built capabilities, full primitive access and genuine cross-actor emergence.
 
-**Quick navigation:** [Direction](#1-executive-direction) · [Creative scope](#46-integrated-v1-workspace) · [Architecture](#2-revised-ontology-and-complete-architecture) · [Commitments](#18-operative-subsystem-commitment-matrix) · [Sequence](#19-authoritative-execution-sequence) · [Ownership](#21-delegation-interfaces-and-integration-ownership) · [Acceptance](#23-integrated-v1-acceptance-and-later-expansion).
+**Preferred interaction:** ON/OFF activates a meaningful behaviour; an on-canvas gesture continuously shapes it. A single action can coordinate multiple states and properties. Precision, primitives and the full meaningful parameter range remain available.
+
+**Authority:** Matthew owns workflow and UI/UX decisions. Gemini actively helps discover lower-friction workflows. Astra engineers reusable mechanisms and adapts them to Matthew's designs. AI may independently identify and research missing general capabilities; Matthew need not supply algorithms or enumerate every technical requirement.
+
+**Current next direction:** a rapidly editable UI Lab plus source-grounded research of missing general mechanisms, followed by thin real-engine integration of selected workflows. Preserve working capabilities and the accepted Hero. No blanket rebuild, compulsory new research swarm or automatic expansion of every future subsystem.
+
+**Evidence:** reusable capability, adjustable instrument, compound rig, preset, visual proxy and verified production integration are different things. Passing tests does not establish creative usefulness. Source-review findings do not become rerun test results.
+
+At the start of a future work session:
+
+1. Read this canonical edition, especially §§1–4, 18–24. Confirm the branch and reviewed software identity; do not default to `main` or an older ZIP.
+2. Record the requested task, relevant approved UI/reference, current implementation evidence and remaining uncertainty. Do not ask Matthew to restate settled purpose or preferences.
+3. Check the current capability ledger/source for affected mechanisms. Treat unverified improvements as planned.
+4. Distinguish engineering decisions from UI proposals. Reuse confirmed work; show editable choices when the interaction design remains open.
+5. Before finishing, preserve a concise continuation record: exact source revision, changes/tests, decisions, blockers and next concrete work. Update this plan when a governing decision changes instead of appending contradictory directives.
+
+**Precedence:** this edition supersedes the 28 September broad-V1-first directive, the 12 October Milestone 1-first directive and the 13 October PoC build-now directive. Earlier briefs and historical commits preserve evidence but do not reinstate dark chrome, Takes modals, preset-only tools or AI design authority. The Living Engineering Manual describes capability research; approved UI Lab designs describe presentation. This master plan governs ownership, priorities and status when older records conflict. Current explicit user instructions take precedence.
+
+**Navigation:** [Purpose](#1-executive-direction) · [Ontology](#2-revised-ontology-and-complete-architecture) · [Engine contracts](#3-authoring-representation-instruments-and-runtime) · [Human workflows](#4-creative-instruments-and-the-creative-ceiling) · [Current capability audit](#18-operative-subsystem-commitment-matrix) · [Execution](#19-authoritative-execution-sequence) · [Acceptance](#23-integrated-v1-acceptance-and-later-expansion) · [Handoff](#24-operative-build-directive).
 
 ## 1. Executive direction
 
-**Governing principle: a visual environment where creativity develops faster than Matt can describe it in words.** Build outcome-first instruments: see, manipulate, compare, retain. Technical quantities remain precise underneath and available on demand. Replacing number fields with sliders alone does not satisfy this principle.
+### 1.1 Purpose, creative ambition and balance
 
-**12 October creative-workflow decision:** retain the working foundation and the complete product/research scope; first complete and validate the Milestone 1 DOM workflow in §19. Improve representations through real use before expanding advanced 3D. Existing connected capabilities remain available. Technical completion, Matt's perceptual acceptance and release remain separate states.
+**Build a visual environment where creativity develops faster than Matthew can describe it in words.** He should discover layouts, choreography, relationships and visual experiences by seeing, manipulating and comparing them. AI translates the selected result into a supported implementation and verifies the actual output against that intent.
 
-Build an integrated personal visual composition environment where Matt discovers layout, copy, DOM/2D/3D relationships, appearance, motion and responsive art direction through direct manipulation. AI builds and adapts the machinery; Matt retains perceptual authority. The architecture should let accepted compositions and instruments be pruned, reshaped and extended without losing their meaning or history.
+Studio should preserve the fluid cursor interaction, spatial canvas, parent/child frames, selection feedback and responsive editing Matthew values in Framer and Webflow, while enabling much greater emergence through reusable pre-built capabilities. “A hundred times more emergent” is the ambition, not a measured superiority claim. Superiority is judged on his actual iGlass design tasks.
 
-Product definition is mature enough to retain broad V1 scope while validating the immediate creative workflow. Interaction representations and integration details remain subject to use and testing. This is a reason to build a recoverable, inspectable workspace, not to rediscover each documented requirement through one Hero task at a time.
+**Compound capabilities and primitives are complementary.** Ready-made behaviours remove repeated setup; frames, text, shapes, transforms, paths, lower-level tracks and precise values remain available for construction and refinement. Neither an enormous primitive control panel nor a closed template library meets the objective.
 
-Adopt four responsibilities—create, observe, experiment, remember/promote—in one application and a small local service. Shared document identity, commands, ownership, persistence and export are early technical dependencies. Complete replay, a universal runtime graph and an autonomous laboratory are not.
+The distinctive value is coordination: a phone's movement affects text, images, light or camera framing; scenes transition together; several actors participate in one editable event. Individual assets may be created elsewhere. The iPhone is one test fixture for general compatible-asset manipulation, not a privileged engine type.
 
-The broad V1 destination spans seven connected surfaces: composition; copy; components; scene/appearance; pose/path/choreography; responsive art direction; Takes/comparison/discovery. Build them through small integrated changes. A first end-to-end command is an internal foundation check, not the intended product release.
+### 1.2 Division of authority
 
-The existing Hero works and Matt is happy with its result. Preserve it as an accepted system, reusable machinery and a regression fixture. Validate the Studio against it and other composition classes. Do not assume it needs repair, redesign or a new pain-point interview.
-
-### 1.1 Technical baseline and evidence status
-
-The 20 September E0 record matched repository `playwithlifenow-eng/IphoneAnimation`, deployed commit `ef3850a8d74619c99ac79eb833eeb31e86ef8dad`, scene version `7.5.51-mobile-headline-telemetry`, bundle `main.093a9d53.js`, Framer driver `HeroGlassDriver_RoutingTest.tsx` / `tBiC48I`, published driver revision `jXFO4ylVFxiwo7N112SX`, page `kjakVFRx4`, Vercel deployment `dpl_ikaFDQyfu9vG1PNUMRV6owLqZB3J`, 130 saved controls per breakpoint and the primary GLB.
-
-The source repository was cloned for this implementation on 28 September and its HEAD still matches that recorded commit. This establishes source continuity, not a fresh claim that every current host setting or deployment is identical.
-
-| Evidence / boundary | Consequence |
+| Role | Responsibility |
 |---|---|
-| Historical host: `https://iglassmobilephonerepairs.framer.website/hero-driver-routing-test`; scene: `https://iphone-animation-five.vercel.app/` | Preserve host/scene distinction and versioned protocol |
-| Primary `14_pro_oled_repaired.glb`: historical served/Git match, 4,876,456 bytes | Reuse the repository asset and retain identity |
-| Current package preserves React 18.2.0, R3F 8.15.16, Drei 9.88.0, Three 0.158.0, GSAP 3.12.5, Leva 0.10.1 and react-scripts 5.0.1 | Keep the functioning Hero dependency environment intact; isolate Studio build tooling |
-| Two breakpoint property sets and four motion documents; similarly named desktop paths differ | Preserve exact authored documents rather than normalising by name |
-| Framer properties switch at 1200px; scene path is selected by stage aspect; headline mode also uses hardware input traits | Treat these as distinct rules, not a single universal mobile flag |
-| Historical cloud session did not create a scene canvas; WebGL capability gating was a possible cause | Do not claim a live Hero defect or change production to suit that environment |
-| Framer/Vercel access was not usable in the reassessment | Continue independent implementation; retry only for a task requiring those services |
-| Complete texture/environment/font verification and independent historical rebuild were unfinished | Record scoped coverage; validate dependencies actually used by each implementation fixture |
+| Matthew | Describes the perceived result and desired authoring experience; designs/chooses UI, gestures, layout, disclosure and terminology; judges creative usefulness |
+| Gemini | Active UI/UX research partner; maps reference workflows, proposes shorter compound interactions, generalizes video evidence and independently challenges engineering assumptions |
+| Astra | Engineering developer/integrator; researches and implements reusable capabilities, adapts contracts to chosen UI, fixes objective defects and verifies persistence/runtime/delivery |
+| GPT | Analysis, continuity, reviews and scoped design support under Matthew's model/workflow choices; no silent substitution for Astra in substantive production builds |
 
-Earlier 19 September archive/source observations remain historical evidence, not an alternative current baseline. In particular, the archived 7.5.45 geometry payload differed from the newer host contract, while the matched deployed 7.5.51 bundle contained physical geometry. Do not resurrect the archive mismatch as a current bug.
+The interface is not subordinate to the current engine. A desired workflow may reveal a necessary state, command, input or capability extension. Explain real constraints and viable routes; do not silently redesign Matthew's interface to avoid engineering work.
 
-### 1.2 Implementation doctrine and decisions
+AI can determine missing general capabilities independently. It must not wait for Matthew to specify a spring solver, path representation, coordinate transform or arbitration algorithm. His phenomenological descriptions guide priority and acceptance; they do not create the underlying mathematical possibilities.
 
-- Use the complete product specification as the primary brief. Consult history selectively for missing source, exact decisions or regression cases.
-- Preserve broad creative scope; sequence small integrated increments around complete, human-validated creative workflows.
-- Preserve a single authoritative semantic document; derived runtime, observation and experimental copies do not gain competing authority.
-- Choose reasonable reversible defaults. Ask Matt only when a decision materially changes the objective/product, is costly to reverse, or needs specific information unavailable from accessible evidence.
-- Keep feedback and basic evidence native. Expand capture depth when an actual question needs it.
-- Preserve all long-term evolutionary mechanisms as explicitly conditional phases; do not make them prerequisites to the creative workspace.
-- A blocked service limits its specific task. It does not halt unrelated Studio development.
+### 1.3 What went wrong and what is corrected
+
+| Earlier assumption / failure | Operative correction |
+|---|---|
+| A mathematically possible effect means the tool is complete | A usable instrument supplies defaults, activation, direct control, composition and reliable state handling |
+| Document fields determine UI layout | Matthew's workflow determines presentation; the engine exposes an appropriate command/capability surface |
+| More sliders solve numerical confusion | Outcome-first handles, Boolean activation, compound actions and progressive precision reduce intermediate work |
+| Separate tabs/forms are acceptable for related tasks | Keep composition, alternatives and relevant controls visually connected; avoid forced working-memory reconstruction |
+| A fast arrangement preset is a new creative capability | Test whether it removes actual work and exposes useful variation; a renamed scale change may add nothing |
+| Each visual result needs its own implementation | Build reusable paths, state transitions, signals, links and rig contracts that support many results |
+| Every instrument/state must compile to old tracks | Preserve existing tracks, but permit versioned instrument/state data with one coherent evaluation authority |
+| All outputs can use an additive property bus | Use typed composition, priorities, stateful response and explicit ownership handoffs |
+| AI already knew an insight because it can explain it later | Record known-before, observed, newly inferred and verified-after evidence separately |
+| Passing checks prove creative success | Technical evidence, actual touchpad usability and Matthew's creative acceptance remain distinct |
+
+These defects do not erase the useful command, persistence, rendering or experimental research. They do require replacing the operative assumptions and sequence rather than treating the existing plan as complete.
+
+### 1.4 Baselines, chronology and evidence
+
+| Stage | Meaning |
+|---|---|
+| 17 September research | 211-app interaction-mechanism commission; minimizing switching and tool hunting was already intended. Its list excluded major incumbents, so Framer/Webflow interaction benchmarking needs direct references. |
+| `f29fd7c` / 0.3.0 | Integrated engineering alpha; numerical Inspector and fragmented workflows remained inadequate |
+| `03eea25d814dbfc77ce0f6e09229b5668f99c71d` / 0.3.1 | Milestone 1 visual text/typography/opacity and one-click snapshots; dark shell and comparison bureaucracy persisted |
+| `96927871067e235a99bd415fa7ec02675b0ec967` / 0.4.0 | Separate PoC with light spatial editor, instrument registry, state transitions, compound Beats, relationship graph and intent replay |
+| 14 October hands-on feedback | Cleaner UI did not demonstrate low-friction creation; frozen controls, intrusive panels, selection/Frame gaps, misleading presets and legibility problems reported |
+| This edition | Human-owned UI/UX, Boolean-first compound controls, primitive access and independently researched general engine gaps become operative |
+
+The software receipts record 49 unit tests, 38 legacy browser checks, 18 PoC browser checks and seven visual demonstrations. Their source hash `9ec6ed54b028754321e35ea6e95c83fba95e47f493f3fcea11326026c3607b99` matches the supplied archive. This planning task did not rerun those tests. Linux/SwiftShader captures, with condensed delivery playback, do not measure Windows laptop responsiveness.
+
+The accepted production Hero remains protected. Historical E0 references identify deployed commit `ef3850a8d74619c99ac79eb833eeb31e86ef8dad`, scene `7.5.51-mobile-headline-telemetry`, Framer DOM driver and separate Vercel scene. They are historical protection/identity evidence, not a claim of the current deployment state. Do not resurrect an old archive mismatch as a present Hero bug.
 
 ## 2. Revised ontology and complete architecture
 
-The proposed four-system ontology is useful **as a division of responsibility**. Treating it as four independent engines would create duplicated state, integration cost and an observability product larger than the creative tool.
+### 2.1 What exists
 
-| Responsibility | Main question | Initial implementation |
-|---|---|---|
-| Creative instrument | Can Matt express and compare the intended result directly? | Canvas, contextual tools, semantic document, commands, preview and takes |
-| Observation and evidence | What happened, in which exact state, and what can we actually know? | Typed probe adapters, bounded buffers, Evaluate, episode export and evidence queries |
-| Experiments | Which small change would resolve this uncertainty? | Pinned candidate, declared hypothesis, existing test runner, matched comparison |
-| Knowledge and promotion | What was learned, where does it apply, and what becomes accepted? | SQLite records, artifacts, decision history and protected accepted references |
+| Entity | Meaning and authority |
+|---|---|
+| Asset | Versioned source media, geometry, component or content; distinct from its instances |
+| Actor | Stable on-canvas participant: frame, text, media, model/part, camera or light |
+| Context / world | Layout or 3D environment with explicit coordinates, lifecycle and interaction scope |
+| Driver | Scroll, velocity, pointer/drag, time, event, viewport or actor output |
+| Modulator | Mapping/response: easing, phase, delay, spring/damping, threshold, limits or blending |
+| Capability | Reusable operation the engine actually supports, independent of a preset |
+| Instrument | Playable interface over one or more capabilities, with activation and meaningful control |
+| Relationship | Explicit coupling/constraint between actors or channels |
+| Compound rig / Beat | Reusable coordination of actors, instruments, states and transitions over an authored span |
+| Preset | A stored configuration or arrangement; useful starting point, not a new engine |
+| Variant / snapshot | Independent creative alternative or retained history state; linked responsive views are different |
+| Evidence / decision | Source, observed output, test, interpretation and human preference with scope and provenance |
 
-“Astra” denotes the architect/integrator and reasoning role. Agents are optional actors in experiments. Tools provide observations and actions. An island is an isolated experimental configuration. None of those is an additional source of truth about the composition.
+An adjustable instrument occupies the middle between a mathematical primitive and a finished preset. A rig must preserve editable targets, endpoints, paths, timing and relationships; otherwise it is only a playback recipe.
 
-The architecture below distinguishes authority from derived execution and experimental copies.
+### 2.2 Four tiers and complementary control dimensions
+
+1. **Metronome / environment:** shared signals, dynamics, clocks and global environment policies.
+2. **Actors:** objects and nested containers placed and selected on the canvas.
+3. **Instruments:** reusable behaviours attached to compatible actor/stage/relationship targets.
+4. **Compound Beats / rigs:** multi-actor behaviour and coordinated state transitions.
+
+These classify responsibility; they do not require four panels, four databases or one rigid tree. Stage scope and cross-actor links connect the tiers. **Drivers → Modulators → Targets** describes complementary control dimensions, not a theorem that three orthogonal vectors explain every possible website.
 
 ```mermaid
 flowchart TD
-    M["Matt"] --> S["Studio instruments"]
-    S --> D["Working semantic document"]
-    D --> R["Derived runtime"]
-    R --> V["DOM, scene and specialist adapters"]
-    V --> P["Probe adapters"]
-    T["Engineering tools"] --> P
-    P --> E["Episodes and raw evidence"]
-    M --> E
-    E --> K["Claims and preference history"]
-    K --> A["Astra and bounded agents"]
-    A --> X["Experiment candidates"]
-    C["Accepted version bundle"] --> X
-    X --> R
-    X --> G["Reproduction and promotion gate"]
-    E --> G
-    M --> G
-    G --> C
-    C --> F["Framer and production delivery"]
-    C --> D
+    D["Drivers and clocks"] --> M["Modulators"]
+    M --> I["Instruments and rigs"]
+    I --> A["Typed arbitration"]
+    A --> P["DOM, media and 3D presentation"]
+    P --> O["Actor bounds and signals"]
+    O --> R["Explicit actor relationships"]
+    R --> A
+    S["Semantic project and commands"] --> I
 ```
 
-There are three operating loops, sharing the same identifiers and evidence:
+Ordinary derived relationships evaluate in an acyclic order. Feedback requires a declared delay, stateful operator or solver, with reset, stability and checkpoint policy. A measured-output cycle must not become accidental frame-to-frame oscillation.
 
-- **Creative loop:** manipulate → preview → capture reaction → compare takes → accept.
-- **Engineering loop:** detect → reproduce → isolate cause → change → verify → integrate.
-- **Experimental loop:** identify uncertainty → prepare candidates → collect bounded evidence → interpret → retain or reject a discovery.
+### 2.3 Single semantic authority, multiple practical implementations
 
-Do not force these into one long pipeline. A typography adjustment may need no new mathematical mechanism. A pure serialization repair may need no fresh aesthetic vote. A new camera interaction needs all relevant layers.
+The versioned project owns actors, content, instruments, states, blocks, clocks, paths, links, profiles and asset references. The evaluator derives effective outputs; rendering and export do not silently rewrite authored intent. Runtime checkpoints are explicit operator state, not a second composition document.
 
-### 2.1 Authority boundaries
+Visual proxies may communicate useful intent while the final renderer uses different mechanisms. Preserve their fidelity/status so plausible appearance is not mistaken for verified geometry, optics or science. Framer, Webflow and custom React/Three/GSAP are delivery routes; they do not dictate the authoring UI.
 
-Maintain four distinct references:
+A composition may fill the viewport, become content on an embedded surface and appear as an object in another composition. Context Bridge / World Dive coordinates that perceptual continuity; it need not require one enormous WebGL world or one permanent canvas.
 
-1. **Working document:** editable current composition; gesture previews are transient.
-2. **Accepted creative take:** the composition Matt has accepted for a stated context.
-3. **Integrated implementation:** reviewed code and contracts passing the required technical gates.
-4. **Production release:** a delivered combination of implementation, composition, assets and environment.
+### 2.4 Protected references and conditional research
 
-“Canonical” means a protected, versioned **accepted bundle**, not a mutable global singleton and not necessarily the latest Git commit. An experiment can read it and derive a child. It cannot replace its accepted pointer.
+Keep working project, accepted creative state, integrated implementation and production release as separate versioned references. Normal gestures remain fluid; accepting an experiment is not a modal on every edit.
 
-Matt's normal reversible editing remains fluid. Protection applies to experimental promotion and release, not a confirmation dialog on every creative gesture.
+Create, observe, experiment and remember/promote remain useful responsibilities. The probe, evidence, island, knowledge, recombination and promotion chapters below preserve long-term research. They are not claims of shipped systems, prerequisites for basic authoring, or prescriptions for permanent UI panels.
 
 ## 3. Authoring representation, instruments and runtime
 
-### 3.1 What Matt should author
+### 3.1 Durable authoring model
 
-The durable document contains concepts meaningful during composition:
+Store actors and hierarchy, content, assets, primitive properties, instrument instances, paths, scene states, action blocks/Beats, driver/modulator configuration, relationship links, responsive overrides, lifecycle/quality alternatives and retained history. Stable identity must survive rearrangement, duplication, transition and representation changes.
 
-- objects and component instances with stable identities;
-- content, typography and design tokens;
-- poses, paths, named beats, cues and optional time tracks;
-- semantic instrument settings and bounded advanced parameters;
-- responsive art-direction profiles and scoped overrides;
-- signal bindings and explicit modulation relationships;
-- relational intent, such as clearance and intentional occlusion;
-- quality alternatives and accessibility alternatives;
-- references to assets, recipe versions and accepted takes.
+The current PoC's `VisualProject`, variants, `InstrumentInstance`, `SceneState`, `StoryBeat` and `ActorLink` are real starting structures. Existing property tracks remain supported. Do not require every operation to traverse an arbitrary stack of macros/patterns or delete the newer state/instrument model to satisfy an old track-only rule.
 
-A pattern is a reusable **creative arrangement**, such as a reveal, an exploded product explanation or an orbiting title. An instrument is a **way to manipulate** an arrangement or capability. A macro is a semantic mapping from one or more controls to parameters. These are related concepts, not compulsory serialization layers.
+The requested path/block model needs separate translation and orientation channels, local/world/screen-space declarations, editable endpoints, curve/tangent information, duration/range, hold/reversal and responsive decisions. Multiple independent state sequences must be representable; each can target its own actor set and clock scope.
 
-Do not require every edit to travel through “macro → pattern → capability → authoring representation.” A direct text edit should update the text. A “Mechanical Weight” macro may drive a response mechanism. A choreography pattern may instantiate several components and instruments.
+### 3.2 Universal instrument and component contracts
 
-### 3.2 The hidden runtime
-
-The runtime is a derived evaluation plan. Initially, compilation can mean validated TypeScript functions, subscriptions and ordered adapters—not a compiler framework, bytecode VM or general graph database.
-
-Implement the primitives required by the defined V1 families now; extract further primitives from demonstrated needs. Likely families include values, mappings, interpolation, state transitions, bounded response, time, selections, collections and outputs. That is a working vocabulary, not a fixed primitive count.
-
-Essential runtime properties:
-
-- Explicit types and units: seconds versus milliseconds; CSS pixels versus scene units; normalized progress versus distance; colors with declared interpretation; Euler editing versus quaternion interpolation.
-- Explicit coordinate spaces: object, world, camera, normalized viewport, host CSS pixels and iframe-local CSS pixels.
-- Stable object and channel IDs. Indices alone cannot identify changing collections.
-- Acyclic evaluation for ordinary derived values. Feedback requires an explicit stateful operator, delay or solver with a checkpoint contract.
-- Deterministic ordering where the application controls it. Browser scheduling, GPU execution and external inputs remain declared environmental factors.
-- Stateful operators serialize the state required to resume, including velocity, phase, accumulators and random seeds where applicable.
-- Dormant work can stop. Demand rendering, visibility and quality policy are explicit lifecycle behavior.
-
-Build a read-only “why is this value here?” inspector in V1. It should explain ownership, scope and transformations in ordinary terms, with a dependency graph available for diagnosis. A graph may later be useful inside a specialist instrument; it should not become the default authoring surface.
-
-### 3.3 Commands and direct manipulation
-
-Human tools and authorized agent actions use the same validated command boundary. They do not write arbitrary React state or mutate the runtime behind the document's back.
-
-A gesture has a transaction identity, pre-state, preview overlay, scope and end reason. During a drag, updates affect the preview. A meaningful completed gesture commits one intended transaction. Escape/cancel restores the pre-state and commits none. A no-op commits none. Multi-object operations may deliberately form one transaction. Undo restores document meaning; it does not pretend to reverse external side effects.
-
-The transaction count is **relative to the operation**. The application's entire undo stack is not limited to one entry.
-
-Ownership must be visible:
-
-- base authored value;
-- responsive override;
-- active cue/track;
-- explicit modulation;
-- transient gesture overlay;
-- effective output.
-
-Use property-specific composition rules. Additive translation, multiplicative scale and quaternion composition are not interchangeable. Reject ambiguous writers rather than silently applying “last update wins.”
-
-When a property is driven, the instrument offers an explicit action such as edit baseline, adjust modulation, record at playhead, create keyframe or detach. A drag must not unpredictably overwrite a signal binding. Non-invertible macros need a defined editing policy; do not invent an inverse from the rendered result.
-
-Interaction design remains research: screen/world/local handles, snapping, precision modifiers, keyboard equivalents, focus behavior, touch targets, selection, cancellation and ownership explanations all require real use. Mechanism tests cannot settle those choices.
-
-### 3.4 Component and instrument contracts
-
-A component exposes capabilities, not its entire implementation.
+Gemini's VST analogy supplies a useful integration standard: common targeting, signals, command semantics, serialization, evaluation, lifecycle and delivery. It does not guarantee interoperability by naming a TypeScript interface. The current fixed evaluator switch is a bounded catalogue, not arbitrary plugin execution.
 
 ```yaml
-component_contract:
+instrument_definition:
   identity: stable_id_and_version
-  inputs: typed_parameters_with_units_ranges_and_defaults
-  editable_targets: declared_properties_and_spaces
-  outputs: named_signals_and_projectable_anchors
-  ownership: supported_drivers_and_composition_rules
-  lifecycle: mount_ready_suspend_resume_dispose
-  observation: available_probes_and_known_blind_spots
-  reproduction: checkpoint_support_and_fidelity_limits
-  relationships: supported_relational_predicates
-  quality: authored_alternatives_and_switch_constraints
-  delivery: supported_hosts_assets_and_dependencies
-
-instrument_contract:
-  purpose: creative_task
-  representation: handles_controls_and_feedback
-  commands: allowed_transactions
-  mapping: semantic_parameters_to_capabilities
-  scope: selection_responsive_profile_and_time
-  iteration_contract: instrument_specific_evidence_and_questions
-  capability_envelope: exposed_hidden_possible_and_unknown
+  kind: reusable_instrument_or_compound_rig_or_preset
+  targets: actor_capabilities_parts_and_coordinate_spaces
+  inputs_outputs: typed_units_ranges_defaults_and_port_identity
+  drivers: supported_sources_events_and_clocks
+  modulators: supported_response_and_state_contracts
+  composition: channel_specific_arbitration_and_handoffs
+  controls: approved_visual_handles_and_full_meaningful_range
+  bypass: neutral_contribution_and_settings_retention
+  lifecycle: prepare_ready_activate_suspend_dispose
+  fidelity: working_proxy_partial_pending
+  adapters: preview_runtime_and_verified_delivery_routes
+  validation: source_tests_generality_and_human_acceptance
+  migration: versioned_meaning_and_backward_compatibility
 ```
 
-Implement these narrow shared interfaces across V1 incrementally, with unsupported optional capabilities explicit. A legacy component adapter can declare “no checkpoint support” honestly and use a lower-fidelity replay. It does not need a speculative rewrite before it can join the Studio.
+Component introspection reports actual named meshes, pivots/rigs, editable materials, anchors, actions and lifecycle support. Do not hardcode phone mesh names as the universal model contract. Stable hotspot anchors need declared mesh-local/surface/node identity; arbitrary vertex indices alone are brittle. Geometry changes may invalidate an anchor and require remapping.
+
+Contracts are stable and versioned, not immutable. Additive schema changes/migrations are legitimate when a chosen workflow needs them. Do not create bespoke tables, handlers and tabs for every instrument; equally, do not force a complex context rig into the internal shape of a one-property fade merely for symmetry.
+
+### 3.3 Activation and full expressive control
+
+**ON/OFF is the preferred entry point.** An instrument is a pre-packaged behavioural macro: useful defaults, ready target/driver setup and direct control. Enabling a compound rig can activate many states and properties.
+
+OFF bypasses that instrument's contribution and retains configuration. It does not disable unrelated actor behaviour, discard links, delete keys or collapse the whole model to a static pose. ON restores settings. A rig defines optional blend-back and visual continuity where needed; activation state is distinct from progress through its motion.
+
+The “88 keys” principle protects full meaningful ranges, endpoints, routing and primitive refinement. A small number of immediately visible controls is a presentation hypothesis, not a hard parameter limit. A preset provides a starting configuration; it must not be the only result the tool can produce.
+
+### 3.4 Typed property arbitration and input authority
+
+Resolve base values, profiles, authored tracks/states, instrument contributions, explicit links and transient gestures through a documented order. Preserve valid existing track/signal semantics while extending their composition deliberately.
+
+- Translation may add, scale may multiply, rotation may compose as quaternions, opacity may multiply/clamp, and incompatible replacement writers need priorities or explicit blending.
+- Scroll and direct orbit can share an object through a defined overlay and release/handoff. Broader multi-driver mixes must name source channels, routing, normalization, response state and ordering.
+- Physical springs have mass/tension/damping and evolving state where that model is chosen. A cosine-shaped progress curve is an easing approximation, not that simulation. Research the appropriate model rather than asserting all effects require a spring.
+- Time, section/page scroll, media time and interaction time are distinct. A `time` label sharing master progress is not an independent clock.
+- Re-entry, reversal, pause, resize, interruption, suspension and reduced motion have explicit policies.
+
+Contributions may intentionally coordinate, but one enabled effect must not silently steal unrelated output channels. Ambiguity is inspectable; reject invalid/cyclic configurations at the appropriate boundary.
+
+### 3.5 Commands, hierarchy and gestures
+
+Human tools and authorized automation use validated commands. A gesture previews, commits once, cancels on Escape and undoes once; no-op commits nothing. Parent/child creation, reparenting and two-actor Swap are semantic operations with coordinate/profile/relationship handling.
+
+Hover highlights clear when the pointer leaves; selected highlights remain. Tools, overlays and popovers must remain operable in Hand mode. Pointer capture belongs to the engaged gesture and must release on completion, cancellation, focus loss or unmount. Do not hijack every descendant button or global wheel event.
+
+The layout design may vary; implementation must support Matthew's chosen interactions. Trackpad feel and response require actual laptop use, with task-specific event/render evidence. Do not infer input-to-photon latency from handler timing or declare parity with Framer/Webflow from screenshots.
+
+### 3.6 Downstream compiler — the orchestra
+
+The evaluator coordinates live preview; a resolver/compiler or AI translation maps selected intent to supported target mechanisms. Package structured state plus assets, actual storyboard/reference evidence, timing, relationships, responsive decisions and constraints. JSON alone cannot preserve all perceived intent.
+
+Declare direct compilation, working replay, proxy/intent translation and unsupported routes separately. The current standalone export is a bounded replay; universal native Framer/Webflow authoring/round-trip conversion and arbitrary code import remain unverified.
 
 ## 4. Creative instruments and the creative ceiling
 
-The Studio's creative ceiling is the range of useful decisions Matt can discover, understand and control. More numerical sliders alone do not raise it.
+### 4.1 Fundamental instruments, not infinite website recipes
 
-Every family below includes direct manipulation, objective inspection and its own short subjective evaluation. Show a few relevant questions per episode, with optional deeper questions. Preserve question IDs and versions when the form evolves.
+The aim is a small sufficiently expressive vocabulary producing a vast variety of original compositions. Study real outputs and authoring interactions, compare against existing capabilities, extend/merge/split where needed, and test unfamiliar combinations. Do not catalogue every finished website as another tool.
 
-| Family | Creative surface and adjacent capabilities | Objective evidence | Subjective questions |
-|---|---|---|---|
-| Typography | Real text editing; line and measure handles; variable axes where supplied; optical sizing; baseline/rhythm; tracking; optical alignment; per-profile line composition | Font file/version/load state; computed styles; line fragments; overflow; breakpoints; contrast checks | Is hierarchy clear? Are the breaks deliberate? Does spacing feel tense, loose or balanced? |
-| Layout | Anchors, spacing handles, alignment, grids, bounded fluid ranges, proportional relationships and avoid regions | Boxes, scroll extent, constraints, alignment residuals, focus order | Is the grouping legible? Where does it feel cramped or disconnected? |
-| Motion response | Direct input-to-object control; response presets; advanced stiffness/damping only when useful; velocity preservation, dead zones, slew and hysteresis if needed | Input/output traces; overshoot; phase lag; settling; interruption/cancel behavior | Does it feel connected, weighty, smooth, predictable, distracting or delayed? |
-| Path and choreography | Pose path editing; spatial tangents; holds; phase/beat handles; explicit clock sources; cues spanning components | Path samples; cue ordering; boundary continuity; parent/scene phase; ownership | Does attention move deliberately? Are pauses and reveals well paced? |
-| Camera | Screen framing; target/orbit/dolly/field-of-view; composition guides; per-profile camera decisions | Projection, clipping, framing residuals, path/target state | Is scale convincing? Is movement disorienting? Is the subject framed well? |
-| Lighting | Move light/reflector handles; key/fill balance; environment rotation; temperature; highlight placement | Light/material state; exposure; scene captures; draw and pass cost | Does light reveal form? Do reflections compete with copy? Is the emphasis right? |
-| Materials and optics | Material-aware controls for transmission, roughness, thickness and related capabilities; coupled look presets; art-directed alternatives | Supported shader parameters; render pipeline; asset/texture state; relevant captures | Is the glass readable? Are highlights, distortion and depth serving the composition? |
-| Spatial relationships | Screen-space alignment of scene anchors and DOM; local/world movement; planes, depth order and permitted occlusion | Projection matrices; units; bounds; relationship evaluations | Do elements feel related? Is overlap intentional and legible? |
-| Responsive art direction | Named profile variants; crop/framing/type/cue choices; override comparison; continuous resize between examples | Selected profile; effective values; viewport/stage; fonts; geometry; intermediate widths | Does this feel composed for the device? What competes for space? |
-| Shared sensory signals | Pointer, scroll, time, audio and available device inputs; readable routing; envelopes and bounded mappings | Raw/processed signal traces; source clock; availability; units; clipping | Does response feel coherent? Does it distract or appear arbitrary? |
-| Variant exploration | Small Discovery Deck; locks; seeds; parameter and structural alternatives; pairwise compare and bookmarks | Candidate recipe, changed dimensions, validity, resource cost and seed | Which direction is promising? What should remain fixed? What useful alternative is missing? |
-| Studio interaction | Selection, handles, inspector, tool switching, Evaluate, compare and history | Gesture events, target/coordinate data, focus/capture, cancel/undo, task completion | Could you find the action? Did ownership make sense? What interrupted concentration? |
+| Reference | Required reusable capability families |
+|---|---|
+| Olympic | Scroll inertia, media-window parallax, entrance/exit, scale settling, asymmetric editorial flow |
+| Cartier | Aperture/mask transformation, image depth/framing, interactive products, alternating handoffs, full-width media and coordinated attention transfer |
+| Morpho | Product/media continuity, aperture expansion and camera progression across visual contexts |
+| Aevion | Linked complete poses/presentations/metrics, projected hotspots and scroll/direct-interaction handoffs |
+| Teatika | Articulation, material/representation transitions, configuration and connected information |
+| Montfort / Watches & Wonders | Atmosphere, depth ordering and curtain/reveal techniques from the supplied analysis |
+| Edolus | Ambient pointer fields, bidirectional shutters, spatial inspection/reveal, shared-element docking, nested content and spatial-context traversal |
 
-These families form seven connected V1 surfaces (§4.6), sharing selection, profiles, commands, history and runtime. Standard creative controls are implemented now; depth and representation improve through use.
+The videos genuinely advanced the analysis, especially full scene-state packages and shared scroll/drag authority. Their appearances do not reveal the original implementation technology. Matthew's perceived “X-ray” or “World Dive” is a valid target; investigate mechanisms without disputing the effect because its name is not literally physical.
 
-### 4.1 Typography, optics and material limits
+The founding `PS-LEM` Living Engineering Manual is edition 0.1.0, 13 October, with 31 foundational operations, 20 rig/instrument entries and 15 evidence references. It remains capability research rather than proof of implementation. Read its current version when editing its content; do not assume the standalone manual is inside every source ZIP.
 
-Preserve editable DOM text for ordinary content and accessibility. A font's available axes are discovered from the actual font; optical sizing is not a universal font capability. Responsive art direction may deliberately change line breaks and composition rather than merely scale a desktop layout.
+### 4.2 Boolean-first workflows and primitives
 
-A DOM overlay positioned over WebGL does not automatically become part of the scene's optical simulation. True text refraction may require rendering text into a texture or another compositing arrangement, with consequences for accessibility, fidelity and update cost. Treat “text behind glass” as an explicit renderer capability and creative experiment. Do not promise arbitrary DOM refraction.
+| Task | Desired authoring experience |
+|---|---|
+| Glass/part lift | Select compatible part → ON → axis gizmo → smoothly swipe up/down on the trackpad to raise/lower it |
+| Asset/copy side exchange | Select both → Swap → exchange spatial roles, retaining identities, effects and valid links |
+| Parent/child frames | Draw parent with cursor → draw child inside → clear hover/selection and immediate hierarchy feedback |
+| State sequence | Enable a rig → scrub/gesture through continuously editable endpoints, copy, lights and camera changes |
+| Space around content | Graphical margin/padding/gap/content control or on-canvas edges; exact values available on demand |
+| Timing | Move/stretch an action span; coordinate selected blocks, overlaps, holds and stagger; expand primitives for refinement |
 
-Physical material controls are coupled. Changing roughness, environment, exposure and geometry thickness can change the appearance more than an isolated “glass strength” control suggests. Preserve a coherent recipe and reveal advanced controls selectively. Three's physical material offers transmission-related features at additional rendering cost; this is a mechanism to evaluate, not a reason to expose every shader parameter. [Three.js physical material](https://threejs.org/docs/pages/MeshPhysicalMaterial.html)
+A Swap command need not masquerade as a persistent toggle. Boolean activation does not force multi-state or continuous effects into two fixed outputs. Keep the full artistically relevant envelope accessible. Use accurate ordinary labels; `lineHeight` is line spacing, not an unexplained “rhythm” variable.
 
-### 4.2 Shared signals and whole-page choreography
+### 4.3 Flagship original-sequence workflow
 
-Use a small typed signal registry with stable sources. Store raw inputs separately from derived velocity, filtering, envelopes and mappings. Specify clock, units, sampling, missing-data behavior, initialization and responsive scope.
+1. Select an imported phone/model and activate desired translation/orientation behaviours.
+2. Draw or manipulate an A→B path and specify how orientation relates to that path. Preview the whole integrated composition.
+3. Save the choreography as a reusable action block with editable endpoints, timing and range.
+4. Keep that motion/path visible as guidance while composing copy and images underneath or behind it.
+5. Add independent copy/media blocks. Couple them to actor bounds/signals where useful; artistic guidance alone must not secretly create a dependency.
+6. Slide/stretch the blocks, change overlap/stagger or holds, and inspect combined motion immediately.
+7. Compare visible independent alternatives, adapt the linked mobile treatment, save/reopen and export intent/replay.
 
-A normalized progress value can coordinate a phone, headline, light and background. It does not mean those effects share the same curve or even the same active range. Author named beats and relationships, then map them to local tracks.
+The reviewed PoC cannot complete this workflow solely through restyling: general XYZ path authoring, independent state-bearing blocks and broader driver mixing need engineering work (§18).
 
-Clock authority is scoped. Autoplay, scroll and resumed playback require explicit handoff; two independent owners must not both drive the same phase. The existing Hero's cross-frame handoff is the first concrete case.
+### 4.4 World Dive / Spatial Context Traversal
 
-Audio uses its own scheduling clock and browser activation constraints. External signals may be unavailable or nondeterministic. Record what was actually received, then declare the replay substitute. “Shared sensory signals” do not imply measured human attention, emotion or gaze.
+A composition can move between **entire world ↔ content within another world ↔ object in a new composition**. A horizontal image gallery may lead into a 3D repair scene and out into another chapter. The car reference is evidence, not a car-specific instrument requirement.
 
-For whole-page work, retain DOM semantics and normal navigation. A persistent scene canvas may preserve spatial continuity across sections when justified. Do not require a single global canvas or replace every section with a WebGL scene. Test scroll direction reversal, resize, section re-entry, interrupted playback and reduced motion.
+World Dive is a compound rig over Context Bridge, Perspective Registration, transition compositing, camera/scroll control, interaction handoff and world lifecycle. Use onion-skin guides to match framing/landmarks; masking/foreground separation may be needed for a photograph containing a hand. Separate renderers can produce perceptual continuity.
 
-### 4.3 Responsive art direction and quality are different axes
+Test forward/reverse travel, readiness, interruption and responsive framing. The PoC's expanding CSS media mask is useful proxy work, not proof of a completed World Dive or geometric portal system. Implementation is scoped after the nearer original-sequence workflow unless Matthew prioritizes it earlier.
 
-An art-direction profile describes a deliberate composition: phone portrait, landscape, tablet, desktop or a project-specific profile. A quality tier describes a rendering trade-off. Neither should silently masquerade as the other.
+### 4.5 Fast UI iteration and workflow-video research
 
-Profiles can change typography, framing, poses, permitted overlap, cue timing and navigation presentation. Breakpoint precedence is deterministic; explicit local overrides win according to the document's rules. Test intermediate dimensions and mobile browser chrome, not just named presets.
+Use an editable React UI Lab inspired by Framer/Webflow, initially without the production backend. Extend the previous lab when available; its earlier existence does not mean an updated lab has been built by this documentation task.
 
-Quality policy selects among approved alternatives: fewer expensive effects, lower render scale, simpler lighting, reduced animation, or a composed static fallback. Preserve content, reading order and intended emphasis. Use hysteresis only if measured switching instability requires it. Record every quality transition in an episode.
+Matthew can move dials/icons, resize/move/collapse panels, rearrange groups, edit labels, adjust density and save competing layouts. Separate **Design UI** mode from **Use UI** mode so moving a control does not alter its parameter.
 
-### 4.4 AI to reusable instrument
+Iterate through editable shell → functional local gesture simulation → thin binding to a real PoC workflow. Label proxies; connect selected controls to current command/capability contracts. Record whether each needs only presentation, an interaction extension or new engine support. The shell alone cannot verify actual model response/persistence.
 
-Use this promotion path:
+Start with glass lift, Swap and nested Frame creation; extend to the path/copy/block workflow. These are integrated slices across a reusable engine, not a permanent restriction to one toy feature. Matthew decides which variants to keep. No rigid variant count, frozen panel size or compulsory 30-second threshold.
 
-1. Matt or Astra identifies a creative intention.
-2. AI proposes a bounded candidate recipe or command patch.
-3. The Studio displays the result and its changes.
-4. Matt compares and accepts or rejects the take.
-5. A repeated useful operation becomes a named preset or macro.
-6. A second distinct context tests whether a novel macro or representation deserves reusable promotion. Established text, transform, profile and transaction mechanics are already required across V1 and do not wait for this promotion path.
-7. Its control representation, tests, feedback questions and capability envelope are packaged together.
+Analyze short Framer/Webflow workflow videos, including official-channel material when supplied. Map visible action/timecode → result → current capability → intermediate steps → candidate compound action → executable prototype/test. Study creating and editing, not only final-site animation.
 
-AI-generated arbitrary code is an isolated implementation proposal, not a trusted runtime expression inserted into the main document. Avoid constructing a general-purpose AI scripting language for ordinary recipes.
+Earlier useful candidates include action spans, multi-selection choreography, on-canvas identity badges, compact icon rails/drawers, contextual popovers and visual spacing controls. Trial them; do not prescribe a 40px rail or remove primitive keyframes by analogy alone.
 
-Repeated parameter changes can suggest a missing macro, but are not proof. “Mechanical Weight” may be a useful semantic control—or may conflate response speed, damping and inertia that Matt needs separately. Trial the representation against the existing controls.
+The supplied 252.6-second recording includes Framer drawing/selection/nesting, comparison with the PoC and Webflow layout/style exploration. The 18.4-second recording shows Webflow selection across desktop/tablet/mobile views; the image shows margin/padding. Sampled frames establish visible patterns, not precise latency measurements. Examine the relevant interval closely for each gesture decision.
 
-### 4.5 Capability Envelopes and Discovery Deck
+### 4.6 Connected workspace and creative scope
 
-Each instrument maintains:
+| Domain | Operative experience |
+|---|---|
+| Composition / hierarchy | Light infinite canvas, real page frames and nested containers, dependable selection, direct transforms, meaningful flow/stacks and spatial guides |
+| Copy / typography | Inline text, visible alternatives, line-measure and typography instruments; retain shared records/Atomiser integration without a compulsory Copy workspace |
+| Assets / components | Compact searchable categories/folders and user-managed definitions; real capability contracts; bounded imports rather than invented universal compatibility |
+| Scene / look | Asset-agnostic compatible GLB control, real mesh targeting, camera, light/material and proxy distinctions |
+| Paths / choreography | Translation/orientation paths, independent blocks/scene states, scoped clocks and compound activation with primitive access |
+| Responsive | Linked desktop/mobile art direction, independent alternatives, explicit overrides and intermediate widths; quality is a different axis |
+| Discovery / history | Editable side-by-side variants, retained snapshots/recovery/lineage, selected recombination and meaningful alternatives |
 
-```yaml
-capability_envelope:
-  exposed_now: []
-  supported_but_hidden: []
-  technically_possible: []
-  known_professional_alternatives: []
-  specialist_external_tools: []
-  experimental_options: []
-  unexplored_questions: []
-  deferred_opportunities: []
-  evidence_and_review_date: []
-```
+These are domains, not mandatory tabs. Remove compulsory Takes/Compare/Restore/Accept navigation from normal creation while retaining history and recovery. Independent variants and linked responsive views must not silently share the same ownership.
 
-Classify discoveries as **EXPOSE NOW, SEMANTIC MACRO, ADVANCED CONTROL, DEFER, EXPERIMENT or IRRELEVANT**. Each significant implementation must both satisfy its target and map adjacent possibilities.
+### 4.7 Current interaction defects and acceptance boundary
 
-A scroll instrument's investigation should consider position, velocity, acceleration, direction, phase, thresholds, momentum, snap, hysteresis, fields, cross-property modulation, responsive divergence and quality adaptation. It should not implement all of them.
+The actor drawer mixes insertion with hardcoded arrangements; Reference Board placement is fixed and intrusive; panels need compact movable/collapsible forms; hover/selection must be unmistakable; nested Frame insertion is missing from the new experience; typography names obscure operations; the Glass · Light · Copy strip does not explain its coordinated behaviour; overlap and legibility remain unresolved.
 
-Review envelopes when repeated feedback clusters, a capability blocks a real composition, a production constraint changes, or a milestone ends. Periodically ask: **What could this instrument do that Matt does not yet know to request?** Record sources and uncertainty; do not convert every interesting discovery into backlog debt.
+Hand-mode `VisualStudio.tsx` allows the canvas gesture to capture pointer events from descendants, consistent with frozen tool/close buttons. This is a source-supported hypothesis requiring reproduction, not a fully confirmed causal diagnosis. Do not make Matthew diagnose objective interaction faults.
 
-Start Discovery Deck with roughly three to six candidates as a UI hypothesis, cached thumbnails, one live preview and explicit locks. Compare meaningful alternatives, including structural choices where safe. Numeric interpolation is allowed only for compatible types and structures; do not blend arbitrary documents or shaders. Candidate generation remains separate from Matt's selection.
-
-### 4.6 Integrated V1 workspace
-
-The board arranges finite page frames, references and alternatives. Inside page frames, ordinary content remains real DOM/CSS. Workspace zoom is not a production layout coordinate. Shared selection, profiles, commands, history and runtime connect the surfaces.
-
-| Surface | BUILD_NOW capabilities | Intentionally bounded first implementation |
-|---|---|---|
-| Composition | Pan/zoom board, page frames, flowing sections with freeform/stacks inside, hierarchy, multi-selection, transforms, grouping, alignment/spacing, DOM typography, images/SVG/video, buttons/shapes and simple diagrams | Practical layout modes and basic connectors; no general drawing or constraint-solver platform |
-| Copy | Shared copy records, fragments, variants, inline editing and insertion; adapt useful Copy Atomiser code when available | Basic organisation/search; no autonomous copy ranking |
-| Components | Shelf, preview, versioned registration, insertion, typed props, anchors/signals and lifecycle; complex components built separately can be incorporated | Known adapter formats, explicit opaque internals; no universal source importer |
-| Scene and appearance | GLB/object selection and transforms; camera framing/target; useful light handles; supported material controls and presets | Accurate renderer capabilities, not invented support for every optical effect |
-| Pose/path/choreography | Named poses, editable paths, holds, scrub/play, section-scoped scroll clocks, editable motion actions, cues and property tracks; cross-component timing through shared clock ownership | Practical timeline; reuse established interpolation rather than build a full animation suite |
-| Responsive | Named profiles, override/inherit/reset, live dimensions, framing/type/timing decisions and supported reduced-motion/static alternatives | Desktop authoring with mobile output preview; full touch-first editor is not required |
-| Takes and discovery | Immutable snapshots, A/B, differences, revert/bookmarks, locks and small bounded candidate deck | Manual/preset/seeded alternatives; no statistical aesthetic scoring |
-
-Complete session: insert content and a component; arrange the page; adjust copy, camera and appearance; author a pose or cue; create a mobile treatment; compare Takes; Evaluate; save/reopen; export the supported composition. This is the operative V1 acceptance target.
-
-### 4.6.1 Flow and direct-editing commitments
-
-Basic section flow, section insertion seams and scoped scroll choreography are BUILD_NOW. A page is a vertical sequence of sections, each containing freeform content or a row/column stack. Section height and the extra scroll travel used for pinning are separate. Adding or moving sections preserves child coordinates and responsive values. Converting a stack back to freeform retains its current arrangement; stale coordinates must not reappear. Existing flat documents open unchanged; adding the first section offers an undoable conversion that wraps the original composition.
-
-A choreography scope names its clock and source: elapsed time or page/section scroll progress. DOM properties and 3D properties use the same evaluator. Scroll mode presents percentages, supports forward/reverse scrubbing, and derives ranges from authored layout rather than animated transforms. Runtime and editor must use the same mapping at their declared viewport dimensions. A section with no scroll travel explains how to add travel or choose time. Pinning uses a separate outer scroll range and inner sticky frame. A shared WebGL context is an implementation option, not a precondition or a claim of shared scene lighting.
-
-Canvas, inspector and model rotation use one property-editing policy. Tracked values either write a key at their owner's current phase or offset the entire curve; the mode stays visible when choreography is collapsed. Static values remain static until explicitly keyed or assigned an action. Supported numeric signal mappings can be offset without detaching the signal. Profile edits preserve inherited keys. A gesture commits once, cancels without residual edits and remains undoable. Background clicks and Escape deselect; Escape cancels an active gesture before clearing selection. Mesh-aware selection passes through unpainted viewport space, with overlap cycling and explicit layer selection as fallbacks. Workspace panning, object movement and model rotation remain distinct; rotation sensitivity is adjustable independently of canvas zoom.
-
-Meaningful actions such as Reveal, Move, Rotate and Scale generate ordinary property tracks with editable timing, amount and stagger. Those tracks remain runtime authority. Detailed manual key edits mark the action as customized so a later parameter edit cannot silently discard them. Per-mesh operations such as Separate glass require an adapter that exposes the relevant parts; do not claim them for opaque whole-model imports.
-
-Recovery copies are independent per writer. A server version conflict must preserve both versions, and failure of both persistence routes must be reported as unsaved. Recovery UI provides identifiable copies and an explicit path to reopen them. No failure message may claim an unverified recovery save.
-
-### 4.6.2 Operative workspace design
-
-**Milestone 1 creative instruments (operative amendment):**
-- A selected text element exposes a generous right-edge line-length handle. Width changes live without implicitly changing height or copy; respect zoom, transforms, property ownership, active profile and gesture cancellation.
-- Typography offers visual starting points and continuous adjustment of size, weight and rhythm. Presets are editable suggestions, not a restricted design vocabulary. Coupled rhythm is a transparent authoring macro over existing line-height/tracking values, with independent precision available.
-- Opacity is a visible slider. Transform and typography quantities live in collapsed, clearly labelled precision disclosure. Keep responsive inheritance and track/signal ownership accessible on visual instruments. Do not remove a capability before a practical replacement or discoverable precision escape exists.
-- Capture a Take directly from the header or Inspector without a naming dialog. Automatic names, immediate confirmation, existing comparison and optional naming remain available. A Take is a document snapshot, not a claimed rendered screenshot.
-- Navigation remains trackpad-first: native two-finger pan, pinch zoom, H hand tool, middle-button drag. Space remains playback. Show bounded alignment/clearance guidance without secretly changing layout or creating relationships.
-- Preserve one authoritative document, command transactions, undo/redo, responsive isolation, save/reopen and runtime parity. No dependency upgrade or new 3D rendering system belongs in this milestone.
-
-The following workspace mechanics remain the foundation; their numeric controls are the precision layer:
-
-
-Use one compact 44px header for project/save state, selection, pan, model turntable, camera orbit, paths, responsive profile, zoom, undo/redo, panel visibility, Takes and export. Put workspace navigation in the left panel rather than a second full-width navigation row. A contextual strip may show rotation sensitivity or live input preview only when relevant. Feedback and help stay accessible through the project-actions menu.
-
-Use neutral graphite surfaces, readable 12–13px labels and values, 32px inputs, and clearly distinguished selection, animation, signal and responsive accents. Keep the authored page palette independent of editor chrome. Avoid hover-only essentials or colour-only ownership information. Both side panels resize and collapse; choreography resizes and collapses while retaining its scope, driver and explicit edit mode. Save workspace preferences separately from the composition document.
-
-Numeric labels support live scrubbing, keyboard entry, coarse/fine adjustment, one-step undo and cancellation. Display responsive scope independently of the effective driver: a profile-specific animation may show both a profile tag and a keyframe diamond. Solid/hollow diamonds distinguish a key at the current position from animation between keys. A signal badge describes the actual owner; it must not imply additive animation/signal composition. Inherit-base removes that property's local static/track/signal overrides in one undoable command batch. Key navigation seeks the property's owning clock.
-
-Model turntable changes object rotation; camera orbit changes viewpoint around its target. Field of view remains a separate lens control. The initial camera orbit targets the scene origin; arbitrary target handles and richer camera paths remain part of the wider V1 work. Scroll choreography shows percentages and explicit page/section scope, with pin distance exposed only for pinned sections. Section insertion remains available through both Layers and on-canvas seams.
-
-### 4.7 V1 integration and acceptable roughness
-
-Reuse existing Hero/Pose machinery through a pinned adapter; connect Copy Atomiser to shared copy records; accept separately built complex components through versioned manifests. Keep external specialist tools external where appropriate, and import their assets or supported outputs. Component code is application-owned and versioned; a project file does not silently execute arbitrary code.
-
-Simple catalogue organisation, plain feedback forms, a limited timeline and manual variants may initially be rough. Workspace layout and control legibility follow §4.6.2; decorative polish remains adaptable through use. Lost edits, conflicting owners, inert controls, failed cancel/undo, hidden missing assets and unsupported export claims are defects. A surface is implemented only when it changes and preserves the intended result.
-
-Provide a scene-independent DOM fixture, a mixed DOM/3D fixture and an imported/existing-component fixture from the start. A legacy component can accurately declare partial capabilities; it need not be rewritten to participate. General workflow/agent engines and knowledge graphs remain separate from the composition board; reference cards and links can share the workspace without becoming the runtime.
+Editorial/Reversed/Close-up are hardcoded changes; Reversed also removes clearance links. Preserve useful capabilities beneath them, and replace or omit these presets where direct operations are simpler. A clean shell and passing tests do not resolve these design failures.
 
 ## 5. The Probe and Observation subsystem
+
+**14 October scope:** §§5–17 retain useful engineering/evidence and conditional research. They are not a shipped-capability inventory or authority to dictate the UI. Current status, ownership and sequence are §§1–4 and 18–24. Historical citations require rechecking when a task depends on current tool versions.
 
 A probe is a versioned question-and-evidence contract. It is not necessarily a continuously running sensor.
 
@@ -518,7 +474,7 @@ relationship:
 
 The numeric threshold comes from the composition or an explicit test policy. There is no global “all overlaps are bugs” rule and no universal 24-pixel clearance.
 
-Separate **reporting**, **editing assistance** and **hard enforcement**. Initially, most composition relationships report or guide. A generic constraint solver that moves authored objects automatically could destroy the intended composition. A later solver must show proposed changes, priorities, unsatisfied constraints and conflicts.
+Separate **reporting**, **editing assistance** and **hard enforcement**. Relations may report, guide or provide explicitly enabled cross-actor coupling. The current PoC has bounded active coupling; use §18 for its limits. Unselected assistance must remain advisory. A generic constraint solver that moves authored objects automatically could destroy the intended composition. A later solver must show proposed changes, priorities, unsatisfied constraints and conflicts.
 
 An unknown observation is not a pass. A required delivery capability can fail admission because its evidence is unavailable, while the geometric predicate itself remains unknown. This distinction prevents both false certainty and misleading failures.
 
@@ -617,7 +573,7 @@ It references a take and implementation/environment bundle, but also records tra
 
 A take is a composition snapshot. It is not enough to reconstruct a half-completed drag or a spring with nonzero velocity.
 
-Every significant instrument exposes **Evaluate this interaction**. The shortcut is an optional convenience; a universal two-second “Semantic Compass” is a hypothesis, not a prescribed UI. Typography, lighting and direct manipulation may need different representations.
+Instrument feedback remains available through Matthew's chosen contextual representation. It does not require a permanent Evaluate control or mandatory form for every operation. The shortcut is an optional convenience; a universal two-second “Semantic Compass” is a hypothesis, not a prescribed UI. Typography, lighting and direct manipulation may need different representations.
 
 On Evaluate:
 
@@ -1091,6 +1047,8 @@ Do not introduce a Kubernetes cluster, distributed event bus or always-on island
 
 ## 17. Implementation stack, Framer and specialist engines
 
+**14 October implementation boundary:** Studio is an isolated Vite/TypeScript package using React 18.2, R3F 8.15.16 and Three 0.158.0, with Node 22.13+ and SQLite. Root Hero dependencies are a separate protected environment. Do not assume WebGPU, newer environment-rotation APIs or GSAP adoption inside Studio from historical Hero dependencies. Verify actual manifests before a change.
+
 ### 17.1 Starting stack
 
 Preserve the functioning scene and host architecture until experiments justify a change.
@@ -1160,132 +1118,108 @@ MAP-Elites may later preserve diverse high-performing candidates across meaningf
 
 Neither algorithm may alter protected relationships or define “premium” by proxy without Matt's evaluation.
 
+### 17.5 Platform-neutral intent and Webflow comparison
+
+Framer and Webflow remain possible delivery/authoring references; no final migration or verified integration is implied. Evaluate technical freedom, visually editable control and creative discovery separately. A shared custom scene may be integrated into either host through explicit adapters. Native page timelines do not automatically expose internal Three.js properties. A page comparison can test each platform's strengths if requested; Matthew need not learn hundreds of controls as a prerequisite to expressing his intention in Studio.
+
 ## 18. Operative subsystem commitment matrix
 
-**Broad V1 remains the destination; Milestone 1 is the immediate BUILD_NOW priority.** The scope is a coherent creative session across composition, copy, components, scene/appearance, pose/choreography, responsive art direction and Takes/discovery. Development proceeds in small integrated changes. A foundation demonstration is an internal check, not the release target.
+### 18.1 Current continuum: reusable engine → instrument → rig → preset
 
-| Subsystem | Commitment | Required V1 outcome / later admission condition |
+The supplied build has real reusable mechanisms with preset scenes on top. Original variation is possible within a bounded vocabulary; it is not yet a fully general choreography engine.
+
+| Capability | Source-grounded current state | Generality / boundary |
 |---|---|---|
-| Semantic document, stable IDs, typed properties and units | BUILD_NOW | One authoritative model across all seven surfaces; explicit coordinate spaces and references |
-| Command transactions and property ownership | BUILD_NOW | Preview/commit/cancel/no-op, undo/redo, stale-revision rejection and visible owners |
-| Save/reopen, recovery and basic migrations | BUILD_NOW | Preserve authored meaning and unknown supported extension data; portable project package |
-| Composition board and page frames | BUILD_NOW | Pan/zoom workspace with finite real DOM/CSS pages, flowing sections, insertion seams, hierarchy, mesh-aware selection, grouping and transforms |
-| Layout and typography | BUILD_NOW | Editable copy, spacing, alignment, sizes, text measure and responsive overrides; appropriate DOM semantics |
-| Copy workspace / Atomiser integration | BUILD_NOW | Shared copy records, reusable fragments and variants; no duplicate authoritative text store |
-| Component shelf and contracts | BUILD_NOW | Known component registration, preview, insertion, versioned inputs, lifecycle and capability declaration |
-| 2D / media composition | BUILD_NOW | Shapes, SVG, images, video, buttons and basic diagram/connector compositions |
-| 3D object, camera and appearance instruments | BUILD_NOW | GLB/object transforms, camera framing, supported lighting and materials through contextual controls and useful handles |
-| Poses, paths and choreography | BUILD_NOW | Named poses, path editing, holds, playhead, cues and selected tracks; reuse existing mechanisms |
-| Typed shared signals | BUILD_NOW | Manual/time/pointer/scroll sources as supported; bounded mappings and explicit scoped clock ownership |
-| Responsive art direction | BUILD_NOW | Named profiles, override/inherit/reset, live sizing and profile-specific framing/type/cues |
-| Basic relational intent and geometry | BUILD_NOW | Authored alignment/clearance/occlusion scope; selected DOM/scene observations where needed; unknown is explicit |
-| Quality and reduced motion | BUILD_NOW | Explicit supported alternatives; keep quality separate from art direction; no unapproved silent visual degradation |
-| Takes, lineage, A/B and decisions | BUILD_NOW | Immutable snapshots; synchronised comparison; clone/revert; preserve original reactions and decision history |
-| Small Discovery Deck | BUILD_NOW | Manual and bounded preset/seeded alternatives, locks and transparent changed values; one live preview by default |
-| Evaluate and contextual episodes | BUILD_NOW | Exact state/profile/owner/phase and relevant bounded history, available stills, original feedback and export |
-| Probe adapters, buffers and compact summaries | BUILD_NOW | Necessary state, interaction, errors and selected geometry/timing with provenance and capture limits |
-| Capability envelopes and basic claims queries | BUILD_NOW | Discover exposed/hidden/possible/unknown capabilities; retrieve contextual feedback and decisions |
-| Browser and invariant tests | BUILD_NOW | Verify meaningful cross-domain workflows, ownership, history, serialization, profile precedence and runtime export |
-| Existing Hero adapter and regression fixture | BUILD_NOW | Pin and preserve accepted authored output; unresolved host evidence blocks only its equivalence claim |
-| Runtime/project export and Framer fixture | BUILD_NOW | Export document/runtime/assets; test actual supported host when accessible; exclude editor/lab infrastructure |
-| Four-manifest bundle and protected acceptance references | BUILD_NOW | Separate composition, instrument, implementation and environment; preserve lineage and release boundaries |
-| Agent command/evidence and experiment seams | DESIGN_INTERFACE_NOW | Wrap the same commands and queries; no alternate mutable state or autonomous promotion |
-| Rich stateful replay / broader capture | EARLY | Expand per instrument where episodes expose a concrete missing state or observation |
-| Property/model-based test expansion | EARLY | Grow meaningful command combinations and retain shrunk counterexamples; core invariants already tested in V1 |
-| Targeted performance, React and GL diagnostics | EARLY / ON_DEMAND | Use existing specialist tools to answer actual questions, including during V1 when necessary |
-| Advanced cross-section transitions, modulation and typography | EARLY | Extend basic BUILD_NOW section flow and insertion from real compositions and capability discovery |
-| Reusable semantic macro promotion | EARLY | Trial new representations and validate in another meaningful context; ordinary established editing mechanics need no rediscovery gate |
-| Bounded agent-user and synthetic motor tests | EXPERIMENTAL | Declared actor access and task; technical robustness evidence, not synthetic human or aesthetic authority |
-| Repeatable isolated candidate runner | CONDITIONAL | Automate recurring preparation/collection when it saves work; scripts may suffice |
-| Expanded knowledge registry and negative findings | EARLY / EVOLVING | Preserve contextual scope, evidence and supersession; basic history ships in V1 |
-| Recombination sandbox | DESIGN_INTERFACE_NOW; BUILD WHEN NEEDED | Combine transferable discoveries with semantic integration checks and preserved oracle |
-| TouchDesigner / specialist engines | EXPERIMENTAL | Specific valuable effect with explicit embed/bake/rebuild/external boundary |
-| General constraint solver or broad primitive engine | LATER | Required by repeated actual compositions; inspectable conflicts and migrations |
-| CMA-ES / MAP-Elites / multi-island exploration | CONDITIONAL LATER | Defensible criteria, useful diversity, isolated candidates, resource limits and measured benefit |
-| Full always-on telemetry / diagnostics platform | REJECT AS DEFAULT | Bounded evidence and native viewers serve current needs |
-| Universal node editor / universal source importer | REJECT AS DEFAULT | Specialist graphs and bounded adapters remain available |
-| General bidirectional native Framer conversion | NOT A V1 PROMISE | Requires its own supported mapping and actual round-trip evidence |
-| Distributed lab / CRDT / cloud multi-user platform | DEFER | Preserve future seams; require an actual workload or collaboration need |
+| Semantic commands, variants, responsive overrides, undo and SQLite | Implemented foundation | Preserve; human usability is separate |
+| Instrument registry and stored instances | Implemented bounded catalogue | Add/disable/order/parameterize compatible instruments; new types currently need evaluator work |
+| Parallax, rise/settle and masked text | Reusable bounded behaviours | Authored progress ranges, not automatic viewport detection; text splits authored newlines |
+| Orbit, camera approach and glint | Reusable bounded behaviours | Configurable specific formulas; no general XYZ trajectory; orbit interaction separately overlays narrative rotation |
+| Named-mesh separation / hinge | Real movement; partially generalized | Generic named part translation exists; imported hinge uses fixed X/local origin; no complete arbitrary-pivot rig authoring; selector still includes phone-specific names |
+| Hotspots | Real model-local projection | Frustum clipping; surface occlusion pending |
+| Scene states | Editable endpoint interpolation | Numeric/colour changes interpolate; text switches; current evaluator selects the first state-bearing Beat |
+| Compound Beats | Working bypass and span movement/stretching | Instrument groups are real; current creation collects selected actor's instruments; unrestricted independent multi-actor state clips missing |
+| Cross-actor coupling | Actual bounds-driven copy and six link kinds | Genuine response, but predefined follow/align/clearance/glint/reveal/synchronize rules; immediate cycles rejected |
+| Drivers/modulators | Typed sources and ordered response mappings | Main instrument evaluation uses `drivers[0]`; time shares master progress; full signal mixer and independent clocks missing |
+| Springs/damping | Scroll settling and orbit release; progress response curve | Full stateful mass/tension/damping nodes not delivered |
+| Aperture / portal and depth | Adjustable masks/layers and camera coordination | CSS proxies; no true geometric portal/depth-aware compositor |
+| Shape Journey | Editable three-shape transition | Fixed triangle/rectangle/circle vocabulary, not arbitrary shape morphing |
+| Reference scenes | Preset initial documents using shared mechanisms | Cartier/Aevion/Teatika assets are original simplified fixtures; source sites not reproduced |
+| Editorial/Reversed/Close-up | Hardcoded arrangement presets | Little new capability; link deletion in Reversed is inappropriate for a generic Swap |
+| Intent/assets/storyboards/standalone replay | Implemented bounded export | Native Framer/Webflow mappings and arbitrary React/R3F/Spline/Framer imports unverified/pending |
 
-The table preserves the original subsystem commitments; it does not instruct simultaneous completion before human use. Current executable sequence and status:
+Source audit: `studio/src/instruments/registry.ts`, `engine.ts`, `types.ts`, `editing.ts`, `InstrumentScene.tsx`, `Stage.tsx`, `Rack.tsx`, `VisualStudio.tsx`, `examples.ts`; cross-check `studio/docs/capability-ledger.md`. This edition records source findings and existing receipts, not new engine tests.
 
-| Capability | Source baseline | Immediate decision |
+### 18.2 Missing general capabilities — engineering research backlog
+
+These can be independently identified and researched. They do not require Matthew to provide algorithms. Proposed order reflects the flagship workflow and dependency relationships; he can reprioritize them.
+
+| ID | Reusable capability | Required contract and discriminating test |
 |---|---|---|
-| Commands, ownership, history, profiles, persistence, runtime | Implemented foundation in alpha 0.3.0 | Preserve and regression-check |
-| Pan/zoom, hand tool, collapsible panels, generic resize | Implemented | Reuse; extend text measure |
-| Text measure, visual type/rhythm, opacity, progressive disclosure | Implemented in alpha 0.3.1 | Technical verification recorded; human usability pending |
-| Takes, automatic-name backend, A/B | One-click access implemented in alpha 0.3.1 | Human workflow validation pending |
-| Mesh-specific appearance, richer optics/cameras | Partial/missing | Subsequent visual 3D milestone |
-| StoryBeats | Missing authoring abstraction | Subsequent choreography milestone; compile to authoritative tracks |
-| Discovery Deck, controlled candidates and AI exploration/handoff | Partial/missing | Subsequent discovery milestones |
-| Experimental islands, knowledge, recombination and evolution | Preserved research | Conditional expansion; never a prerequisite to creative use |
+| G01 | Spatial trajectory + orientation | XYZ/local/world paths, tangent/pose orientation, holds and reversal; same mechanism on unrelated assets and a different curve |
+| G02 | Independent action/state blocks | Several actor groups with independent endpoint sets/ranges; edit/retime one without changing another, then coordinate overlap |
+| G03 | Multi-driver routing and typed mixing | Sources/ports, remapping, arbitration, direct-input handoff and time independence; combine inputs without replacing unrelated contributions |
+| G04 | Stateful expressive response | Appropriate easing/smoothing/spring models, parameter/state ranges, suspension and release; interrupted target, variable time step and checkpoint tests |
+| G05 | Nested frame/hierarchy integration | Draw/reparent parent and child in correct spaces, clipping/layout and mobile isolation; undo/save/reload/export identity |
+| G06 | Generic part/camera/component targeting | Actual mesh hierarchy, stable IDs, authored pivot/axis/rig constraints and camera targets; unrelated GLB with different part names |
+| G07 | Viewport/events and section lifecycle | Entry/exit/click/hover/independent clocks where needed, deterministic reverse/re-entry and ownership; no fabricated viewport triggers |
+| G08 | Context Bridge / compositing | Framing registration, masks, projection, input/lifecycle handoff and responsive continuity; unseen A→B→C journey with reversal |
+| G09 | Bounded external component adapters | Test a real user component and its dependencies/runtime; declare editable ports, opaque internals and delivery support |
+| G10 | Selected subgraph reuse/recombination | Preserve actor/link/block identities and compatibility while transplanting a selected rig between original compositions |
 
-All statuses are implementation commitments, not completion claims. Move a status only with a recorded reason. The long-term experimental, island, recombination, knowledge and promotion architecture in §§10–16 remains part of this specification.
+Investigate existing native/library mechanisms before inventing replacements. Compare primary documentation and working spikes at pinned versions; a named library or architectural diagram is not integration evidence. Keep defaults useful, contracts versioned and expressive range available. G08–G10 may be staged after nearer gaps; they remain specified rather than completed.
+
+### 18.3 Retained commitments and deferred research
+
+Preserve commands, storage/recovery, accessible DOM, typed units/spaces, responsive semantics, portable export and Hero regression protection. Extend evidence only where a real question needs it. Capability envelopes and concise decision records should reveal working/partial/proxy/pending status without becoming ordinary UI disclaimers.
+
+Discovery candidates, knowledge, agents, replay, islands, four manifests, recombination and evolutionary algorithms remain valid research directions from §§5–17. They are conditional expansion, not mandatory prerequisites or already delivered engines. Universal imports, universal node editing, distributed fleets and bidirectional native host conversion are not blanket promises. A future change in scope must be recorded explicitly rather than inferred from the long-term research.
 
 ## 19. Authoritative execution sequence
 
-### 19.1 Operative workflow-first sequence
+### 19.1 Two connected work streams
 
-1. **Milestone 1 — DOM creative workflow:** select text → drag its line length → explore type/rhythm and opacity → one-click Take → compare → adjust Mobile independently → save/reopen/export. Implement the width interaction first, record a working browser checkpoint, then complete the connected instruments. A checkpoint is evidence and a review opportunity, not an automatic interruption of authorised work.
-2. **Human use:** Matt tries the working flow on his Windows laptop. Resolve significant usability problems before advancing to advanced 3D. The proposed 30-second target is diagnostic guidance, never a rigid pass/fail rule. Test creative exploration and recovery, not only a rehearsed sequence.
-3. **Visual 3D staging:** inspect actual asset hierarchy first; generic mesh targeting, camera/framing and perceptual appearance controls. Preserve imported materials; selectively extend only where evidence warrants it. Three 0.158.0 remains pinned in Milestone 1; later environment-rotation work needs a compatible implementation or a tested Studio-only upgrade.
-4. **StoryBeats:** coordinated DOM/3D moments compile through normal commands to existing tracks. No competing runtime state engine.
-5. **Discovery and AI:** grow immediate Takes/comparison into bounded alternatives, locks, combined DOM/WebGL previews and safe recombination. AI proposes possibilities throughout exploration and handles production handoff; Matt retains creative authority.
-6. **Conditional expansion:** preserve knowledge, islands, four manifests, agent testing, recombination and evolutionary research. Implement when the working creative loop demonstrates a need.
+**UI/design stream**
 
-The original engineering work packages E0–E8 below remain useful dependency descriptions. Their numbering no longer imposes broad V1 completion before real-use feedback. E4 begins during Milestone 1. Broader E2/E3 work resumes according to the sequence above; missing host access blocks only its host-specific claim.
+1. Refresh the source baseline and supplied references; preserve the current testbed.
+2. Build/extend the editable UI Lab for Boolean activation, continuous handles, selection, movable controls and parent/child drawing. Do not reproduce a whole mature editor before testing useful workflows.
+3. Matthew rearranges and operates comparative candidates; Gemini maps shorter workflows and compound actions. Save the chosen layout, gestures, labels and command mappings.
+4. Bind one selected workflow thinly to actual engine commands, then validate real behaviour, undo/cancel and persistence on the laptop.
+5. Extend to the integrated phone-path/copy/block workflow, then other assets and contexts. Continue primitive access throughout.
 
-### E0 — Refresh technical reality
+**Engineering/research stream**
 
-Reuse the 20 September baseline. Check current source drift, repository instructions, build/lockfile, asset locations, reusable component state, host/deployment access and isolation boundaries. Record specific unknowns and what they block. Keep the accepted Hero intact.
+1. Independently audit affected mechanisms and classify missing general capabilities using §18, without another broad purpose interview.
+2. For each prioritized gap: state the contract, inspect existing code, research primary mechanisms at actual dependency versions, compare viable routes and run a bounded spike.
+3. Test reuse across a distinct asset/composition; confirm typed ownership, coordinates, state and lifecycle. Generalize demonstrated behaviour, not hypothetical universality.
+4. Implement/migrate the shared mechanism when required by the selected integrated workflow. Keep ordinary tracks supported and avoid competing state authority.
+5. Connect the chosen UI, verify the full flow, record actual capability status and hand the working result to Matthew for creative evaluation.
 
-Exit: enough source/build knowledge to implement safely, plus a scoped list of unresolved integration checks. A missing Framer/Vercel connection blocks tasks needing those services only. Do not ask Matt to nominate a new Hero pain point or reconstruct old requirements.
+The streams inform each other. A GUI prototype alone cannot prove engine generality; a backend test alone cannot prove low-friction design. Basic Frame/selection/control reliability and useful capabilities are developed together rather than placing every engine behind a universal UI-first gate.
 
-### E1 — Establish the shared editing path
+### 19.2 Integrated milestones and exit evidence
 
-Implement the versioned document, typed capabilities, commands, transactions, ownership resolution, persistence, renderer adapters and runtime export seam. Exercise at least DOM text/layout, a scene object/camera, and a component instance. Carry edits through preview, cancel/commit, undo/redo, profile changes, save/reopen and exported state.
+| Milestone | Outcome | Exit evidence |
+|---|---|---|
+| M0 — Continuity and baseline | Current plan/source/reference identities, accepted Hero protection, explicit known gaps | Read-first record and scoped source/test receipts |
+| M1 — Reliable editable UI experiments | Glass control, Swap and nested Frame workflows; controls editable in Design UI and operable in Use UI | Matthew's design choices plus functional gesture checks |
+| M2 — Original choreography foundation | General trajectory, independent blocks and adequate input arbitration integrated with primitive controls | New path/asset, independent timing, save/reload/export tests |
+| M3 — Layered emergent composition | Phone motion guides copy/media; chosen relationships react; combined blocks remain independently editable | Unseen composition, changed asset/path, responsive and bypass/reversal tests |
+| M4 — Supported delivery | Actual selected intent reproduced by standalone and scoped target adapters | Real destination tests; no universal host claim |
+| M5 — Conditional creative expansion | Context traversal, richer imports, rig reuse, evidence/discovery and specialist routes as justified | Bounded new context and human acceptance |
 
-This is an architecture check inside the broad build. It is not a one-instrument product milestone. Establish narrow public contracts, then open independent implementation lanes. Implement SQLite/local-writer storage and portable project export behind a storage interface; transient gesture state must not become an alternative durable document.
+Milestones describe connected outcomes, not rigid time quotas or a ban on parallel independent investigation. Matthew's explicit verdict governs acceptance/expansion; it does not transfer his design authority to a test runner. Continue already authorized work without gratuitous checkpoints requiring repeated permission.
 
-### E2 — Build the connected creative workspace
+### 19.3 Progress, execution and publishing discipline
 
-Continue the seven surfaces in §4.6 against E1 contracts in the operative milestone order above. Composition/copy, scene/appearance, pose/choreography, Takes/evidence and component/delivery work may progress in parallel where ownership is independent. Keep selection, responsive scope, commands, clocks and history shared. Integrate continuously with ordinary DOM, mixed DOM/3D and existing-component fixtures.
+Use Astra at Matthew's chosen capability/effort for substantive production engineering. Gemini provides research/review/UI partnership. Optional workers require explicit task authorization and owned contracts; no mandatory swarm or fixed count.
 
-Evaluate, capability declarations and Takes accompany the instruments. Capture is proportional to the interaction. Do not require full video, GPU capture or perfect stateful replay before useful controls can ship.
+Before dependent commands, establish repository directory, branch, dirty state, dependencies and exit behaviour. Local daily startup is from `C:\Users\matth\Desktop\R3F Repo\IphoneAnimation-live\IphoneAnimation\studio`, then `npm run dev`, normally `http://127.0.0.1:5173`. Reinstall when lockfile/install state warrants it; do not blindly reuse process IDs or proceed after a failed install/build.
 
-Exit: Matt can explore an integrated composition rather than several disconnected demonstrations. Present working capabilities as they become available and label genuinely unsupported operations.
+Publish authorized source/doc changes through the connected GitHub account. Missing shell credentials do not invalidate connector access or existing authorization. Reuse base trees; update changed files only. Verify branch result and exact content/commit. SQLite can record rules/receipts; enforcement requires the actual execution path to consult a guard/controller and cannot grant platform permissions.
 
-### E3 — Complete V1 integration and supported delivery
+For Gemini review, package Studio text source/docs/tests/config separately from the production Hero, model/media and captured evidence. The 14 October source-only review was 317,444 bytes versus the full 20,875,498-byte archive; original retained files were byte-identical. It is a code-review package, not a complete media demo. Preserve the full archive for runtime/visual evaluation and label existing receipts as full-build evidence.
 
-Exercise a complete session: insert and arrange content/components; edit typography; manipulate a 3D subject, camera and look; author a pose/path/cue; create a mobile treatment; compare Takes; capture feedback; save/reopen; export and run the supported output.
-
-Verify asset/font handling, responsive ownership, loading/failure, multiple instances, lifecycle, reduced motion, and exclusion of editor/lab code from production. Actual Framer checks are required before claiming that host supported. An inaccessible host does not invalidate independently verified standalone output or halt other implementation.
-
-Exit: technically coherent V1 with explicit delivery coverage. Matt's later creative acceptance is not fabricated by passing tests.
-
-### E4 — Adapt through real use
-
-Use captured episodes to repair defects, reduce friction, prune unused controls and extend missing capabilities. Preserve originals and comparisons. Distinguish objective failures Astra should fix independently from choices requiring Matt's judgement. Begin once the workspace supports meaningful use; final polish is not a prerequisite.
-
-### E5 — Bounded agent assistance and interaction testing
-
-Existing coding and browser agents can assist development from the start within owned scope. At this phase, formalise valuable repeatable tasks with declared actor access, limits and evidence. Visual-discovery trials remain conditional and do not determine human preference. An embedded autonomous product service is not required.
-
-### E6 — Repeatable isolated experiments and contextual knowledge
-
-Automate recurring candidate setup, input runs, evidence collection and comparison when that reduces real work. Expand contextual claims, negative findings and reproduction. Trial scoped parameter or instrument changes and recombine discoveries in isolated candidates. This work does not require a successful visual-agent study; a script and manifest may be sufficient.
-
-### E7 — Extend the creative ceiling
-
-Run alongside E4 onward. Add richer typography, material optics, lighting representations, section transitions, modulation, specialist engine routes or new components from actual demand and capability discovery. Core camera, lighting, materials and choreography are already V1 capabilities; this phase deepens them.
-
-### E8 — Conditional evolutionary exploration
-
-Preserve the full island/four-manifest/recombination architecture. Trial multi-island or optimizer work only when single-candidate experiments yield useful results, candidate diversity matters, oracle/data isolation and promotion work, resources are bounded, and simpler exploration is inadequate. Retain inconclusive/negative outcomes. No autonomous aesthetic authority or unconditional distributed fleet.
-
-### 19.2 Planning and progress
-
-Track working integrated capabilities and unresolved risks, not elapsed research or the count of abstractions. Do not carry forward the superseded week-by-week one-instrument schedule. Re-estimate from the runnable implementation. Each implementation checkpoint records commit, supported workflows, tests performed, exact gaps and the next executable work. A stopped work session must leave recoverable code and a continuation record, not another competing plan.
+End each session with actual changed revision, work completed, checks, unresolved limits and next executable task. No success claim from a pending branch update, guessed screenshot or lost test log.
 
 ## 20. Validation portfolio and scoped blockers
 
@@ -1310,11 +1244,17 @@ Representative fixtures are an ordinary content layout, a mixed product composit
 
 History retrieval must name the uncertainty it resolves. Prefer targeted source/configuration retrieval, known failure cases and missing-capability evidence. Do not make exhaustive mining a prerequisite. Do not change production to accommodate an unverified cloud rendering limitation.
 
+### 20.1 Generative integration fixtures
+
+Add the actual flagship workflow, not only pre-authored sample scenes: import another GLB, create a new translation/orientation path, add independent copy/media blocks, alter one block and confirm the others retain their state, selectively enable coupling, change the source asset/path and verify adaptation. Exercise forward/reverse, bypass/re-enable, interrupted input, resize and linked/mobile versus independent variant ownership.
+
+Frame creation and Swap must preserve hierarchy, spaces, profile scope and relationships. Interaction overlays remain clickable in Hand mode. A completed sequence, opaque template or compiler pass is insufficient evidence for these operations.
+
 ## 21. Delegation, interfaces and integration ownership
 
 ### 21.1 Shared authority and parallel lanes
 
-One architect/integrator owns shared document/schema, commands, ownership, clock and coordinate semantics, dependencies and integration order. Use bounded parallel workers once those contracts are explicit. Useful delegation does not wait for one instrument's complete evidence system. Use the high-capability model/effort selected for the substantive build; do not silently substitute weaker models.
+Matthew owns workflow and UI/UX. One engineering integrator owns shared document/schema, commands, ownership, clock and coordinate semantics, dependencies and integration order. Gemini actively supports workflow research and prototype comparison. Use bounded parallel workers only when explicitly authorized and once those contracts are explicit. Useful delegation does not wait for one instrument's complete evidence system. Use the high-capability model/effort selected for the substantive build; do not silently substitute weaker models.
 
 | Lane | Owns | Integration boundary |
 |---|---|---|
@@ -1372,89 +1312,81 @@ build_unit:
   completion: ready_for_integration_not_automatic_acceptance
 ```
 
-Astra independently chooses routine reversible UI and implementation details. Ask Matt only for a materially different creative objective/product interpretation, expensive or difficult-to-reverse choice, or specific missing information not inferable from accessible evidence. Matt judges feel and creative outcomes; Astra handles measurable defects and technical integration.
+Astra chooses routine reversible engineering details and implements approved interaction/design decisions. It fixes objective defects without making Matthew the debugging oracle. Gemini may actively propose alternative workflows; Matthew determines UI/UX and creative acceptance. Genuine engineering constraints are made explicit with options, not concealed by redesign. Ask only for information that materially changes the task and cannot be obtained from available evidence; do not repeatedly request permission already supplied.
+
+### 21.4 Shared continuation and corrections
+
+Each handoff includes current `PS-MASTER` edition, source/contract identities, preserved intent, chosen UI reference, implementation/proxy status, actual evidence, open engineering gaps and next task. A correction updates the canonical plan/status and supersedes its predecessor. Do not make future chats rely on an assistant saying it remembers; supply/read the durable records.
+
+The Gemini background brief is a convenient onboarding document, not a competing master plan. Cross-check its snapshot/status with this edition. The Living Engineering Manual is the versioned capability vocabulary; user-approved UI artifacts govern presentation. Record conflict resolution instead of maintaining several simultaneous operative directives.
 
 ## 22. Major uncertainties and falsification targets
 
-| Assumption | Focused test | Response if false |
+| Hypothesis / risk | Focused test | Response if unsupported |
 |---|---|---|
-| One document can own the mixed composition | Trace several DOM/scene/component edits through save and export | Repair shared authority before adding more writers |
-| Existing Hero machinery can be adapted | Pin source/state and implement a narrow adapter | Refactor only blocking seams; preserve accepted outputs |
-| Cross-domain relationships assist composition | Compare declared guides with intentional and unintended overlap | Improve predicates or keep them advisory |
-| Initial controls expose meaningful creative decisions | Observe actual mixed-domain tasks | Replace or regroup controls while retaining data/commands |
-| A semantic macro is better than raw controls | Compare both representations in fresh use | Retain separate controls or revise the macro |
-| Episodes communicate enough context | Reproduce actual reported episodes | Add the missing state or observation specifically |
-| Default capture is unobtrusive | Paired instrumented/normal runs | Reduce recording scope/frequency or target capture |
-| Replayed comparison answers the human question | Compare replay with fresh manipulation | Use both and label their evidence scopes |
-| Supported output survives its host | Open actual exported artifact in its intended environment | Fix the delivery seam; retain other working routes |
-| Discovery Deck improves exploration | Compare useful alternatives and effort against manual Takes | Simplify its generation/representation |
-| Agent-user testing reveals relevant issues | Compare agent findings with real use | Restrict it to reliable technical roles |
-| Contextual history improves decisions | Query real previous successes/failures | Improve metadata before introducing embeddings/graphs |
-| External tools increase useful creative capability | One bounded external/browser/baked comparison | Keep external or omit the integration |
-| Quality alternatives preserve intention | Compare on representative devices | Redesign the fallback explicitly |
-| Islands and recombination improve discovery | Compare value/diversity/cost with simple candidates | Retain sequential exploration or fewer candidates |
+| Pre-built behaviours remove real setup | Compare the same fresh task through primitive and compound routes; observe navigation and correction | Revise or remove redundant presets; retain useful primitives |
+| Boolean activation preserves range | Enable, freely vary endpoints/routing/response, bypass and re-enable | Repair bypass/configuration and expand meaningful controls |
+| Paths/blocks generate original sequences | Create a new curve with another asset and independent copy timing | Extend general contracts rather than add another fixed scene |
+| Cross-actor emergence is genuine | Change source size/pose/path independently and observe linked copy/light | Repair coupling; label parallel playback accurately |
+| Multi-driver response retains control | Interrupt with drag, resume scroll, pause, resize, reload state | Define source arbitration/handoffs and stateful response |
+| Nested structure remains direct | Draw parent/child, reparent and undo across zoom/profile changes | Add hierarchy/input engineering and test approved UI |
+| UI Lab reduces iteration friction | Matthew rearranges controls and operates candidate workflows; bind one to the real engine | Change the lab representation or narrow its scope |
+| Smoothness survives integration | Fresh laptop tasks with event/render/ownership traces | Diagnose actual contention and mapping; avoid invented latency claims |
+| Context traversal preserves framing | Unseen A→B→C with reversal and late readiness | Refine registration/compositing/lifecycle or state proxy limits |
+| Import/export preserves intent | Actual component/assets and independent replay/host | Repair the affected adapter; keep other verified routes |
+| Capability research is sufficiently general | Second distinct context plus counterexample search | Narrow the claim or extend the mechanism |
+| Evidence/discovery/islands add value | Compare concrete outcomes and cost against simpler work | Keep bounded/manual approaches and defer added infrastructure |
 
-Uncertainty is resolved at the smallest relevant boundary. It is not a reason to repeat product discovery or halt independent creative work.
+Resolve uncertainty at the smallest useful boundary, then revalidate the integrated composition. No fabricated percentage of philosophy fulfilment, universal premium score, arbitrary deadline or synthetic task population substitutes for evidence.
 
 ## 23. Integrated V1 acceptance and later expansion
 
-### Milestone 1 technical and human acceptance
+### 23.1 Recorded PoC evidence and outstanding acceptance
 
-- [x] Text measure changes wrapping directly, including non-default zoom and transformed parents, without an unintended height/copy edit.
-- [x] Visual typography, rhythm and opacity support live feedback, single-gesture undo, cancellation and profile/track/signal ownership.
-- [x] Precision remains discoverable but is collapsed by default; meaningful editing requires no numeric coordinates.
-- [x] One-click automatic-name Take capture, comparison, restore and persistence work.
-- [x] Mobile adjustments preserve Desktop/base; save/reopen and runtime export preserve the visual result.
-- [x] Browser and invariant checks verify the command-to-render-to-storage flow and existing supported behaviour.
-- [ ] Matt validates trackpad feel and creative freedom on his Windows laptop; significant usability problems are resolved before advanced 3D begins.
+Existing receipts: build passed, 49 unit tests, 38 legacy + 18 PoC browser checks, seven captured scenes; source identity matched the reviewed archive. This plan update carries those historical receipts only. The UI is not accepted, and tests did not cover every reported frozen-control/Frame/selection failure or establish general XYZ choreography.
 
-The 30-second scenario is an optional observation, not an acceptance threshold. Automated success cannot mark the human acceptance item complete.
+### 23.2 Required integrated acceptance
 
-### Broad V1
+- [ ] Matthew can design/rearrange and operate chosen UI controls; approved decisions reach the actual implementation.
+- [ ] Reliable hover/selection, tool switching, overlays, closure and pointer cancellation work on the Windows touchpad.
+- [ ] Parent/child Frames can be drawn, selected, reparented and edited predictably across zoom and profile changes.
+- [ ] Glass/part ON enables continuous direct manipulation; OFF retains configuration and unrelated behaviour.
+- [ ] Two-object Swap preserves identities, instrument settings, responsive scope and valid links; one undo restores it.
+- [ ] A new XYZ path/orientation sequence can be authored and saved on an unrelated compatible asset.
+- [ ] Independent copy/media/scene blocks can be moved/stretched/overlapped without silently changing other state sequences.
+- [ ] Actor coupling responds to changed source geometry/motion, with clear typed scope and no accidental feedback.
+- [ ] Direct interaction, scroll and other supported drivers blend/handoff predictably; independent clocks are real where claimed.
+- [ ] Primitives, exact values, lower-level timing and full meaningful ranges remain accessible alongside compound tools.
+- [ ] Linked responsive views preserve base/override semantics; independent variants remain independent; intermediate widths are exercised.
+- [ ] Gesture cancel/commit/no-op/undo, save/reload, migration, assets and export preserve semantic meaning.
+- [ ] Intent includes actual visual evidence and known mappings; standalone and native-host claims are tested at their actual boundaries.
+- [ ] New original compositions and unfamiliar combinations demonstrate reusable capability beyond editing a preset example.
+- [ ] Matthew judges the workflow creatively useful and explicitly accepts the relevant advance.
 
-- [ ] One shared semantic document and validated command boundary span all creative surfaces.
-- [ ] Composition board contains real DOM/CSS page frames with usable selection, layout, text, hierarchy and media tools.
-- [ ] Copy records and variants can be edited and inserted without duplicate authority.
-- [ ] Known components can be registered, previewed, inserted, configured and disposed.
-- [ ] A real GLB can be placed and its object transform, framing, supported lights and materials manipulated.
-- [ ] Poses, paths, holds, cues and selected tracks coordinate scene and DOM elements through explicit owners/clocks.
-- [ ] Profiles can override and inherit layout, copy, framing and timing; intermediate dimensions are exercised.
-- [ ] Gesture preview, commit, cancel, no-op, undo/redo and interruption preserve intended transactions.
-- [ ] Save/reopen, recovery, project import/export and asset identity preserve authored meaning.
-- [ ] Immutable Takes, differences, A/B comparison, small variants and decision lineage work.
-- [ ] Evaluate captures exact relevant state, original feedback, bounded history and available observations; missing evidence is explicit.
-- [ ] Capability envelopes expose relevant supported, hidden, possible and unknown capabilities.
-- [ ] Ordinary DOM, mixed DOM/3D and known-component fixtures exercise the shared architecture.
-- [ ] Existing Hero adaptation preserves the pinned accepted configuration at the verified scope.
-- [ ] Standalone runtime output uses the same evaluation rules and excludes editor/lab infrastructure.
-- [ ] Actual Framer support is verified when claimed; unavailable host checks remain scoped outstanding items.
-- [ ] Reduced-motion/static alternatives and lifecycle/error behaviour are explicit.
-- [ ] Focused invariant, integration and browser checks cover the implemented workflows.
-- [ ] Matt can undertake an integrated creative session and provide precise feedback without diagnosing technical failures.
+Acceptance is scoped to the mechanisms/flows delivered; not every future instrument is required for a useful release. No fixed 30-second pass/fail criterion. Technical integration, human acceptance and production release remain separate.
 
-### Evolution after V1
+### 23.3 Conditional expansion remains preserved
 
-- [ ] Richer capture/replay is added only where episodes need it, with measured overhead.
-- [ ] New macros/instruments are tested in meaningful additional contexts.
-- [ ] Model-based tests retain reproducible minimal counterexamples.
-- [ ] Claims and negative knowledge remain contextual and linked to original evidence.
-- [ ] Agent tasks declare access, scope, input ownership and limits.
-- [ ] Candidate preparation isolates code/data/browser/environment changes as required.
-- [ ] Protected oracle, accepted pointers and production releases cannot be overwritten by experiments.
-- [ ] Discoveries are reproduced and recombined semantically before promotion.
-- [ ] Environment changes, migration and rollback remain explicit.
-- [ ] Evolutionary search expands only when useful diversity and cost justify it.
-
-Definition of a significant instrument's mature iteration loop:
-
-**Use → capture relevant state and reaction → reproduce within declared limits → propose a change → compare → retain the decision and its context.**
-
-V1 implements this loop at practical fidelity across the workspace. Additional capture sophistication does not postpone the broad creative release. Technical readiness, Matt's creative acceptance and production release are separate recorded states.
+Richer replay/probes, discovery generation, agents, knowledge, isolated candidates, four manifests, selected-subgraph recombination, specialist engines and evolutionary search are expanded when they solve a demonstrated problem. Preserve failed/inconclusive evidence, resource limits and promotion/rollback boundaries. They never acquire aesthetic authority or erase approved user design.
 
 ## 24. Operative build directive
 
-**Build and validate Milestone 1 now, preserving broad integrated V1 as the destination.** Use the established product specification, preserve the working Hero, and reuse existing machinery through explicit adapters. Reuse the implemented authoring/command/persistence/runtime semantics. First deliver the complete visual DOM workflow in §19; record the width-interaction checkpoint and complete the remaining authorised Milestone 1 work. Resolve significant human-reported usability issues before advanced 3D expansion.
+**Advance a human-owned visual instrument environment with reusable, generative engineering.** The initial interactions combine familiar Framer/Webflow spatial fluidity with ON/OFF compound activation, continuous gestures and full primitive control.
 
-Make reversible decisions without another general requirements interview. Inspect historical material only to answer a specific missing question or obtain a fixture. Do not wait for Framer or Vercel unless the current task requires the real host or deployment service.
+Use the latest plan/source and actual capability audit. Preserve accepted Hero, current data/undo/recovery and useful research. The PoC is a testbed; neither its UI layout nor its preset compositions are accepted design authority.
 
-Keep implementation increments small and integration frequent. Ship useful connected capabilities, capture their use and improve them. Preserve the complete long-term experimental architecture without making it a prerequisite to composing. The first-generation product is expected to evolve; its state, interfaces, evidence and delivery boundaries must make that evolution practical.
+**Next work:** rapidly editable UI experiments for glass lift, Swap and nested Frames, alongside independent research of general path, block/state and driver/arbitration gaps. Integrate Matthew's chosen workflows thinly with actual engines and validate the complete phone-path → copy/media → coordinated-block experience. Reusable contracts must support new assets, paths and relationships; do not substitute another hardcoded demonstration.
+
+Matthew specifies visual/authoring phenomenology and decides UI/UX. Gemini actively maps workflows and proposes low-friction combinations. Astra researches and engineers mechanisms, adapts them to chosen UI and handles objective faults. Neither “everything begins with primitives” nor “everything is a preset” is the target.
+
+The current request is a comprehensive plan revision. It does not itself claim new engine implementation, a newly built lab, rerun tests, or completed host integration. Execute subsequent scoped tasks from this plan without another general requirements interview or gratuitous permission loops. Publish authorized changes through the connected GitHub account, updating only changed files and verifying the exact result.
+
+### Revision record
+
+| Edition | Operative decision |
+|---|---|
+| 28 September | Broad integrated V1 architecture and research commitments |
+| 12 October | Milestone 1 visual DOM workflow before advanced 3D |
+| 13 October | Authorized bounded Evolutionary PoC on separate branch |
+| **14 October — current** | Matthew owns UI/UX; Gemini actively helps workflow design; Boolean-first compound instruments and full primitives; source-grounded general engine gaps; editable UI Lab + independent research + integrated original-sequence acceptance |
+
