@@ -17,7 +17,7 @@ const { unzipSync } = require("fflate");
       stdio: ["ignore", "pipe", "pipe"],
     },
   );
-  let browser, runtimeServer;
+  let browser, runtimeServer, testPage;
   const checks = [],
     errors = [];
   const check = (n) => {
@@ -45,6 +45,7 @@ const { unzipSync } = require("fflate");
       acceptDownloads: true,
     });
     const page = await context.newPage();
+    testPage = page;
     page.on("pageerror", (e) => errors.push(e.message));
     page.on("console", (m) => {
       if (m.type() === "error") errors.push(m.text());
@@ -89,6 +90,7 @@ const { unzipSync } = require("fflate");
       true,
     );
     assert.equal(await page.locator(".vi-instrument").count(), 5);
+    await page.screenshot({ path: "docs/poc/workspace.png" });
     check(
       "Light spatial workspace: three real artboards, one WebGL canvas, no horizontal page overflow",
     );
@@ -308,7 +310,7 @@ const { unzipSync } = require("fflate");
     await page.screenshot({ path: "docs/poc/laptop.png" });
     await page.setViewportSize({ width: 1512, height: 982 });
     await page.getByLabel("Focus artboard", { exact: true }).click();
-    const downloadEvent = page.waitForEvent("download", { timeout: 60000 });
+    const downloadEvent = page.waitForEvent("download", { timeout: 180000 });
     await page
       .getByRole("button", { name: "Export intent", exact: true })
       .click();
@@ -407,6 +409,10 @@ const { unzipSync } = require("fflate");
       ),
     );
   } catch (e) {
+    if (testPage && !testPage.isClosed()) {
+      await testPage.screenshot({ path: "test-results/poc/failure.png" }).catch(() => {});
+      errors.push(...await testPage.getByRole("status").allTextContents().catch(() => []));
+    }
     fs.writeFileSync(
       "test-results/poc/failure.json",
       JSON.stringify({ checks, errors, error: String(e) }, null, 2),

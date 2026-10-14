@@ -1,0 +1,124 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> iglass-composition-studio@0.4.0 build
+> tsc -b && vite build
+
+vite v6.1.0 building for production...
+transforming...
+✓ 1655 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/implementation.json                   0.18 kB │ gzip:   0.17 kB
+dist/index.html                            0.42 kB │ gzip:   0.29 kB
+dist/runtime.html                          0.61 kB │ gzip:   0.33 kB
+dist/visual-runtime.html                   0.61 kB │ gzip:   0.33 kB
+dist/.vite/manifest.json                   3.71 kB │ gzip:   0.70 kB
+dist/assets/PageRenderer-D5L6kFK7.css      1.29 kB │ gzip:   0.58 kB
+dist/assets/SceneView-By0R7AU4.css         1.46 kB │ gzip:   0.70 kB
+dist/assets/workspace-Bb1l976o.css         9.36 kB │ gzip:   2.73 kB
+dist/assets/App-BTyU8h3n.css              16.05 kB │ gzip:   3.38 kB
+dist/assets/style-B6zwJSjy.css            18.03 kB │ gzip:   4.26 kB
+dist/assets/visual-BtOv2Zpw.css           19.14 kB │ gzip:   4.98 kB
+dist/assets/studio-7b6N42TR.js             1.00 kB │ gzip:   0.55 kB
+dist/assets/runtime-C_KF2wYt.js            1.44 kB │ gzip:   0.81 kB
+dist/assets/visualRuntime-B7imGhZr.js      1.72 kB │ gzip:   0.87 kB
+dist/assets/SceneView-CLeaV4Zm.js          8.70 kB │ gzip:   3.86 kB
+dist/assets/InstrumentScene-XxWXRyfv.js    8.71 kB │ gzip:   3.30 kB
+dist/assets/visual-W1-pxxoq.js            11.31 kB │ gzip:   4.53 kB
+dist/assets/PageRenderer-OY2ZTPAL.js      17.71 kB │ gzip:   7.05 kB
+dist/assets/export-bU1SGzdb.js            36.50 kB │ gzip:  14.23 kB
+dist/assets/VisualStudio-CL5ms6PX.js      67.86 kB │ gzip:  24.09 kB
+dist/assets/App-C2ZjRT6S.js              100.13 kB │ gzip:  28.84 kB
+dist/assets/index-DOR9Cch-.js            144.29 kB │ gzip:  46.55 kB
+dist/assets/SkeletonUtils-DzHE1Hl2.js    179.56 kB │ gzip:  57.43 kB
+dist/assets/model-Yjc65pyV.js            676.29 kB │ gzip: 177.17 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 3.32s
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> iglass-composition-studio@0.4.0 test
+> vitest run
+
+
+ RUN  v2.1.9 /workspace/scratch/192f359ed2de/IphoneAnimation/studio
+
+ ✓ tests/visual-geometry.test.ts (3 tests) 11ms
+ ✓ tests/paths-probes.test.ts (5 tests) 17ms
+ ✓ tests/model.test.ts (7 tests) 33ms
+ ✓ tests/composition-editing.test.ts (7 tests) 116ms
+ ✓ tests/store.test.ts (8 tests) 184ms
+ ✓ tests/instruments.test.ts (19 tests) 123ms
+
+ Test Files  6 passed (6)
+      Tests  49 passed (49)
+   Start at  06:57:30
+   Duration  673ms (transform 622ms, setup 0ms, collect 1.46s, tests 483ms, environment 1ms, prepare 439ms)
+
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> iglass-composition-studio@0.4.0 test:browser
+> node tests/browser.cjs && node tests/browser-poc.cjs
+
+Browser stdout consolidated from observed tool outputs because the streamed file retained only its initial portion.
+PASS Editor and original GLB load
+PASS M1: text Inspector has no visible numeric inputs; laptop header fits
+PASS M1: width handle rewraps real text at zoom; height/copy preserved; one undo; Escape and keyboard work
+PASS M1: rotated/scaled text measure follows its actual CSS edge transform
+PASS M1: typography presets and coupled rhythm are atomic; live sliders cancel even if pointer keeps moving
+PASS M1: mobile rhythm and measure fork inherited tracks/signals; ownership badges and undo preserve base
+PASS M1: header/Inspector capture immediately, snapshots stay immutable, comparison and save/reopen preserve changes
+PASS M1: independent exported runtime matches visual typography, opacity and mobile measure; no editor controls
+PASS M1: captured direction restores through the existing Take workflow
+PASS 1366×768 compact header, panel collapse persistence and pointer/keyboard panel resizing
+PASS Numeric scrubbing is live, one undoable change, and cancellable with Escape
+PASS Responsive animation badges coexist; inherit-base is reversible and keys navigate their clock
+PASS Shared copy editing and undo/redo
+PASS Direct text manipulation
+PASS Pointer drag is one undoable transaction
+PASS Escape cancels pointer edits
+PASS Responsive profile overrides
+PASS Spatial path handles, keyboard nudges and one-step undo
+PASS Authored relationships, measured bounds and runtime connectors
+PASS 3D appearance and keyframe authoring
+PASS Named pose capture
+PASS Immutable Takes and synchronised comparison
+PASS Signal ownership and controlled preview inputs
+PASS Feedback retains exact state and honest capture provenance
+PASS Asset import and insertion
+PASS Tracked canvas dragging, whole-curve offsets, undo and Escape deselection
+PASS Camera orbit edits viewpoint without changing model tracks or field of view
+PASS Real GLB mesh picking, transparent-space pass-through, background deselection and adjustable orbit
+PASS Timeline key editing respects clock scope and forks mobile tracks without changing base
+PASS Collapsible choreography, undoable legacy section conversion and scroll-driven Reveal action
+PASS Two real editor tabs preserve losing edits without overwriting the saved winner
+PASS SQLite save and reopen
+PASS Portable project includes GLB and imported assets
+PASS Deduplicated portable project imports and reopens with Takes
+PASS Four manifests and exported artifact hashes
+PASS Exported static runtime reopens independently without editor code
+PASS Exported section scroll matches editor progress, pins correctly and adapts to mobile viewport
+PASS No browser console errors or uncaught exceptions
+PASS Light spatial workspace: three real artboards, one WebGL canvas, no horizontal page overflow
+PASS Instrument bypass retains settings and undoes once
+PASS Live projected geometry changes headline clearance when product scale changes
+PASS Escape cancels a live macro gesture without a saved change
+PASS Direct orbit and scroll coexist; release blends back instead of snapping
+PASS Real model-space hotspot projection follows pose changes
+PASS Ctrl & D duplicates the selected artboard as an independent variant; one undo removes it
+PASS Mobile overrides remain linked to A and isolated from desktop and B
+PASS Intermediate responsive artboard width renders and persists
+PASS Parallax has visible clean bypass and deterministic reversal/re-entry
+PASS Native scroll drives the same instruments through finite smoothing in Preview
+PASS Direct state editing and reorder author new shape transitions
+PASS Story Beat duration stretches as one undoable transaction
+PASS SQLite autosave and hard refresh preserve variants, instruments, states and links
+PASS Export includes complete graph, packaged GLB, actual captured storyboard and independent runtime
+PASS Standalone exported scene runs without editor/API, scrolls and switches to mobile at 480px
+PASS Reduced-motion environment loads successfully
+PASS No uncaught exceptions or browser console errors
+
+Observed process exit code: 0

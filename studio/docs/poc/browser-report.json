@@ -1,0 +1,25 @@
+{
+  "checks": [
+    "Light spatial workspace: three real artboards, one WebGL canvas, no horizontal page overflow",
+    "Instrument bypass retains settings and undoes once",
+    "Live projected geometry changes headline clearance when product scale changes",
+    "Escape cancels a live macro gesture without a saved change",
+    "Direct orbit and scroll coexist; release blends back instead of snapping",
+    "Real model-space hotspot projection follows pose changes",
+    "Ctrl & D duplicates the selected artboard as an independent variant; one undo removes it",
+    "Mobile overrides remain linked to A and isolated from desktop and B",
+    "Intermediate responsive artboard width renders and persists",
+    "Parallax has visible clean bypass and deterministic reversal/re-entry",
+    "Native scroll drives the same instruments through finite smoothing in Preview",
+    "Direct state editing and reorder author new shape transitions",
+    "Story Beat duration stretches as one undoable transaction",
+    "SQLite autosave and hard refresh preserve variants, instruments, states and links",
+    "Export includes complete graph, packaged GLB, actual captured storyboard and independent runtime",
+    "Standalone exported scene runs without editor/API, scrolls and switches to mobile at 480px",
+    "Reduced-motion environment loads successfully",
+    "No uncaught exceptions or browser console errors"
+  ],
+  "errors": [],
+  "passed": 18,
+  "at": "2026-10-14T07:00:49.076Z"
+}

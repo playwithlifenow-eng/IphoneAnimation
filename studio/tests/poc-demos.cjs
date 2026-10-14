@@ -15,7 +15,9 @@ const crypto = require("node:crypto");
     },
   );
   let browser;
-  const report = [];
+  const only = process.env.POC_DEMO_FILTER?.split(",");
+  const report = only && fs.existsSync("docs/poc/demo-report.json")
+    ? JSON.parse(fs.readFileSync("docs/poc/demo-report.json", "utf8")).filter(r => !only.includes(r.example)) : [];
   try {
     await new Promise((r, j) => {
       server.stdout.on("data", (d) => {
@@ -41,6 +43,7 @@ const crypto = require("node:crypto");
       ["teatika", "Teatika material", "Glint Sweep Brilliance"],
       ["shapes", "Shape playground", "Shape"],
     ]) {
+      if (only && !only.includes(id)) continue;
       const ctx = await browser.newContext({
         viewport: { width: 1512, height: 982 },
         recordVideo: {
@@ -108,13 +111,18 @@ const crypto = require("node:crypto");
         await p.mouse.up();
         await p.waitForTimeout(900);
       }
+      if (id === "iglass" || id === "cartier") {
+        await knob.scrollIntoViewIfNeeded();
+        const range = await knob.boundingBox();
+        await p.mouse.click(range.x + range.width * (id === "iglass" ? 0.25 : 0.59), range.y + range.height / 2);
+      }
       await seek(
         id === "morpho"
           ? 0.77
           : id === "cartier"
             ? 0.8
             : id === "olympic"
-              ? 0.4
+              ? 0.14
               : 0.63,
       );
       await p.waitForTimeout(500);
@@ -145,6 +153,8 @@ const crypto = require("node:crypto");
       await video.saveAs(path.resolve(`docs/poc/${id}.webm`));
       report.push({
         example: id,
+        recordedAt: new Date().toISOString(),
+        sourceCommit: require("node:child_process").execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim(),
         control,
         renderer:
           id === "iglass"

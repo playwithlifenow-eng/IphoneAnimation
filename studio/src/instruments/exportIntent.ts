@@ -90,7 +90,7 @@ export async function exportIntent(
     references: p.variants.flatMap((v) => v.references),
     capture: {
       type: "actual DOM/WebGL raster frames",
-      video: "Reproducible through tests/browser-poc.cjs",
+      video: "Reproducible through tests/poc-demos.cjs",
     },
   };
   files["intent.json"] = strToU8(JSON.stringify(intent, null, 2));

@@ -1,0 +1,71 @@
+[
+  {
+    "example": "morpho",
+    "control": "Aperture Portal Destination",
+    "renderer": "original procedural fixture",
+    "stagePixelChange": true,
+    "errors": [],
+    "screenshot": "morpho.png",
+    "video": "morpho.webm"
+  },
+  {
+    "example": "aevion",
+    "control": "Dual Orbit Turn",
+    "renderer": "original procedural fixture",
+    "stagePixelChange": true,
+    "errors": [],
+    "screenshot": "aevion.png",
+    "video": "aevion.webm"
+  },
+  {
+    "example": "teatika",
+    "control": "Glint Sweep Brilliance",
+    "renderer": "original procedural fixture",
+    "stagePixelChange": true,
+    "errors": [],
+    "screenshot": "teatika.png",
+    "video": "teatika.webm"
+  },
+  {
+    "example": "shapes",
+    "control": "Shape",
+    "renderer": "DOM / vector media",
+    "stagePixelChange": true,
+    "errors": [],
+    "screenshot": "shapes.png",
+    "video": "shapes.webm"
+  },
+  {
+    "example": "iglass",
+    "recordedAt": "2026-10-13T20:20:15.463Z",
+    "sourceCommit": "cbf7b3b3f49f3243ac7ca1569dd090a1758659f7",
+    "control": "Part Lift / Hinge Separation",
+    "renderer": "original GLB",
+    "stagePixelChange": true,
+    "errors": [],
+    "screenshot": "iglass.png",
+    "video": "iglass.webm"
+  },
+  {
+    "example": "olympic",
+    "recordedAt": "2026-10-13T20:20:35.750Z",
+    "sourceCommit": "cbf7b3b3f49f3243ac7ca1569dd090a1758659f7",
+    "control": "Parallax Window Depth",
+    "renderer": "DOM / vector media",
+    "stagePixelChange": true,
+    "errors": [],
+    "screenshot": "olympic.png",
+    "video": "olympic.webm"
+  },
+  {
+    "example": "cartier",
+    "recordedAt": "2026-10-13T20:20:54.439Z",
+    "sourceCommit": "cbf7b3b3f49f3243ac7ca1569dd090a1758659f7",
+    "control": "Dual Orbit Turn",
+    "renderer": "original procedural fixture",
+    "stagePixelChange": true,
+    "errors": [],
+    "screenshot": "cartier.png",
+    "video": "cartier.webm"
+  }
+]

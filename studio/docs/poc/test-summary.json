@@ -1,0 +1,16 @@
+{
+  "at": "2026-10-14T07:00:49.076Z",
+  "node": "24.19.0",
+  "sourceHash": "9ec6ed54b028754321e35ea6e95c83fba95e47f493f3fcea11326026c3607b99",
+  "commands": [
+    "npm run build",
+    "npm test",
+    "npm run test:browser"
+  ],
+  "exitCode": 0,
+  "unitPassed": 49,
+  "legacyBrowserPassed": 38,
+  "visualBrowserPassed": 18,
+  "demosPassed": 7,
+  "logProvenance": "build/unit output and captured browser tool stdout consolidated after partial streaming-file retention"
+}
